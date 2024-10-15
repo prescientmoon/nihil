@@ -1,0 +1,10 @@
+[package]
+name = "moonythm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+cached = { version = "0.53.1", features = ["disk_store"] }
+jotdown = "0.6.0"
+pulldown-latex = "0.7.0"
