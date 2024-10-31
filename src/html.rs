@@ -177,24 +177,38 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("<table")?,
 					Container::TableRow { .. } => out.write_str("<tr")?,
 					Container::Section { .. } => out.write_str("<section")?,
-					Container::Div { class: "aside" } => {
-						let title = attrs.get_value("title").ok_or_else(|| {
-							anyhow!("Cannot find `title` attribute on `aside` element")
-						})?;
-						let character = attrs.get_value("character").ok_or_else(|| {
-							anyhow!("Cannot find `character` attribute on `aside` element")
-						})?;
+					Container::Div {
+						class: class @ ("aside" | "long-aside" | "char-aside"),
+					} => {
+						if *class == "aside" {
+							self.list_tightness.push(true);
+						}
 
-						let mut renderer =
-							TemplateRenderer::new(template!("templates/aside.html")?);
+						let template = if *class == "aside" {
+							template!("templates/aside.html")?
+						} else if *class == "char-aside" {
+							template!("templates/character-aside.html")?
+						} else {
+							template!("templates/long-aside.html")?
+						};
+
+						let mut renderer = TemplateRenderer::new(template);
 
 						while let Some(label) = renderer.current(&mut out)? {
 							if label == "character" {
+								let character = attrs.get_value("character").ok_or_else(|| {
+									anyhow!("Cannot find `character` attribute on `aside` element")
+								})?;
+
 								character
 									.parts()
 									.try_for_each(|part| write_attr(part, &mut out))?;
 								renderer.next(&mut out)?;
 							} else if label == "title" {
+								let title = attrs.get_value("title").ok_or_else(|| {
+									anyhow!("Cannot find `title` attribute on `aside` element")
+								})?;
+
 								title
 									.parts()
 									.try_for_each(|part| write_attr(part, &mut out))?;
@@ -227,7 +241,12 @@ impl<'s> Writer<'s> {
 				}
 
 				let mut write_attribs = true;
-				if matches!(c, Container::Div { class: "aside" }) {
+				if matches!(
+					c,
+					Container::Div {
+						class: "aside" | "long-aside" | "char-aside"
+					}
+				) {
 					write_attribs = false;
 				}
 
@@ -388,7 +407,13 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("</table>")?,
 					Container::TableRow { .. } => out.write_str("</tr>")?,
 					Container::Section { .. } => out.write_str("</section>")?,
-					Container::Div { class: "aside" } => {
+					Container::Div {
+						class: class @ ("aside" | "long-aside" | "char-aside"),
+					} => {
+						if *class == "aside" {
+							self.list_tightness.pop();
+						}
+
 						let state = self.states.pop().unwrap();
 						let State::Aside(mut renderer) = state else {
 							panic!("Finished `aside` element without being in the `Aside` state.")

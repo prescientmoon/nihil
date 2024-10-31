@@ -1,8 +1,5 @@
-html {
-  font: 100%/1.5 sans-serif;
-}
-
 #page-content {
+  font: 100%/1.6 sans-serif;
   max-width: 70ch;
   margin-left: auto;
   margin-right: auto;
@@ -12,6 +9,7 @@ html {
 blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
+  margin-left: 0;
 }
 
 ul,
@@ -24,31 +22,24 @@ ol {
   margin: 1.5rem 0;
 }
 
+/* {{{ Header*/
 .aside-header {
   display: inline-flex;
   align-items: center;
-}
-
-img.aside-icon {
-  /* display: inline-block; */
-  height: 1.75rem;
-  margin-right: 0.5rem;
-  /* transform: translateY(-100px); */
-}
-
-.aside {
-  background: #ead3ed;
-  border-radius: 3px;
-  padding: 0.5rem 0.5rem;
   box-sizing: border-box;
 }
 
-.aside-summary {
-  display: inline-flex;
-  align-items: center;
-  box-sizing: border-box;
+.aside-header > .aside-title {
+  text-decoration: underline;
+  font-weight: bold;
 }
 
+.aside-header > * {
+  padding: 0;
+  margin: 0;
+}
+/* }}}*/
+/* {{{ Override marker*/
 .aside-summary::marker {
   display: none;
 }
@@ -60,20 +51,35 @@ img.aside-icon {
   box-sizing: border-box;
 }
 
-.aside-summary > .aside-title {
-  text-decoration: underline;
-}
-
-.aside-summary > * {
-  padding: 0;
-  margin: 0;
-}
-
-.aside[open] .aside_summary:before {
+.aside[open] .aside-summary:before {
   content: "▼";
 }
 
-.aside > .aside-content {
-  padding-left: 1rem;
+/* }}}*/
+
+img.aside-icon {
+  height: 1.75rem;
+  margin-right: 0.75rem;
 }
+
+.aside {
+  background: #f4daf7;
+  border-radius: 3px;
+
+  box-sizing: border-box;
+  padding: 1rem;
+}
+
+.aside-short {
+  padding: 1rem;
+}
+
+.aside-long {
+  /* padding: 0.65rem; */
+
+  .aside-content {
+    padding-left: 1rem;
+  }
+}
+
 /* }}}*/
