@@ -2,13 +2,15 @@ html {
   font: 100%/1.5 sans-serif;
 }
 
+#page-content {
+  max-width: 70ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
-}
-
-.in-depth {
-  margin: 1.5rem 0;
 }
 
 ul,
@@ -16,53 +18,59 @@ ol {
   padding-left: 1rem;
 }
 
-.in-depth-header {
+/* {{{ Asides*/
+.aside {
+  margin: 1.5rem 0;
+}
+
+.aside-header {
   display: inline-flex;
   align-items: center;
 }
 
-.in-depth-header > .in-depth-heading {
+.aside-summary > .aside-title {
   text-decoration: underline;
 }
 
-.in-depth-header > * {
+.aside-summary > * {
   padding: 0;
   margin: 0;
 }
 
-img.in-depth-icon {
+img.aside-icon {
   height: 1.75rem;
   margin-right: 0.5rem;
   transform: translateY(-2px);
 }
 
-details {
+.aside {
   background: #ead3ed;
   border-radius: 3px;
   padding: 0.5rem 0.5rem;
   box-sizing: border-box;
 }
 
-summary {
+.aside-summary {
   display: inline-flex;
   align-items: center;
 }
 
-summary::marker {
+.aside-summary::marker {
   display: none;
 }
 
-summary:before {
+.aside-summary:before {
   content: "▶";
   font-size: 0.75rem;
   padding: 0 0.75rem 0 0.25rem;
   box-sizing: border-box;
 }
 
-details[open] summary:before {
+.aside[open] .aside_summary:before {
   content: "▼";
 }
 
-details > .in-depth {
+.aside > .aside-content {
   padding-left: 1rem;
 }
+/* }}}*/

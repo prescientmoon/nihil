@@ -2,82 +2,99 @@
 
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use jotdown::Alignment;
 use jotdown::Container;
 use jotdown::Event;
 use jotdown::LinkType;
 use jotdown::ListKind;
 use jotdown::OrderedListNumbering::*;
-use jotdown::Render;
-use jotdown::RenderRef;
 use jotdown::SpanLinkType;
+
+use crate::template;
+use crate::template::Template;
+use crate::template::TemplateRenderer;
 
 // {{{ Renderer
 /// Render events into a string.
-pub fn render_to_string<'s, I>(events: I) -> String
+pub fn render_to_string<'s, I>(events: I) -> anyhow::Result<String>
 where
 	I: Iterator<Item = Event<'s>>,
 {
 	let mut s = String::new();
-	Renderer::default().push(events, &mut s).unwrap();
-	s
+	Renderer::new()?.push(events, &mut s)?;
+	Ok(s)
 }
 
 /// [`Render`] implementor that writes HTML output.
-#[derive(Clone, Default)]
-pub struct Renderer {}
-
-impl Render for Renderer {
-	fn push<'s, I, W>(&self, mut events: I, mut out: W) -> std::fmt::Result
-	where
-		I: Iterator<Item = Event<'s>>,
-		W: std::fmt::Write,
-	{
-		let mut w = Writer::new();
-		events.try_for_each(|e| w.render_event(&e, &mut out))?;
-		w.render_epilogue(&mut out)
-	}
+#[derive(Clone, Debug)]
+pub struct Renderer {
+	templates: BuiltinTempaltes,
 }
 
-impl RenderRef for Renderer {
-	fn push_ref<'s, E, I, W>(&self, mut events: I, mut out: W) -> std::fmt::Result
-	where
-		E: AsRef<Event<'s>>,
-		I: Iterator<Item = E>,
-		W: std::fmt::Write,
-	{
-		let mut w = Writer::new();
-		events.try_for_each(|e| w.render_event(e.as_ref(), &mut out))?;
-		w.render_epilogue(&mut out)
+impl Renderer {
+	pub fn new() -> anyhow::Result<Self> {
+		Ok(Self {
+			templates: BuiltinTempaltes::new()?,
+		})
+	}
+
+	pub fn push<'s>(
+		&self,
+		mut events: impl Iterator<Item = Event<'s>>,
+		mut out: impl std::fmt::Write,
+	) -> anyhow::Result<()> {
+		let mut w = Writer::new(self);
+		events.try_for_each(|e| w.render_event(&e, &mut out))?;
+		w.render_epilogue(&mut out)?;
+
+		Ok(())
+	}
+}
+// }}}
+// {{{ Bring in templates
+#[derive(Clone, Debug)]
+struct BuiltinTempaltes {
+	aside_template: Template,
+}
+
+impl BuiltinTempaltes {
+	fn new() -> anyhow::Result<Self> {
+		Ok(BuiltinTempaltes {
+			aside_template: template!("./templates/aside.html")?,
+		})
 	}
 }
 // }}}
 
 struct Writer<'s> {
 	list_tightness: Vec<bool>,
-	states: Vec<State>,
+	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
+	renderer: &'s Renderer,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-enum State {
+#[derive(Debug, Clone)]
+enum State<'s> {
 	TextOnly,
 	Ignore,
 	Raw,
 	Math(bool),
+	Aside(TemplateRenderer<'s>),
 }
 
 impl<'s> Writer<'s> {
-	fn new() -> Self {
+	fn new(renderer: &'s Renderer) -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
 			footnotes: Footnotes::default(),
+			renderer,
 		}
 	}
 
 	#[allow(clippy::single_match)]
-	fn render_event<W>(&mut self, e: &Event<'s>, mut out: W) -> std::fmt::Result
+	fn render_event<W>(&mut self, e: &Event<'s>, mut out: W) -> anyhow::Result<()>
 	where
 		W: std::fmt::Write,
 	{
@@ -101,7 +118,7 @@ impl<'s> Writer<'s> {
 				return Ok(());
 			}
 			Event::End(Container::LinkDefinition { .. }) => {
-				assert_eq!(self.states.last(), Some(&State::Ignore));
+				assert!(matches!(self.states.last(), Some(State::Ignore)));
 				self.states.pop();
 			}
 
@@ -116,9 +133,9 @@ impl<'s> Writer<'s> {
 			}
 			Event::End(Container::RawBlock { format } | Container::RawInline { format }) => {
 				if format == &"html" {
-					assert_eq!(self.states.last(), Some(&State::Raw));
+					assert!(matches!(self.states.last(), Some(State::Raw)));
 				} else {
-					assert_eq!(self.states.last(), Some(&State::Ignore));
+					assert!(matches!(self.states.last(), Some(State::Ignore)));
 				};
 
 				self.states.pop();
@@ -128,14 +145,14 @@ impl<'s> Writer<'s> {
 		}
 		// }}}
 
-		if self.states.last() == Some(&State::Ignore) {
+		if matches!(self.states.last(), Some(State::Ignore)) {
 			return Ok(());
 		}
 
 		match e {
 			// {{{ Container start
 			Event::Start(c, attrs) => {
-				if self.states.last() == Some(&State::TextOnly) {
+				if matches!(self.states.last(), Some(&State::TextOnly)) {
 					return Ok(());
 				}
 
@@ -200,6 +217,35 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("<table")?,
 					Container::TableRow { .. } => out.write_str("<tr")?,
 					Container::Section { .. } => out.write_str("<section")?,
+					Container::Div { class: "aside" } => {
+						let title = attrs.get_value("title").ok_or_else(|| {
+							anyhow!("Cannot find `title` attribute on `aside` element")
+						})?;
+						let character = attrs.get_value("character").ok_or_else(|| {
+							anyhow!("Cannot find `character` attribute on `aside` element")
+						})?;
+
+						let mut renderer =
+							TemplateRenderer::new(&self.renderer.templates.aside_template);
+
+						while let Some(label) = renderer.current(&mut out)? {
+							if label == "character" {
+								character
+									.parts()
+									.try_for_each(|part| write_attr(part, &mut out))?;
+								renderer.next(&mut out)?;
+							} else if label == "title" {
+								title
+									.parts()
+									.try_for_each(|part| write_attr(part, &mut out))?;
+								renderer.next(&mut out)?;
+							} else {
+								break;
+							}
+						}
+
+						self.states.push(State::Aside(renderer));
+					}
 					Container::Div { .. } => out.write_str("<div")?,
 					Container::Heading { level, .. } => write!(out, "<h{}", level)?,
 					Container::TableCell { head: false, .. } => out.write_str("<td")?,
@@ -220,85 +266,93 @@ impl<'s> Writer<'s> {
 					Container::LinkDefinition { .. } => return Ok(()),
 				}
 
-				// {{{ Write attributes
-				let mut id_written = false;
-				let mut class_written = false;
+				let mut write_attribs = true;
+				if matches!(c, Container::Div { class: "aside" }) {
+					write_attribs = false;
+				}
 
-				for (a, v) in attrs.unique_pairs() {
-					write!(out, r#" {}=""#, a)?;
-					v.parts().try_for_each(|part| write_attr(part, &mut out))?;
-					match a {
-						"class" => {
-							class_written = true;
-							write_class(c, true, &mut out)?;
+				if write_attribs {
+					// {{{ Write attributes
+					let mut id_written = false;
+					let mut class_written = false;
+
+					if write_attribs {
+						for (a, v) in attrs.unique_pairs() {
+							let is_class = a == "class";
+							let is_id = a == "id";
+							if (!is_id || !id_written) && (!is_class || !class_written) {
+								write!(out, r#" {}=""#, a)?;
+								v.parts().try_for_each(|part| write_attr(part, &mut out))?;
+								out.write_char('"')?;
+
+								id_written |= is_id;
+								class_written |= is_class;
+							};
 						}
-						"id" => id_written = true,
-						_ => {}
 					}
-					out.write_char('"')?;
-				}
-				// }}}
-				// {{{ Write default ids/classes
-				if let Container::Heading {
-					id,
-					has_section: false,
-					..
-				}
-				| Container::Section { id } = &c
-				{
-					if !id_written {
-						out.write_str(r#" id=""#)?;
-						write_attr(id, &mut out)?;
+					// }}}
+					// {{{ Write default ids/classes
+					if let Container::Heading {
+						id,
+						has_section: false,
+						..
+					}
+					| Container::Section { id } = &c
+					{
+						if !id_written {
+							out.write_str(r#" id=""#)?;
+							write_attr(id, &mut out)?;
+							out.write_char('"')?;
+						}
+					// TODO: do I not want this to add onto the provided class?
+					} else if (matches!(c, Container::Div { class } if !class.is_empty())
+						|| matches!(
+							c,
+							Container::Math { .. }
+								| Container::List {
+									kind: ListKind::Task(..),
+									..
+								} | Container::TaskListItem { .. }
+						)) && !class_written
+					{
+						out.write_str(r#" class=""#)?;
+						write_class(c, false, &mut out)?;
 						out.write_char('"')?;
 					}
-				// TODO: do I not want this to add onto the provided class?
-				} else if (matches!(c, Container::Div { class } if !class.is_empty())
-					|| matches!(
-						c,
-						Container::Math { .. }
-							| Container::List {
-								kind: ListKind::Task(..),
-								..
-							} | Container::TaskListItem { .. }
-					)) && !class_written
-				{
-					out.write_str(r#" class=""#)?;
-					write_class(c, false, &mut out)?;
-					out.write_char('"')?;
-				}
-				// }}}
+					// }}}
 
-				match c {
-					// {{{ Write css for aligning table cell text
-					Container::TableCell { alignment, .. }
-						if !matches!(alignment, Alignment::Unspecified) =>
-					{
-						let a = match alignment {
-							Alignment::Unspecified => unreachable!(),
-							Alignment::Left => "left",
-							Alignment::Center => "center",
-							Alignment::Right => "right",
-						};
-						write!(out, r#" style="text-align: {};">"#, a)?;
-					}
-					// }}}
-					// {{{ Write language for codeblock
-					Container::CodeBlock { language } => {
-						if language.is_empty() {
-							out.write_str("><code>")?;
-						} else {
-							out.write_str(r#"><code class="language-"#)?;
-							write_attr(language, &mut out)?;
-							out.write_str(r#"">"#)?;
+					match c {
+						// {{{ Write css for aligning table cell text
+						Container::TableCell { alignment, .. }
+							if !matches!(alignment, Alignment::Unspecified) =>
+						{
+							let a = match alignment {
+								Alignment::Unspecified => unreachable!(),
+								Alignment::Left => "left",
+								Alignment::Center => "center",
+								Alignment::Right => "right",
+							};
+							write!(out, r#" style="text-align: {};">"#, a)?;
 						}
+						// }}}
+						// {{{ Write language for codeblock
+						Container::CodeBlock { language } => {
+							if language.is_empty() {
+								out.write_str("><code>")?;
+							} else {
+								out.write_str(r#"><code class="language-"#)?;
+								write_attr(language, &mut out)?;
+								out.write_str(r#"">"#)?;
+							}
+						}
+						// }}}
+						Container::Image(..) => out.write_str(r#" alt=""#)?,
+						Container::Math { display } => {
+							out.write_str(r#">"#)?;
+							self.states.push(State::Math(*display));
+						}
+						_ => out.write_char('>')?,
 					}
-					// }}}
-					Container::Image(..) => out.write_str(r#" alt=""#)?,
-					Container::Math { display } => {
-						out.write_str(r#">"#)?;
-						self.states.push(State::Math(*display));
-					}
-					_ => out.write_char('>')?,
 				}
 
 				match &c {
@@ -313,13 +367,13 @@ impl<'s> Writer<'s> {
 			Event::End(c) => {
 				match &c {
 					Container::Image(..) => {
-						assert_eq!(self.states.last(), Some(&State::TextOnly));
+						assert!(matches!(self.states.last(), Some(State::TextOnly)));
 						self.states.pop();
 					}
 					_ => {}
 				}
 
-				if self.states.last() == Some(&State::TextOnly) {
+				if matches!(self.states.last(), Some(State::TextOnly)) {
 					return Ok(());
 				}
 
@@ -374,6 +428,15 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("</table>")?,
 					Container::TableRow { .. } => out.write_str("</tr>")?,
 					Container::Section { .. } => out.write_str("</section>")?,
+					Container::Div { class: "aside" } => {
+						let state = self.states.pop().unwrap();
+						let State::Aside(mut renderer) = state else {
+							panic!("Finished `aside` element without being in the `Aside` state.")
+						};
+
+						assert_eq!(renderer.current(&mut out)?, Some("content"));
+						renderer.finish(&mut out)?;
+					}
 					Container::Div { .. } => out.write_str("</div>")?,
 					Container::Heading { level, .. } => write!(out, "</h{}>", level)?,
 					Container::TableCell { head: false, .. } => out.write_str("</td>")?,
@@ -428,7 +491,7 @@ impl<'s> Writer<'s> {
 			// {{{ Footnote reference
 			Event::FootnoteReference(label) => {
 				let number = self.footnotes.reference(label);
-				if self.states.last() != Some(&State::TextOnly) {
+				if !matches!(self.states.last(), Some(State::TextOnly)) {
 					write!(
 						out,
 						r##"<a id="fnref{}" href="#fn{}" role="doc-noteref"><sup>{}</sup></a>"##,
@@ -468,10 +531,7 @@ impl<'s> Writer<'s> {
 	}
 
 	// {{{ Render epilogue
-	fn render_epilogue<W>(&mut self, mut out: W) -> std::fmt::Result
-	where
-		W: std::fmt::Write,
-	{
+	fn render_epilogue(&mut self, mut out: impl std::fmt::Write) -> anyhow::Result<()> {
 		if self.footnotes.reference_encountered() {
 			out.write_str("<section role=\"doc-endnotes\">")?;
 			out.write_str("<hr>")?;
@@ -545,24 +605,21 @@ where
 	Ok(())
 }
 
-fn write_text<W>(s: &str, out: W) -> std::fmt::Result
-where
-	W: std::fmt::Write,
-{
+#[inline]
+fn write_text(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
 	write_escape(s, false, out)
 }
 
-fn write_attr<W>(s: &str, out: W) -> std::fmt::Result
-where
-	W: std::fmt::Write,
-{
+#[inline]
+fn write_attr(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
 	write_escape(s, true, out)
 }
 
-fn write_escape<W>(mut s: &str, escape_quotes: bool, mut out: W) -> std::fmt::Result
-where
-	W: std::fmt::Write,
-{
+fn write_escape(
+	mut s: &str,
+	escape_quotes: bool,
+	mut out: impl std::fmt::Write,
+) -> std::fmt::Result {
 	let mut ent = "";
 	while let Some(i) = s.find(|c| {
 		match c {
