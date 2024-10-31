@@ -1,25 +1,23 @@
-use std::fmt::Write;
-
 use anyhow::bail;
 
 // {{{ Templates & stops
 #[derive(Clone, Debug)]
-struct Stop {
-	label: String,
+struct Stop<'s> {
+	label: &'s str,
 	start: usize,
 	length: usize,
 }
 
 #[derive(Clone, Debug)]
-pub struct Template {
-	text: String,
-	stops: Vec<Stop>,
+pub struct Template<'s> {
+	text: &'s str,
+	stops: Vec<Stop<'s>>,
 }
 
-impl Template {
+impl<'s> Template<'s> {
 	// {{{ Parse template
 	#[allow(clippy::iter_nth_zero)]
-	pub fn parse(text: String) -> anyhow::Result<Template> {
+	pub fn parse(text: &'s str) -> anyhow::Result<Template<'s>> {
 		let mut stops = Vec::new();
 
 		let open_stop = "{{";
@@ -27,25 +25,23 @@ impl Template {
 
 		let mut current_stop: Option<Stop> = None;
 		let mut prev_ix = None;
-		for (ix, c) in text.char_indices() {
+		for (ix, _) in text.char_indices() {
 			if let Some(prev) = prev_ix {
 				// This char, together with the previous one
 				let last_two = &text[prev..=ix];
 				if close_stop == last_two {
 					if let Some(mut stop) = current_stop.take() {
-						stop.label.pop().unwrap();
-						// I think this is safe, as } is ascii
+						// I think this is safe, as { and } are ascii
+						stop.label = &text[stop.start + 2..=ix - 2];
 						stop.length = ix + 1 - stop.start;
 						stops.push(stop);
 					}
 				} else if open_stop == last_two && current_stop.is_none() {
 					current_stop = Some(Stop {
-						label: String::new(),
+						label: "",
 						start: prev,
 						length: 0,
 					});
-				} else if let Some(stop) = current_stop.as_mut() {
-					stop.label.write_char(c)?;
 				}
 			}
 
@@ -67,7 +63,7 @@ enum RendererState {
 
 #[derive(Clone, Debug)]
 pub struct TemplateRenderer<'a> {
-	template: &'a Template,
+	template: &'a Template<'a>,
 	state: RendererState,
 }
 
@@ -84,7 +80,7 @@ impl<'a> TemplateRenderer<'a> {
 	pub fn current(&mut self, w: impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
 		let current_label = match self.state {
 			RendererState::Started => self.next(w)?,
-			RendererState::InStop(ix) => Some(self.template.stops[ix].label.as_str()),
+			RendererState::InStop(ix) => Some(self.template.stops[ix].label),
 			RendererState::Finished => None,
 		};
 
@@ -125,7 +121,7 @@ impl<'a> TemplateRenderer<'a> {
 		w.write_str(&self.template.text[current_pos..next_pos])?;
 
 		let current_label = match self.state {
-			RendererState::InStop(ix) => Some(self.template.stops[ix].label.as_str()),
+			RendererState::InStop(ix) => Some(self.template.stops[ix].label),
 			_ => None,
 		};
 
@@ -150,8 +146,13 @@ impl<'a> TemplateRenderer<'a> {
 #[macro_export]
 macro_rules! template {
 	($path:literal) => {{
+		use once_cell::sync::OnceCell;
+		use $crate::template::Template;
+
 		static TEMPLATE_TEXT: &str = include_str!($path);
-		$crate::template::Template::parse(TEMPLATE_TEXT.to_owned())
+		static CELL: OnceCell<Template<'static>> = OnceCell::new();
+
+		CELL.get_or_try_init(|| Template::parse(TEMPLATE_TEXT))
 	}};
 }
 // }}}

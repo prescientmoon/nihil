@@ -12,66 +12,26 @@ use jotdown::OrderedListNumbering::*;
 use jotdown::SpanLinkType;
 
 use crate::template;
-use crate::template::Template;
 use crate::template::TemplateRenderer;
 
 // {{{ Renderer
-/// Render events into a string.
-pub fn render_to_string<'s, I>(events: I) -> anyhow::Result<String>
-where
-	I: Iterator<Item = Event<'s>>,
-{
-	let mut s = String::new();
-	Renderer::new()?.push(events, &mut s)?;
-	Ok(s)
-}
+/// Render djot content as HTML.
+pub fn render_html<'s>(
+	mut events: impl Iterator<Item = Event<'s>>,
+	mut out: impl std::fmt::Write,
+) -> anyhow::Result<()> {
+	let mut w = Writer::new();
+	events.try_for_each(|e| w.render_event(&e, &mut out))?;
+	w.render_epilogue(&mut out)?;
 
-/// [`Render`] implementor that writes HTML output.
-#[derive(Clone, Debug)]
-pub struct Renderer {
-	templates: BuiltinTempaltes,
-}
-
-impl Renderer {
-	pub fn new() -> anyhow::Result<Self> {
-		Ok(Self {
-			templates: BuiltinTempaltes::new()?,
-		})
-	}
-
-	pub fn push<'s>(
-		&self,
-		mut events: impl Iterator<Item = Event<'s>>,
-		mut out: impl std::fmt::Write,
-	) -> anyhow::Result<()> {
-		let mut w = Writer::new(self);
-		events.try_for_each(|e| w.render_event(&e, &mut out))?;
-		w.render_epilogue(&mut out)?;
-
-		Ok(())
-	}
-}
-// }}}
-// {{{ Bring in templates
-#[derive(Clone, Debug)]
-struct BuiltinTempaltes {
-	aside_template: Template,
-}
-
-impl BuiltinTempaltes {
-	fn new() -> anyhow::Result<Self> {
-		Ok(BuiltinTempaltes {
-			aside_template: template!("./templates/aside.html")?,
-		})
-	}
+	Ok(())
 }
 // }}}
 
-struct Writer<'s> {
+pub struct Writer<'s> {
 	list_tightness: Vec<bool>,
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
-	renderer: &'s Renderer,
 }
 
 #[derive(Debug, Clone)]
@@ -84,20 +44,20 @@ enum State<'s> {
 }
 
 impl<'s> Writer<'s> {
-	fn new(renderer: &'s Renderer) -> Self {
+	pub fn new() -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
 			footnotes: Footnotes::default(),
-			renderer,
 		}
 	}
 
 	#[allow(clippy::single_match)]
-	fn render_event<W>(&mut self, e: &Event<'s>, mut out: W) -> anyhow::Result<()>
-	where
-		W: std::fmt::Write,
-	{
+	pub fn render_event(
+		&mut self,
+		e: &Event<'s>,
+		mut out: impl std::fmt::Write,
+	) -> anyhow::Result<()> {
 		// {{{ Handle footnotes
 		if let Event::Start(Container::Footnote { label }, ..) = e {
 			self.footnotes.start(label, Vec::new());
@@ -157,7 +117,7 @@ impl<'s> Writer<'s> {
 				}
 
 				match &c {
-					Container::RawBlock { .. } => unreachable!(),
+					Container::RawBlock { .. } => {}
 					Container::RawInline { .. } => unreachable!(),
 					Container::Footnote { .. } => unreachable!(),
 					// {{{ List
@@ -226,7 +186,7 @@ impl<'s> Writer<'s> {
 						})?;
 
 						let mut renderer =
-							TemplateRenderer::new(&self.renderer.templates.aside_template);
+							TemplateRenderer::new(template!("templates/aside.html")?);
 
 						while let Some(label) = renderer.current(&mut out)? {
 							if label == "character" {
@@ -378,7 +338,7 @@ impl<'s> Writer<'s> {
 				}
 
 				match c {
-					Container::RawBlock { .. } => unreachable!(),
+					Container::RawBlock { .. } => {}
 					Container::RawInline { .. } => unreachable!(),
 					Container::Footnote { .. } => unreachable!(),
 					// {{{ List
@@ -463,7 +423,6 @@ impl<'s> Writer<'s> {
 				Some(State::TextOnly) => write_attr(s, &mut out)?,
 				Some(State::Raw) => out.write_str(s)?,
 				Some(State::Math(display)) => {
-					// let string: String = format!("{}{s}{}", delim, delim);
 					let config = pulldown_latex::RenderConfig {
 						display_mode: {
 							use pulldown_latex::config::DisplayMode::*;

@@ -16,8 +16,7 @@
               pkgs.clippy
               pkgs.rust-analyzer
               pkgs.rustfmt
-              pkgs.ruff
-              pkgs.perl538Packages.LaTeXML
+              pkgs.imagemagick
             ];
 
             buildInputs = with pkgs; [ ];
