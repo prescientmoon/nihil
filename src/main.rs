@@ -59,16 +59,19 @@ fn generate_page(path: &Path) -> anyhow::Result<()> {
 fn generate_dir(path: &Path) -> anyhow::Result<()> {
 	let content_path = PathBuf::from_str("content")?.join(path);
 	let out_path = PathBuf::from_str("dist")?.join(path);
-	fs::create_dir_all(out_path)
+	fs::create_dir_all(&out_path)
 		.with_context(|| format!("Could not generate directory {path:?}"))?;
 
-	for file in fs::read_dir(content_path)? {
+	for file in fs::read_dir(&content_path)? {
 		let file_path = file?.path();
-		let path = path.join(file_path.file_name().unwrap());
+		let filename = file_path.file_name().unwrap();
+		let path = path.join(filename);
 		if file_path.is_dir() {
 			generate_dir(&path)?;
-		} else {
+		} else if file_path.extension().map_or(false, |ext| ext == "dj") {
 			generate_page(&path)?;
+		} else {
+			fs::copy(content_path.join(filename), out_path.join(filename))?;
 		}
 	}
 

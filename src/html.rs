@@ -335,6 +335,11 @@ impl<'s> Writer<'s> {
 				}
 
 				match &c {
+					Container::Heading { id, .. } => {
+						out.write_str(r##"<a href="#"##)?;
+						write_attr(id, &mut out)?;
+						out.write_str(r#"">◇</a> "#)?;
+					}
 					Container::Image(..) => {
 						self.states.push(State::TextOnly);
 					}

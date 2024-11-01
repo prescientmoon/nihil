@@ -105,19 +105,24 @@ impl<'s> Writer<'s> {
 				assert_eq!(self.state, State::Heading);
 				self.state = State::Toplevel;
 			}
-			Event::Start(Container::RawBlock { format: "toml" }, _) => {
+			Event::Start(Container::RawBlock { format: "toml" }, attrs) => {
 				assert_eq!(self.state, State::Toplevel);
-				self.state = State::Toml
+				if let Some(role_attr) = attrs.get_value("role") {
+					if format!("{}", role_attr) == "config" {
+						self.state = State::Toml
+					}
+				}
 			}
 			Event::End(Container::RawBlock { format: "toml" }) => {
-				assert_eq!(self.state, State::Toml);
-				self.state = State::Toplevel;
+				if self.state == State::Toml {
+					self.state = State::Toplevel;
 
-				let config: PageConfig = toml::from_str(&self.toml_text)
-					.with_context(|| "Failed to parse page config in TOML format")?;
-				self.config.merge(config)?;
+					let config: PageConfig = toml::from_str(&self.toml_text)
+						.with_context(|| "Failed to parse page config in TOML format")?;
+					self.config.merge(config)?;
 
-				self.toml_text.clear();
+					self.toml_text.clear();
+				}
 			}
 			Event::Str(str) if self.state == State::Toml => {
 				self.toml_text.write_str(str)?;
