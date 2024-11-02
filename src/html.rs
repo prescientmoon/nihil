@@ -161,7 +161,7 @@ impl<'s> Writer<'s> {
 							if matches!(ty, LinkType::Email) {
 								out.write_str("mailto:")?;
 							}
-							write_attr(dst, &mut out)?;
+							write_attr_contents(dst, &mut out)?;
 							out.write_char('"')?;
 						}
 					}
@@ -215,7 +215,7 @@ impl<'s> Writer<'s> {
 
 								character
 									.parts()
-									.try_for_each(|part| write_attr(part, &mut out))?;
+									.try_for_each(|part| write_attr_contents(part, &mut out))?;
 								renderer.next(&mut out)?;
 							} else if label == "title" {
 								let title = attrs.get_value("title").ok_or_else(|| {
@@ -224,7 +224,7 @@ impl<'s> Writer<'s> {
 
 								title
 									.parts()
-									.try_for_each(|part| write_attr(part, &mut out))?;
+									.try_for_each(|part| write_attr_contents(part, &mut out))?;
 								renderer.next(&mut out)?;
 							} else {
 								break;
@@ -253,28 +253,29 @@ impl<'s> Writer<'s> {
 					Container::LinkDefinition { .. } => return Ok(()),
 				}
 
-				let mut write_attribs = true;
+				let mut write_attr_contentsibs = true;
 				if matches!(
 					c,
 					Container::Div {
 						class: "aside" | "long-aside" | "char-aside"
 					}
 				) {
-					write_attribs = false;
+					write_attr_contentsibs = false;
 				}
 
-				if write_attribs {
+				if write_attr_contentsibs {
 					// {{{ Write attributes
 					let mut id_written = false;
 					let mut class_written = false;
 
-					if write_attribs {
+					if write_attr_contentsibs {
 						for (a, v) in attrs.unique_pairs() {
 							let is_class = a == "class";
 							let is_id = a == "id";
 							if (!is_id || !id_written) && (!is_class || !class_written) {
 								write!(out, r#" {}=""#, a)?;
-								v.parts().try_for_each(|part| write_attr(part, &mut out))?;
+								v.parts()
+									.try_for_each(|part| write_attr_contents(part, &mut out))?;
 								out.write_char('"')?;
 
 								id_written |= is_id;
@@ -284,32 +285,31 @@ impl<'s> Writer<'s> {
 					}
 					// }}}
 					// {{{ Write default ids/classes
-					if let Container::Heading {
-						id,
-						has_section: false,
-						..
-					}
-					| Container::Section { id } = &c
-					{
-						if !id_written {
-							out.write_str(r#" id=""#)?;
-							write_attr(id, &mut out)?;
+					match c {
+						Container::Heading { id, .. } if !id_written => {
+							write_attr("id", id, &mut out)?;
+						}
+						Container::Section { id, .. } => {
+							write_attr("aria-labeledby", id, &mut out)?;
+						}
+						Container::Div { class } if !class.is_empty() && !class_written => {
+							out.write_str(r#" class=""#)?;
+							write_class(c, false, &mut out)?;
 							out.write_char('"')?;
 						}
-					// TODO: do I not want this to add onto the provided class?
-					} else if (matches!(c, Container::Div { class } if !class.is_empty())
-						|| matches!(
-							c,
-							Container::Math { .. }
-								| Container::List {
-									kind: ListKind::Task(..),
-									..
-								} | Container::TaskListItem { .. }
-						)) && !class_written
-					{
-						out.write_str(r#" class=""#)?;
-						write_class(c, false, &mut out)?;
-						out.write_char('"')?;
+						Container::Math { .. }
+						| Container::List {
+							kind: ListKind::Task(..),
+							..
+						}
+						| Container::TaskListItem { .. }
+							if !class_written =>
+						{
+							out.write_str(r#" class=""#)?;
+							write_class(c, false, &mut out)?;
+							out.write_char('"')?;
+						}
+						_ => {}
 					}
 					// }}}
 
@@ -333,7 +333,7 @@ impl<'s> Writer<'s> {
 								out.write_str("><code>")?;
 							} else {
 								out.write_str(r#"><code class="language-"#)?;
-								write_attr(language, &mut out)?;
+								write_attr_contents(language, &mut out)?;
 								out.write_str(r#"">"#)?;
 							}
 						}
@@ -357,7 +357,7 @@ impl<'s> Writer<'s> {
 				match &c {
 					Container::Heading { id, .. } => {
 						out.write_str(r##"<a href="#"##)?;
-						write_attr(id, &mut out)?;
+						write_attr_contents(id, &mut out)?;
 						out.write_str(r#"">◇</a> "#)?;
 					}
 					Container::Image(..) => {
@@ -411,7 +411,7 @@ impl<'s> Writer<'s> {
 					Container::Image(src, ..) => {
 						if !src.is_empty() {
 							out.write_str(r#"" src=""#)?;
-							write_attr(src, &mut out)?;
+							write_attr_contents(src, &mut out)?;
 						}
 
 						out.write_str(r#"">"#)?;
@@ -483,13 +483,18 @@ impl<'s> Writer<'s> {
 										if wc < 400 {
 											write!(&mut out, "{}", wc)?;
 										} else if wc < 1000 {
+											write!(&mut out, "{}", wc / 10 * 10)?;
+										} else if wc < 2000 {
 											write!(&mut out, "{}", wc / 100 * 100)?;
 										} else {
 											write!(&mut out, "{} thousand", wc / 1000)?;
 										}
 									} else if label == "reading_duration" {
 										let minutes = meta.word_count / 200;
-										if minutes < 10 {
+										if minutes == 0 {
+											let seconds = meta.word_count * 60 / 200;
+											write!(&mut out, "very short {seconds} second")?;
+										} else if minutes < 10 {
 											write!(&mut out, "short {minutes} minute")?;
 										} else if minutes < 20 {
 											write!(&mut out, "somewhat short {minutes} minute")?;
@@ -533,7 +538,7 @@ impl<'s> Writer<'s> {
 			// }}}
 			// {{{ Raw string
 			Event::Str(s) => match self.states.last() {
-				Some(State::TextOnly) => write_attr(s, &mut out)?,
+				Some(State::TextOnly) => write_attr_contents(s, &mut out)?,
 				Some(State::Raw) => out.write_str(s)?,
 				Some(State::Math(display)) => {
 					let config = pulldown_latex::RenderConfig {
@@ -590,7 +595,8 @@ impl<'s> Writer<'s> {
 				out.write_str("<hr")?;
 				for (a, v) in attrs.unique_pairs() {
 					write!(out, r#" {}=""#, a)?;
-					v.parts().try_for_each(|part| write_attr(part, &mut out))?;
+					v.parts()
+						.try_for_each(|part| write_attr_contents(part, &mut out))?;
 					out.write_char('"')?;
 				}
 				out.write_str(">")?;
@@ -683,8 +689,16 @@ fn write_text(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
 }
 
 #[inline]
-fn write_attr(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
+fn write_attr_contents(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
 	write_escape(s, true, out)
+}
+
+#[inline]
+fn write_attr(attr: &str, content: &str, mut out: impl std::fmt::Write) -> std::fmt::Result {
+	write!(&mut out, r#" {attr}=""#)?;
+	write_attr_contents(content, &mut out)?;
+	out.write_char('"')?;
+	Ok(())
 }
 
 fn write_escape(
@@ -721,8 +735,8 @@ fn write_datetime<T: TimeZone>(
 	let datetime = datetime.to_utc();
 	write!(
 		&mut out,
-		"<time datetime={}>{}</time>",
-		datetime,
+		r#"<time datetime="{}">{}</time>"#,
+		datetime.to_rfc3339(),
 		datetime.format("%a, %d %b %Y")
 	)
 }

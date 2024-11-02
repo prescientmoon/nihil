@@ -1,6 +1,6 @@
 body {
   font: 100%/1.6 sans-serif;
-  max-width: 70ch;
+  max-width: 43em;
   margin: auto;
   padding: 1em;
 }
@@ -25,8 +25,14 @@ h6 {
   a {
     display: inline-block;
     text-decoration: none;
+    /* Note: I need to check whether this only aligns things better with the font I use */
     transform: translateY(-2px);
   }
+}
+
+.article-content {
+  max-width: 40em;
+  margin: auto;
 }
 
 /* {{{ Asides*/
@@ -95,7 +101,7 @@ img.aside-icon {
 }
 
 /* }}}*/
-
+/* {{{ Tier lists*/
 .tier-list {
   background: #444;
 
@@ -194,3 +200,4 @@ img.aside-icon {
   }
   /* }}}*/
 }
+/* }}}*/
