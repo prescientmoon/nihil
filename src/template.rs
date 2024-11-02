@@ -25,10 +25,11 @@ impl<'s> Template<'s> {
 
 		let mut current_stop: Option<Stop> = None;
 		let mut prev_ix = None;
-		for (ix, _) in text.char_indices() {
+		for (ix, c) in text.char_indices() {
+			let l = c.len_utf8();
 			if let Some(prev) = prev_ix {
 				// This char, together with the previous one
-				let last_two = &text[prev..=ix];
+				let last_two = &text[prev..ix + l];
 				if close_stop == last_two {
 					if let Some(mut stop) = current_stop.take() {
 						// I think this is safe, as { and } are ascii
@@ -54,37 +55,35 @@ impl<'s> Template<'s> {
 }
 // }}}
 // {{{ Template rendering
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-enum RendererState {
-	Started,
-	InStop(usize),
-	Finished,
-}
-
 #[derive(Clone, Debug)]
 pub struct TemplateRenderer<'a> {
 	template: &'a Template<'a>,
-	state: RendererState,
+	stop_index: Option<usize>,
 }
 
 impl<'a> TemplateRenderer<'a> {
 	#[inline]
-	pub fn new(template: &'a Template) -> Self {
-		Self {
+	pub fn start(template: &'a Template, mut w: impl std::fmt::Write) -> anyhow::Result<Self> {
+		let stop_index = if !template.stops.is_empty() {
+			Some(0)
+		} else {
+			None
+		};
+
+		let result = Self {
 			template,
-			state: RendererState::Started,
-		}
+			stop_index,
+		};
+
+		let (next_pos, _) = result.current_stop_range();
+		w.write_str(&template.text[..next_pos])?;
+
+		Ok(result)
 	}
 
 	/// Get the current placeholder label
-	pub fn current(&mut self, w: impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
-		let current_label = match self.state {
-			RendererState::Started => self.next(w)?,
-			RendererState::InStop(ix) => Some(self.template.stops[ix].label),
-			RendererState::Finished => None,
-		};
-
-		Ok(current_label)
+	pub fn current(&self) -> Option<&'a str> {
+		self.stop_index.map(|ix| self.template.stops[ix].label)
 	}
 
 	/// Attempt to finish rendering.
@@ -99,43 +98,33 @@ impl<'a> TemplateRenderer<'a> {
 	// {{{ Advance to the next placeholder
 	/// Move onto the next placeholder
 	pub fn next(&mut self, mut w: impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
-		if self.state == RendererState::Finished {
+		let Some(stop_index) = self.stop_index else {
 			return Ok(None);
-		}
+		};
 
 		let (_, current_pos) = self.current_stop_range();
 
-		let next_stop_ix = match self.state {
-			RendererState::Started => 0,
-			RendererState::InStop(stop_ix) => stop_ix + 1,
-			RendererState::Finished => unreachable!(),
-		};
+		let next_stop_ix = stop_index + 1;
 
-		self.state = if next_stop_ix < self.template.stops.len() {
-			RendererState::InStop(next_stop_ix)
+		self.stop_index = if next_stop_ix < self.template.stops.len() {
+			Some(next_stop_ix)
 		} else {
-			RendererState::Finished
+			None
 		};
 
 		let (next_pos, _) = self.current_stop_range();
 		w.write_str(&self.template.text[current_pos..next_pos])?;
 
-		let current_label = match self.state {
-			RendererState::InStop(ix) => Some(self.template.stops[ix].label),
-			_ => None,
-		};
-
-		Ok(current_label)
+		Ok(self.current())
 	}
 
 	fn current_stop_range(&self) -> (usize, usize) {
-		match self.state {
-			RendererState::Started => (0, 0),
-			RendererState::InStop(stop_ix) => {
+		match self.stop_index {
+			Some(stop_ix) => {
 				let stop = &self.template.stops[stop_ix];
 				(stop.start, stop.start + stop.length)
 			}
-			RendererState::Finished => (self.template.text.len(), self.template.text.len()),
+			None => (self.template.text.len(), self.template.text.len()),
 		}
 	}
 
@@ -145,14 +134,15 @@ impl<'a> TemplateRenderer<'a> {
 // {{{ Macro
 #[macro_export]
 macro_rules! template {
-	($path:literal) => {{
+	($path:literal,$w:expr) => {{
 		use once_cell::sync::OnceCell;
-		use $crate::template::Template;
+		use $crate::template::{Template, TemplateRenderer};
 
 		static TEMPLATE_TEXT: &str = include_str!($path);
 		static CELL: OnceCell<Template<'static>> = OnceCell::new();
 
 		CELL.get_or_try_init(|| Template::parse(TEMPLATE_TEXT))
+			.and_then(|t| TemplateRenderer::start(t, $w))
 	}};
 }
 // }}}

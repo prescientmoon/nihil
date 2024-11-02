@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -5,7 +6,7 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use html::render_html;
-use template::TemplateRenderer;
+use metadata::PageMetadata;
 
 mod html;
 mod metadata;
@@ -24,17 +25,21 @@ fn generate_page(path: &Path) -> anyhow::Result<()> {
 	let djot_input = std::fs::read_to_string(content_path).unwrap();
 	let mut out = String::new();
 
-	let page_template = template!("templates/page.html")?;
-	let mut page_renderer = TemplateRenderer::new(page_template);
+	let mut page_renderer = template!("templates/page.html", &mut out)?;
 
-	// let events = jotdown::Parser::new(&djot_input);
-	// let meta = PageMetadata::new(events)?;
-	// println!("Metadata: {meta:?}");
+	let events = jotdown::Parser::new(&djot_input);
+	let metadata = PageMetadata::new(events, path.to_owned())?;
 
-	while let Some(label) = page_renderer.next(&mut out)? {
+	while let Some(label) = page_renderer.current() {
 		if label == "content" {
 			let events = jotdown::Parser::new(&djot_input);
-			render_html(events, &mut out)?;
+			render_html(&metadata, events, &mut out)?;
+			page_renderer.next(&mut out)?;
+		} else if label == "navigation" {
+			out.write_str(r#"<a href="/"><code>~</code></a>"#)?;
+			out.write_str(" / ")?;
+			out.write_str(r#"<a href="/posts"><code>posts</code></a>"#)?;
+			page_renderer.next(&mut out)?;
 		} else {
 			break;
 		}

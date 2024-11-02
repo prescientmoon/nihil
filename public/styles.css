@@ -1,8 +1,7 @@
-#page-content {
+body {
   font: 100%/1.6 sans-serif;
   max-width: 70ch;
-  margin-left: auto;
-  margin-right: auto;
+  margin: auto;
   padding: 1em;
 }
 

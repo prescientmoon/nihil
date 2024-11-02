@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use anyhow::bail;
 use jotdown::Alignment;
 use jotdown::Container;
 use jotdown::Event;
@@ -11,16 +12,18 @@ use jotdown::ListKind;
 use jotdown::OrderedListNumbering::*;
 use jotdown::SpanLinkType;
 
+use crate::metadata::PageMetadata;
 use crate::template;
 use crate::template::TemplateRenderer;
 
 // {{{ Renderer
 /// Render djot content as HTML.
 pub fn render_html<'s>(
+	metadata: &'s PageMetadata,
 	mut events: impl Iterator<Item = Event<'s>>,
 	mut out: impl std::fmt::Write,
 ) -> anyhow::Result<()> {
-	let mut w = Writer::new();
+	let mut w = Writer::new(Some(metadata));
 	events.try_for_each(|e| w.render_event(&e, &mut out))?;
 	w.render_epilogue(&mut out)?;
 
@@ -32,6 +35,7 @@ pub struct Writer<'s> {
 	list_tightness: Vec<bool>,
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
+	metadata: Option<&'s PageMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,14 +45,16 @@ enum State<'s> {
 	Raw,
 	Math(bool),
 	Aside(TemplateRenderer<'s>),
+	Article(TemplateRenderer<'s>),
 }
 
 impl<'s> Writer<'s> {
-	pub fn new() -> Self {
+	pub fn new(metadata: Option<&'s PageMetadata>) -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
 			footnotes: Footnotes::default(),
+			metadata,
 		}
 	}
 
@@ -176,7 +182,14 @@ impl<'s> Writer<'s> {
 					Container::DescriptionDetails => out.write_str("<dd")?,
 					Container::Table => out.write_str("<table")?,
 					Container::TableRow { .. } => out.write_str("<tr")?,
-					Container::Section { .. } => out.write_str("<section")?,
+					Container::Section { id } => match self.metadata {
+						Some(meta) if &meta.title.id == id => {
+							let renderer = template!("templates/post.html", &mut out)?;
+							assert_eq!(renderer.current(), Some("attrs"));
+							self.states.push(State::Article(renderer));
+						}
+						_ => out.write_str("<section")?,
+					},
 					Container::Div {
 						class: class @ ("aside" | "long-aside" | "char-aside"),
 					} => {
@@ -184,17 +197,15 @@ impl<'s> Writer<'s> {
 							self.list_tightness.push(true);
 						}
 
-						let template = if *class == "aside" {
-							template!("templates/aside.html")?
+						let mut renderer = if *class == "aside" {
+							template!("templates/aside.html", &mut out)?
 						} else if *class == "char-aside" {
-							template!("templates/character-aside.html")?
+							template!("templates/character-aside.html", &mut out)?
 						} else {
-							template!("templates/long-aside.html")?
+							template!("templates/long-aside.html", &mut out)?
 						};
 
-						let mut renderer = TemplateRenderer::new(template);
-
-						while let Some(label) = renderer.current(&mut out)? {
+						while let Some(label) = renderer.current() {
 							if label == "character" {
 								let character = attrs.get_value("character").ok_or_else(|| {
 									anyhow!("Cannot find `character` attribute on `aside` element")
@@ -330,7 +341,14 @@ impl<'s> Writer<'s> {
 							out.write_str(r#">"#)?;
 							self.states.push(State::Math(*display));
 						}
-						_ => out.write_char('>')?,
+						_ => match self.states.last_mut() {
+							Some(State::Article(renderer))
+								if renderer.current() == Some("attrs") =>
+							{
+								renderer.next(&mut out)?;
+							}
+							_ => out.write_char('>')?,
+						},
 					}
 				}
 
@@ -411,7 +429,16 @@ impl<'s> Writer<'s> {
 					Container::DescriptionDetails => out.write_str("</dd>")?,
 					Container::Table => out.write_str("</table>")?,
 					Container::TableRow { .. } => out.write_str("</tr>")?,
-					Container::Section { .. } => out.write_str("</section>")?,
+					Container::Section { id, .. } => match self.metadata {
+						Some(meta) if &meta.title.id == id => {
+							let Some(State::Article(renderer)) = self.states.pop() else {
+								bail!("Arrived at the end of the main <section> element without being in the `Article` state.")
+							};
+
+							renderer.finish(&mut out)?;
+						}
+						_ => out.write_str("</section>")?,
+					},
 					Container::Div {
 						class: class @ ("aside" | "long-aside" | "char-aside"),
 					} => {
@@ -420,15 +447,59 @@ impl<'s> Writer<'s> {
 						}
 
 						let state = self.states.pop().unwrap();
-						let State::Aside(mut renderer) = state else {
+						let State::Aside(renderer) = state else {
 							panic!("Finished `aside` element without being in the `Aside` state.")
 						};
 
-						assert_eq!(renderer.current(&mut out)?, Some("content"));
+						assert_eq!(renderer.current(), Some("content"));
 						renderer.finish(&mut out)?;
 					}
 					Container::Div { .. } => out.write_str("</div>")?,
-					Container::Heading { level, .. } => write!(out, "</h{}>", level)?,
+					Container::Heading { level, .. } => {
+						write!(out, "</h{}>", level)?;
+
+						if let Some(State::Article(renderer)) = self.states.last_mut() {
+							if renderer.current() == Some("title") {
+								// SAFETY: we can never enter into the `article` state without having
+								// some metadata on hand.
+								let meta = self.metadata.unwrap();
+								while let Some(label) = renderer.next(&mut out)? {
+									if label == "updated_on" {
+										write!(&mut out, "{}", meta.last_modified)?;
+									} else if label == "word_count" {
+										let wc = meta.word_count;
+										if wc < 400 {
+											write!(&mut out, "{}", wc)?;
+										} else if wc < 1000 {
+											write!(&mut out, "{}", wc / 100 * 100)?;
+										} else {
+											write!(&mut out, "{} thousand", wc / 1000)?;
+										}
+									} else if label == "reading_duration" {
+										let minutes = meta.word_count / 200;
+										if minutes < 10 {
+											write!(&mut out, "short {minutes} minute")?;
+										} else if minutes < 20 {
+											write!(&mut out, "somewhat short {minutes} minute")?;
+										} else if minutes < 30 {
+											write!(&mut out, "somewhat long {minutes}")?;
+										} else if minutes < 60 {
+											write!(&mut out, "long {minutes}")?;
+										} else {
+											let hours = minutes / 60;
+											let minutes = minutes % 60;
+											write!(
+												&mut out,
+												"very long {hours} hour and {minutes} minute"
+											)?;
+										}
+									} else if label == "content" {
+										break;
+									}
+								}
+							}
+						}
+					}
 					Container::TableCell { head: false, .. } => out.write_str("</td>")?,
 					Container::TableCell { head: true, .. } => out.write_str("</th>")?,
 					Container::Caption => out.write_str("</caption>")?,

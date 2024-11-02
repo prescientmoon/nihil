@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::fmt::Write;
+use std::{fmt::Write, path::PathBuf, process::Command};
 
 use anyhow::{anyhow, bail, Context};
 use jotdown::{Container, Event};
@@ -32,13 +32,19 @@ impl PageConfig {
 
 #[derive(Debug)]
 pub struct PageMetadata {
-	title: Heading,
-	config: PageConfig,
-	toc: Vec<Heading>,
+	pub title: Heading,
+	pub config: PageConfig,
+	pub toc: Vec<Heading>,
+	pub word_count: usize,
+	pub path: PathBuf,
+	pub last_modified: String,
 }
 
 impl PageMetadata {
-	pub fn new<'s>(mut events: impl Iterator<Item = Event<'s>>) -> anyhow::Result<Self> {
+	pub fn new<'s>(
+		mut events: impl Iterator<Item = Event<'s>>,
+		path: PathBuf,
+	) -> anyhow::Result<Self> {
 		let mut w = Writer::new();
 		events.try_for_each(|e| w.render_event(&e))?;
 
@@ -47,16 +53,26 @@ impl PageMetadata {
 			.first()
 			.ok_or_else(|| anyhow!("No heading found to infer title from"))?;
 
+		let last_modified_output = Command::new("scripts/last_modified.sh")
+			.arg(&path)
+			.output()
+			.with_context(|| anyhow!("Could not read the last modification date for file"))?
+			.stdout;
+		let last_modified = String::from_utf8(last_modified_output)?;
+
 		Ok(Self {
 			title: title.to_owned(),
 			config: w.config,
 			toc: w.toc,
+			word_count: w.word_count,
+			path,
+			last_modified,
 		})
 	}
 }
 
 #[derive(Debug, Clone)]
-struct Heading {
+pub struct Heading {
 	pub level: u8,
 	pub id: String,
 	pub text: String,
@@ -67,29 +83,41 @@ struct Heading {
 enum State {
 	Toplevel,
 	Heading,
-	Toml,
+	Config,
 }
 
 struct Writer<'s> {
+	/// This renderer is used for generating the html for the titles
 	html_renderer: html::Writer<'s>,
 	config: PageConfig,
 	toc: Vec<Heading>,
 	toml_text: String,
 	state: State,
+	word_count: usize,
 }
 
 impl<'s> Writer<'s> {
 	fn new() -> Self {
 		Self {
-			html_renderer: html::Writer::new(),
+			html_renderer: html::Writer::new(None),
 			config: PageConfig::default(),
 			toc: Vec::new(),
 			toml_text: String::new(),
 			state: State::Toplevel,
+			word_count: 0,
 		}
 	}
 
 	fn render_event(&mut self, e: &jotdown::Event<'s>) -> anyhow::Result<()> {
+		if let Event::Str(content) = e {
+			if self.state != State::Config {
+				self.word_count += content
+					.split(" ")
+					.filter(|w| w.contains(|c: char| c.is_alphabetic()))
+					.count()
+			}
+		}
+
 		match e {
 			Event::Start(Container::Heading { level, id, .. }, _) => {
 				assert_eq!(self.state, State::Toplevel);
@@ -109,12 +137,12 @@ impl<'s> Writer<'s> {
 				assert_eq!(self.state, State::Toplevel);
 				if let Some(role_attr) = attrs.get_value("role") {
 					if format!("{}", role_attr) == "config" {
-						self.state = State::Toml
+						self.state = State::Config
 					}
 				}
 			}
 			Event::End(Container::RawBlock { format: "toml" }) => {
-				if self.state == State::Toml {
+				if self.state == State::Config {
 					self.state = State::Toplevel;
 
 					let config: PageConfig = toml::from_str(&self.toml_text)
@@ -124,7 +152,7 @@ impl<'s> Writer<'s> {
 					self.toml_text.clear();
 				}
 			}
-			Event::Str(str) if self.state == State::Toml => {
+			Event::Str(str) if self.state == State::Config => {
 				self.toml_text.write_str(str)?;
 			}
 			other if self.state == State::Heading => {
