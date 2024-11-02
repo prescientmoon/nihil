@@ -22,13 +22,13 @@ fn copy_recursively(from: &Path, to: &Path) -> anyhow::Result<()> {
 fn generate_page(path: &Path) -> anyhow::Result<()> {
 	let content_path = PathBuf::from_str("content")?.join(path);
 
-	let djot_input = std::fs::read_to_string(content_path).unwrap();
+	let djot_input = std::fs::read_to_string(&content_path).unwrap();
 	let mut out = String::new();
 
 	let mut page_renderer = template!("templates/page.html", &mut out)?;
 
 	let events = jotdown::Parser::new(&djot_input);
-	let metadata = PageMetadata::new(events, path.to_owned())?;
+	let metadata = PageMetadata::new(events, content_path)?;
 
 	while let Some(label) = page_renderer.current() {
 		if label == "content" {

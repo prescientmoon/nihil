@@ -2,6 +2,7 @@
 use std::{fmt::Write, path::PathBuf, process::Command};
 
 use anyhow::{anyhow, bail, Context};
+use chrono::{DateTime, FixedOffset};
 use jotdown::{Container, Event};
 use serde::Deserialize;
 
@@ -9,7 +10,7 @@ use crate::html;
 
 #[derive(Deserialize, Debug, Default)]
 pub struct PageConfig {
-	created_at: Option<String>,
+	pub created_at: Option<DateTime<FixedOffset>>,
 }
 
 impl PageConfig {
@@ -37,7 +38,7 @@ pub struct PageMetadata {
 	pub toc: Vec<Heading>,
 	pub word_count: usize,
 	pub path: PathBuf,
-	pub last_modified: String,
+	pub last_modified: DateTime<FixedOffset>,
 }
 
 impl PageMetadata {
@@ -53,12 +54,21 @@ impl PageMetadata {
 			.first()
 			.ok_or_else(|| anyhow!("No heading found to infer title from"))?;
 
-		let last_modified_output = Command::new("scripts/last_modified.sh")
+		let last_modified_output = Command::new("git")
+			.arg("log")
+			.arg("-1")
+			.arg(r#"--pretty=format:%cI"#)
 			.arg(&path)
 			.output()
 			.with_context(|| anyhow!("Could not read the last modification date for file"))?
 			.stdout;
 		let last_modified = String::from_utf8(last_modified_output)?;
+		let last_modified = DateTime::parse_from_rfc3339(&last_modified).with_context(|| {
+			anyhow!(
+				"Failed to parse datetime returned by git '{}'",
+				last_modified
+			)
+		})?;
 
 		Ok(Self {
 			title: title.to_owned(),

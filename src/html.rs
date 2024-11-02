@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use anyhow::bail;
+use chrono::DateTime;
+use chrono::TimeZone;
 use jotdown::Alignment;
 use jotdown::Container;
 use jotdown::Event;
@@ -464,8 +466,15 @@ impl<'s> Writer<'s> {
 								// some metadata on hand.
 								let meta = self.metadata.unwrap();
 								while let Some(label) = renderer.next(&mut out)? {
-									if label == "updated_on" {
-										write!(&mut out, "{}", meta.last_modified)?;
+									if label == "posted_on" {
+										if let Some(d) = meta.config.created_at {
+											write!(&mut out, "Posted on ")?;
+											write_datetime(&d, &mut out)?;
+										} else {
+											write!(&mut out, "Still being conjured ")?;
+										}
+									} else if label == "updated_on" {
+										write_datetime(&meta.last_modified, &mut out)?;
 									} else if label == "word_count" {
 										let wc = meta.word_count;
 										if wc < 400 {
@@ -699,6 +708,20 @@ fn write_escape(
 		s = &s[i + 1..];
 	}
 	out.write_str(s)
+}
+
+#[inline]
+fn write_datetime<T: TimeZone>(
+	datetime: &DateTime<T>,
+	mut out: impl std::fmt::Write,
+) -> std::fmt::Result {
+	let datetime = datetime.to_utc();
+	write!(
+		&mut out,
+		"<time datetime={}>{}</time>",
+		datetime,
+		datetime.format("%a, %d %b %Y")
+	)
 }
 // }}}
 // {{{ Footnotes
