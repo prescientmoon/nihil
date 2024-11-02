@@ -1,5 +1,7 @@
-#![allow(dead_code)]
-use std::{fmt::Write, path::PathBuf, process::Command};
+use std::ffi::OsStr;
+use std::fmt::Write;
+use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{anyhow, bail, Context};
 use chrono::{DateTime, FixedOffset};
@@ -32,13 +34,52 @@ impl PageConfig {
 }
 
 #[derive(Debug)]
+pub enum PageRoute {
+	Home,
+	Posts,
+	#[allow(dead_code)]
+	Post(String),
+}
+
+impl PageRoute {
+	fn from_path(path: &Path) -> anyhow::Result<Self> {
+		let Some(Component::Normal(first)) = path.components().nth(1) else {
+			bail!("Path is too short");
+		};
+
+		let result = if first == OsStr::new("index.dj") {
+			Self::Home
+		} else if first == OsStr::new("posts") {
+			if let Some(Component::Normal(second)) = path.components().nth(2) {
+				let mut slice = second.to_str().unwrap();
+				if slice.ends_with(".dj") {
+					slice = slice.strip_suffix(".dj").unwrap();
+				}
+
+				Self::Post(slice.to_owned())
+			} else {
+				Self::Posts
+			}
+		} else {
+			bail!("Cannot convert path '{:?}' to page route", path);
+		};
+
+		Ok(result)
+	}
+}
+
+#[derive(Debug)]
 pub struct PageMetadata {
 	pub title: Heading,
 	pub config: PageConfig,
-	pub toc: Vec<Heading>,
 	pub word_count: usize,
-	pub path: PathBuf,
 	pub last_modified: DateTime<FixedOffset>,
+	pub route: PageRoute,
+
+	#[allow(dead_code)]
+	pub toc: Vec<Heading>,
+	#[allow(dead_code)]
+	pub path: PathBuf,
 }
 
 impl PageMetadata {
@@ -72,17 +113,19 @@ impl PageMetadata {
 
 		Ok(Self {
 			title: title.to_owned(),
+			route: PageRoute::from_path(&path)?,
 			config: w.config,
 			toc: w.toc,
 			word_count: w.word_count,
-			path,
 			last_modified,
+			path,
 		})
 	}
 }
 
 #[derive(Debug, Clone)]
 pub struct Heading {
+	#[allow(dead_code)]
 	pub level: u8,
 	pub id: String,
 	pub text: String,

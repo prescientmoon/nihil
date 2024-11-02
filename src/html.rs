@@ -1,9 +1,6 @@
-//! An HTML renderer that takes an iterator of [`Event`]s and emits HTML.
-
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use anyhow::bail;
 use chrono::DateTime;
 use chrono::TimeZone;
 use jotdown::Alignment;
@@ -15,6 +12,7 @@ use jotdown::OrderedListNumbering::*;
 use jotdown::SpanLinkType;
 
 use crate::metadata::PageMetadata;
+use crate::metadata::PageRoute;
 use crate::template;
 use crate::template::TemplateRenderer;
 
@@ -185,7 +183,9 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("<table")?,
 					Container::TableRow { .. } => out.write_str("<tr")?,
 					Container::Section { id } => match self.metadata {
-						Some(meta) if &meta.title.id == id => {
+						Some(meta)
+							if &meta.title.id == id && matches!(meta.route, PageRoute::Post(_)) =>
+						{
 							let renderer = template!("templates/post.html", &mut out)?;
 							assert_eq!(renderer.current(), Some("attrs"));
 							self.states.push(State::Article(renderer));
@@ -432,9 +432,12 @@ impl<'s> Writer<'s> {
 					Container::Table => out.write_str("</table>")?,
 					Container::TableRow { .. } => out.write_str("</tr>")?,
 					Container::Section { id, .. } => match self.metadata {
-						Some(meta) if &meta.title.id == id => {
+						Some(meta)
+							if &meta.title.id == id
+								&& matches!(self.states.last(), Some(State::Article(_))) =>
+						{
 							let Some(State::Article(renderer)) = self.states.pop() else {
-								bail!("Arrived at the end of the main <section> element without being in the `Article` state.")
+								unreachable!()
 							};
 
 							renderer.finish(&mut out)?;
@@ -471,7 +474,7 @@ impl<'s> Writer<'s> {
 											write!(&mut out, "Posted on ")?;
 											write_datetime(&d, &mut out)?;
 										} else {
-											write!(&mut out, "Still being conjured ")?;
+											write!(&mut out, "Being conjured by ")?;
 										}
 									} else if label == "updated_on" {
 										write_datetime(&meta.last_modified, &mut out)?;
