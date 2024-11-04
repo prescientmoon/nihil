@@ -17,6 +17,11 @@ blockquote {
   margin-left: 0;
 }
 
+ul,
+ol {
+  padding-left: 1rem;
+}
+
 h1,
 h2,
 h3,
@@ -41,11 +46,11 @@ math[display="block"] {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-}
 
-.aside-header > img {
-  height: 1.75em;
-  margin-right: 0.75em;
+  img {
+    height: 1.75em;
+    margin-right: 0.75em;
+  }
 }
 
 .aside {
@@ -59,33 +64,35 @@ math[display="block"] {
 
   /* Prevents margin-collapsing of the children. */
   border: 1px solid transparent;
-}
 
-.aside-long > :not(summary) {
-  margin-left: 1rem;
-}
+  /* Slightly move things to the left to more nicely align with the marker */
+  &.aside-long > :not(summary) {
+    margin-left: 1rem;
+  }
 
-.aside-long:has-child(.aside-header) > :not(summary):nth-child(2) {
-  margin-top: 0;
-  padding-top: 0;
+  /* Remove the top margin of the first paragraph under the header */
+  &:has(> .aside-header) > :nth-child(2) {
+    margin-top: 0;
+  }
 }
 
 /* {{{ Override marker*/
-.aside-summary::marker {
-  display: none;
+.aside > summary {
+  &::marker {
+    display: none;
+  }
+
+  &:before {
+    content: "▶";
+    font-size: 0.75rem;
+    padding: 0 0.75rem 0 0.25rem;
+    box-sizing: border-box;
+  }
 }
 
-.aside-summary:before {
-  content: "▶";
-  font-size: 0.75rem;
-  padding: 0 0.75rem 0 0.25rem;
-  box-sizing: border-box;
-}
-
-.aside[open] .aside-summary:before {
+.aside[open] > summary:before {
   content: "▼";
 }
-
 /* }}}*/
 /* }}}*/
 /* {{{ Tier lists */
