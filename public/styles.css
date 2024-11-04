@@ -5,15 +5,16 @@ body {
   padding: 1em;
 }
 
+.article-content {
+  max-width: 40em;
+  margin: auto;
+}
+
+/* {{{ General element tweaks*/
 blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
   margin-left: 0;
-}
-
-ul,
-ol {
-  padding-left: 1rem;
 }
 
 h1,
@@ -30,33 +31,45 @@ h6 {
   }
 }
 
-.article-content {
-  max-width: 40em;
-  margin: auto;
+math[display="block"] {
+  margin: 1.5em 0;
 }
-
-/* {{{ Asides*/
-.aside {
-  margin: 1.5rem 0;
-}
-
-/* {{{ Header*/
+/* }}}*/
+/* {{{ Asides */
+/* TODO: remove aside-header altogether */
 .aside-header {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
 }
 
-.aside-header > .aside-title {
-  text-decoration: underline;
-  font-weight: bold;
+.aside-header > img {
+  height: 1.75em;
+  margin-right: 0.75em;
 }
 
-.aside-header > * {
-  padding: 0;
-  margin: 0;
+.aside {
+  background: #f4daf7;
+  border-radius: 3px;
+
+  box-sizing: border-box;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  margin: 1.5rem 0;
+
+  /* Prevents margin-collapsing of the children. */
+  border: 1px solid transparent;
 }
-/* }}}*/
+
+.aside-long > :not(summary) {
+  margin-left: 1rem;
+}
+
+.aside-long:has-child(.aside-header) > :not(summary):nth-child(2) {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* {{{ Override marker*/
 .aside-summary::marker {
   display: none;
@@ -74,34 +87,8 @@ h6 {
 }
 
 /* }}}*/
-
-img.aside-icon {
-  height: 1.75rem;
-  margin-right: 0.75rem;
-}
-
-.aside {
-  background: #f4daf7;
-  border-radius: 3px;
-
-  box-sizing: border-box;
-  padding: 1rem;
-}
-
-.aside-short {
-  padding: 1rem;
-}
-
-.aside-long {
-  /* padding: 0.65rem; */
-
-  .aside-content {
-    padding-left: 1rem;
-  }
-}
-
 /* }}}*/
-/* {{{ Tier lists*/
+/* {{{ Tier lists */
 .tier-list {
   background: #444;
 

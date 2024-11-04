@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use anyhow::bail;
 use chrono::DateTime;
 use chrono::TimeZone;
 use jotdown::Alignment;
@@ -77,13 +78,14 @@ impl<'s> Writer<'s> {
 			return Ok(());
 		}
 		// }}}
-		// {{{ Handle blocks which trigger the `Ignore` state.
+		// {{{ Handle important state changes
 		match e {
 			Event::Start(Container::LinkDefinition { .. }, ..) => {
 				self.states.push(State::Ignore);
 				return Ok(());
 			}
 			Event::End(Container::LinkDefinition { .. }) => {
+				// Sanity check
 				assert!(matches!(self.states.last(), Some(State::Ignore)));
 				self.states.pop();
 			}
@@ -97,12 +99,12 @@ impl<'s> Writer<'s> {
 
 				return Ok(());
 			}
-			Event::End(Container::RawBlock { format } | Container::RawInline { format }) => {
-				if format == &"html" {
-					assert!(matches!(self.states.last(), Some(State::Raw)));
-				} else {
-					assert!(matches!(self.states.last(), Some(State::Ignore)));
-				};
+			Event::End(Container::RawBlock { .. } | Container::RawInline { .. }) => {
+				// Sanity check
+				assert!(matches!(
+					self.states.last(),
+					Some(State::Raw | State::Ignore)
+				));
 
 				self.states.pop();
 			}
@@ -126,79 +128,23 @@ impl<'s> Writer<'s> {
 					Container::RawBlock { .. } => {}
 					Container::RawInline { .. } => unreachable!(),
 					Container::Footnote { .. } => unreachable!(),
-					// {{{ List
-					Container::List { kind, tight } => {
-						self.list_tightness.push(*tight);
-						match kind {
-							ListKind::Unordered(..) | ListKind::Task(..) => out.write_str("<ul")?,
-							ListKind::Ordered {
-								numbering, start, ..
-							} => {
-								out.write_str("<ol")?;
-								if *start > 1 {
-									write!(out, r#" start="{}""#, start)?;
-								}
-
-								if let Some(ty) = match numbering {
-									Decimal => None,
-									AlphaLower => Some('a'),
-									AlphaUpper => Some('A'),
-									RomanLower => Some('i'),
-									RomanUpper => Some('I'),
-								} {
-									write!(out, r#" type="{}""#, ty)?;
-								}
-							}
-						}
-					}
-					// }}}
-					// {{{ Link
-					Container::Link(dst, ty) => {
-						if matches!(ty, LinkType::Span(SpanLinkType::Unresolved)) {
-							out.write_str("<a")?;
-						} else {
-							out.write_str(r#"<a href=""#)?;
-							if matches!(ty, LinkType::Email) {
-								out.write_str("mailto:")?;
-							}
-							write_attr_contents(dst, &mut out)?;
-							out.write_char('"')?;
-						}
-					}
-					// }}}
-					// {{{ Paragraph
-					Container::Paragraph => {
-						if self.list_tightness.last() == Some(&true) {
-							return Ok(());
-						}
-
-						out.write_str("<p")?;
-					}
-					// }}}
-					Container::Blockquote => out.write_str("<blockquote")?,
-					Container::ListItem { .. } => out.write_str("<li")?,
-					Container::TaskListItem { .. } => out.write_str("<li")?,
-					Container::DescriptionList => out.write_str("<dl")?,
-					Container::DescriptionDetails => out.write_str("<dd")?,
-					Container::Table => out.write_str("<table")?,
-					Container::TableRow { .. } => out.write_str("<tr")?,
+					// {{{ Section
 					Container::Section { id } => match self.metadata {
 						Some(meta)
 							if &meta.title.id == id && matches!(meta.route, PageRoute::Post(_)) =>
 						{
 							let renderer = template!("templates/post.html", &mut out)?;
+							// Sanity check
 							assert_eq!(renderer.current(), Some("attrs"));
 							self.states.push(State::Article(renderer));
 						}
 						_ => out.write_str("<section")?,
 					},
+					// }}}
+					// {{{ Aside
 					Container::Div {
 						class: class @ ("aside" | "long-aside" | "char-aside"),
 					} => {
-						if *class == "aside" {
-							self.list_tightness.push(true);
-						}
-
 						let mut renderer = if *class == "aside" {
 							template!("templates/aside.html", &mut out)?
 						} else if *class == "char-aside" {
@@ -233,6 +179,63 @@ impl<'s> Writer<'s> {
 
 						self.states.push(State::Aside(renderer));
 					}
+					// }}}
+					// {{{ List
+					Container::List { kind, tight } => {
+						self.list_tightness.push(*tight);
+						match kind {
+							ListKind::Unordered(..) => out.write_str("<ul")?,
+							ListKind::Ordered {
+								numbering, start, ..
+							} => {
+								out.write_str("<ol")?;
+								if *start > 1 {
+									write!(out, r#" start="{}""#, start)?;
+								}
+
+								if let Some(ty) = match numbering {
+									Decimal => None,
+									AlphaLower => Some('a'),
+									AlphaUpper => Some('A'),
+									RomanLower => Some('i'),
+									RomanUpper => Some('I'),
+								} {
+									write!(out, r#" type="{}""#, ty)?;
+								}
+							}
+							ListKind::Task(_) => bail!("Task lists are not supported"),
+						}
+					}
+					// }}}
+					// {{{ Link
+					Container::Link(dst, ty) => {
+						if matches!(ty, LinkType::Span(SpanLinkType::Unresolved)) {
+							out.write_str("<a")?;
+						} else {
+							out.write_str(r#"<a href=""#)?;
+							if matches!(ty, LinkType::Email) {
+								out.write_str("mailto:")?;
+							}
+							write_attr_contents(dst, &mut out)?;
+							out.write_char('"')?;
+						}
+					}
+					// }}}
+					// {{{ Paragraph
+					Container::Paragraph => {
+						if self.list_tightness.last() == Some(&true) {
+							return Ok(());
+						}
+
+						out.write_str("<p")?;
+					}
+					// }}}
+					Container::Blockquote => out.write_str("<blockquote")?,
+					Container::ListItem { .. } => out.write_str("<li")?,
+					Container::DescriptionList => out.write_str("<dl")?,
+					Container::DescriptionDetails => out.write_str("<dd")?,
+					Container::Table => out.write_str("<table")?,
+					Container::TableRow { .. } => out.write_str("<tr")?,
 					Container::Div { .. } => out.write_str("<div")?,
 					Container::Heading { level, .. } => write!(out, "<h{}", level)?,
 					Container::TableCell { head: false, .. } => out.write_str("<td")?,
@@ -251,8 +254,10 @@ impl<'s> Writer<'s> {
 					Container::Emphasis => out.write_str("<em")?,
 					Container::Mark => out.write_str("<mark")?,
 					Container::LinkDefinition { .. } => return Ok(()),
+					e => bail!("DJot element {e:?} is not supported"),
 				}
 
+				// {{{ Decide whether this element supports attributes
 				let mut write_attr_contentsibs = true;
 				if matches!(
 					c,
@@ -262,6 +267,7 @@ impl<'s> Writer<'s> {
 				) {
 					write_attr_contentsibs = false;
 				}
+				// }}}
 
 				if write_attr_contentsibs {
 					// {{{ Write attributes
@@ -293,26 +299,12 @@ impl<'s> Writer<'s> {
 							write_attr("aria-labeledby", id, &mut out)?;
 						}
 						Container::Div { class } if !class.is_empty() && !class_written => {
-							out.write_str(r#" class=""#)?;
-							write_class(c, false, &mut out)?;
-							out.write_char('"')?;
-						}
-						Container::Math { .. }
-						| Container::List {
-							kind: ListKind::Task(..),
-							..
-						}
-						| Container::TaskListItem { .. }
-							if !class_written =>
-						{
-							out.write_str(r#" class=""#)?;
-							write_class(c, false, &mut out)?;
-							out.write_char('"')?;
+							write_attr("class", class, &mut out)?;
 						}
 						_ => {}
 					}
 					// }}}
-
+					// {{{ Write special attributes
 					match c {
 						// {{{ Write css for aligning table cell text
 						Container::TableCell { alignment, .. }
@@ -352,8 +344,10 @@ impl<'s> Writer<'s> {
 							_ => out.write_char('>')?,
 						},
 					}
+					// }}}
 				}
 
+				// {{{ Post-start effects
 				match &c {
 					Container::Heading { id, .. } => {
 						out.write_str(r##"<a href="#"##)?;
@@ -365,17 +359,21 @@ impl<'s> Writer<'s> {
 					}
 					_ => {}
 				}
+				// }}}
 			}
 			// }}}
 			// {{{ Container end
 			Event::End(c) => {
+				// {{{ Pre-end effects
 				match &c {
 					Container::Image(..) => {
+						// Sanity check
 						assert!(matches!(self.states.last(), Some(State::TextOnly)));
 						self.states.pop();
 					}
 					_ => {}
 				}
+				// }}}
 
 				if matches!(self.states.last(), Some(State::TextOnly)) {
 					return Ok(());
@@ -389,10 +387,10 @@ impl<'s> Writer<'s> {
 					Container::List { kind, .. } => {
 						self.list_tightness.pop();
 						match kind {
-							ListKind::Unordered(..) | ListKind::Task(..) => {
-								out.write_str("</ul>")?
-							}
+							ListKind::Unordered(..) => out.write_str("</ul>")?,
 							ListKind::Ordered { .. } => out.write_str("</ol>")?,
+							// We error out when the task list begins
+							ListKind::Task(..) => unreachable!(),
 						}
 					}
 					// }}}
@@ -402,9 +400,7 @@ impl<'s> Writer<'s> {
 							return Ok(());
 						}
 
-						if !self.footnotes.in_epilogue() {
-							out.write_str("</p>")?;
-						}
+						out.write_str("</p>")?;
 					}
 					// }}}
 					// {{{ Image
@@ -419,18 +415,13 @@ impl<'s> Writer<'s> {
 					// }}}
 					// {{{ Math
 					Container::Math { .. } => {
+						// Sanity check
 						assert!(matches!(self.states.last(), Some(State::Math(_))));
 						self.states.pop();
 						out.write_str(r#"</span>"#)?;
 					}
 					// }}}
-					Container::Blockquote => out.write_str("</blockquote>")?,
-					Container::ListItem { .. } => out.write_str("</li>")?,
-					Container::TaskListItem { .. } => out.write_str("</li>")?,
-					Container::DescriptionList => out.write_str("</dl>")?,
-					Container::DescriptionDetails => out.write_str("</dd>")?,
-					Container::Table => out.write_str("</table>")?,
-					Container::TableRow { .. } => out.write_str("</tr>")?,
+					// {{{ Section
 					Container::Section { id, .. } => match self.metadata {
 						Some(meta)
 							if &meta.title.id == id
@@ -444,25 +435,25 @@ impl<'s> Writer<'s> {
 						}
 						_ => out.write_str("</section>")?,
 					},
+					// }}}
+					// {{{ Aside
 					Container::Div {
-						class: class @ ("aside" | "long-aside" | "char-aside"),
+						class: "aside" | "long-aside" | "char-aside",
 					} => {
-						if *class == "aside" {
-							self.list_tightness.pop();
-						}
-
 						let state = self.states.pop().unwrap();
 						let State::Aside(renderer) = state else {
 							panic!("Finished `aside` element without being in the `Aside` state.")
 						};
 
+						// Sanity check
 						assert_eq!(renderer.current(), Some("content"));
 						renderer.finish(&mut out)?;
 					}
-					Container::Div { .. } => out.write_str("</div>")?,
+					// }}}
 					Container::Heading { level, .. } => {
 						write!(out, "</h{}>", level)?;
 
+						// {{{ Article title
 						if let Some(State::Article(renderer)) = self.states.last_mut() {
 							if renderer.current() == Some("title") {
 								// SAFETY: we can never enter into the `article` state without having
@@ -516,7 +507,15 @@ impl<'s> Writer<'s> {
 								}
 							}
 						}
+						// }}}
 					}
+					Container::Blockquote => out.write_str("</blockquote>")?,
+					Container::ListItem { .. } => out.write_str("</li>")?,
+					Container::DescriptionList => out.write_str("</dl>")?,
+					Container::DescriptionDetails => out.write_str("</dd>")?,
+					Container::Table => out.write_str("</table>")?,
+					Container::TableRow { .. } => out.write_str("</tr>")?,
+					Container::Div { .. } => out.write_str("</div>")?,
 					Container::TableCell { head: false, .. } => out.write_str("</td>")?,
 					Container::TableCell { head: true, .. } => out.write_str("</th>")?,
 					Container::Caption => out.write_str("</caption>")?,
@@ -533,6 +532,7 @@ impl<'s> Writer<'s> {
 					Container::Emphasis => out.write_str("</em>")?,
 					Container::Mark => out.write_str("</mark>")?,
 					Container::LinkDefinition { .. } => unreachable!(),
+					e => bail!("DJot element {e:?} is not supported"),
 				}
 			}
 			// }}}
@@ -540,6 +540,7 @@ impl<'s> Writer<'s> {
 			Event::Str(s) => match self.states.last() {
 				Some(State::TextOnly) => write_attr_contents(s, &mut out)?,
 				Some(State::Raw) => out.write_str(s)?,
+				// {{{ Math
 				Some(State::Math(display)) => {
 					let config = pulldown_latex::RenderConfig {
 						display_mode: {
@@ -562,7 +563,8 @@ impl<'s> Writer<'s> {
 					pulldown_latex::push_mathml(&mut mathml, parser, config).unwrap();
 					out.write_str(&mathml)?;
 				}
-				_ => write_text(s, &mut out)?,
+				// }}}
+				_ => write_escape(s, false, &mut out)?,
 			},
 			// }}}
 			// {{{ Footnote reference
@@ -571,7 +573,7 @@ impl<'s> Writer<'s> {
 				if !matches!(self.states.last(), Some(State::TextOnly)) {
 					write!(
 						out,
-						r##"<a id="fnref{}" href="#fn{}" role="doc-noteref"><sup>{}</sup></a>"##,
+						r##"<sup><a id="fnref{}" href="#fn{}" role="doc-noteref">{}</a></sup>"##,
 						number, number, number
 					)?;
 				}
@@ -611,41 +613,24 @@ impl<'s> Writer<'s> {
 	// {{{ Render epilogue
 	fn render_epilogue(&mut self, mut out: impl std::fmt::Write) -> anyhow::Result<()> {
 		if self.footnotes.reference_encountered() {
-			out.write_str("<section role=\"doc-endnotes\">")?;
-			out.write_str("<hr>")?;
-			out.write_str("<ol>")?;
+			// TODO: rewrite this using a template
+			out.write_str("<section role=\"doc-endnotes\"><hr><ol>")?;
 
 			while let Some((number, events)) = self.footnotes.next() {
 				write!(out, "<li id=\"fn{}\">", number)?;
 
-				let mut unclosed_para = false;
 				for e in events.iter().flatten() {
-					if matches!(&e, Event::Blankline | Event::Escape) {
-						continue;
-					}
-					if unclosed_para {
-						// not a footnote, so no need to add href before para close
-						out.write_str("</p>")?;
-					}
 					self.render_event(e, &mut out)?;
-					unclosed_para = matches!(e, Event::End(Container::Paragraph { .. }))
-						&& !matches!(self.list_tightness.last(), Some(true));
 				}
-				if !unclosed_para {
-					// create a new paragraph
-					out.write_str("<p>")?;
-				}
+
 				write!(
 					out,
-					"<a href=\"#fnref{}\" role=\"doc-backlink\">\u{21A9}\u{FE0E}</a></p>",
+					"<a href=\"#fnref{}\" role=\"doc-backlink\">Return to content \u{21A9}\u{FE0E}</a></li>",
 					number,
 				)?;
-
-				out.write_str("</li>")?;
 			}
 
-			out.write_str("</ol>")?;
-			out.write_str("</section>")?;
+			out.write_str("</ol></section>")?;
 		}
 
 		Ok(())
@@ -654,40 +639,6 @@ impl<'s> Writer<'s> {
 }
 
 // {{{ Writing helpers
-fn write_class<W>(c: &Container, mut first_written: bool, out: &mut W) -> std::fmt::Result
-where
-	W: std::fmt::Write,
-{
-	if let Some(cls) = match c {
-		Container::List {
-			kind: ListKind::Task(..),
-			..
-		} => Some("task-list"),
-		Container::TaskListItem { checked: false } => Some("unchecked"),
-		Container::TaskListItem { checked: true } => Some("checked"),
-		Container::Math { display: false } => Some("math inline"),
-		Container::Math { display: true } => Some("math display"),
-		_ => None,
-	} {
-		first_written = true;
-		out.write_str(cls)?;
-	}
-	if let Container::Div { class } = c {
-		if !class.is_empty() {
-			if first_written {
-				out.write_char(' ')?;
-			}
-			out.write_str(class)?;
-		}
-	}
-	Ok(())
-}
-
-#[inline]
-fn write_text(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
-	write_escape(s, false, out)
-}
-
 #[inline]
 fn write_attr_contents(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
 	write_escape(s, true, out)
@@ -763,11 +714,6 @@ impl<'s> Footnotes<'s> {
 	/// Returns `true` if any reference has been encountered.
 	fn reference_encountered(&self) -> bool {
 		!self.references.is_empty()
-	}
-
-	/// Returns `true` if within the epilogue, i.e. if any footnotes have been pulled.
-	fn in_epilogue(&self) -> bool {
-		self.number > 0
 	}
 
 	/// Add a footnote reference.
