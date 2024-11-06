@@ -63,7 +63,7 @@ pub struct TemplateRenderer<'a> {
 
 impl<'a> TemplateRenderer<'a> {
 	#[inline]
-	pub fn start(template: &'a Template, mut w: impl std::fmt::Write) -> anyhow::Result<Self> {
+	pub fn start(template: &'a Template, w: &mut impl std::fmt::Write) -> anyhow::Result<Self> {
 		let stop_index = if !template.stops.is_empty() {
 			Some(0)
 		} else {
@@ -87,7 +87,7 @@ impl<'a> TemplateRenderer<'a> {
 	}
 
 	/// Attempt to finish rendering.
-	pub fn finish(mut self, w: impl std::fmt::Write) -> anyhow::Result<()> {
+	pub fn finish(mut self, w: &mut impl std::fmt::Write) -> anyhow::Result<()> {
 		if let Some(label) = self.next(w)? {
 			bail!("Attempting to finish template rendering before label `{label}` was handled");
 		}
@@ -97,7 +97,7 @@ impl<'a> TemplateRenderer<'a> {
 
 	// {{{ Advance to the next placeholder
 	/// Move onto the next placeholder
-	pub fn next(&mut self, mut w: impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
+	pub fn next(&mut self, w: &mut impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
 		let Some(stop_index) = self.stop_index else {
 			return Ok(None);
 		};
@@ -128,6 +128,22 @@ impl<'a> TemplateRenderer<'a> {
 		}
 	}
 	// }}}
+
+	pub fn feed<W: std::fmt::Write>(
+		&mut self,
+		out: &mut W,
+		mut f: impl FnMut(&str, &mut W) -> anyhow::Result<bool>,
+	) -> anyhow::Result<()> {
+		while let Some(label) = self.current() {
+			if f(label, out)? {
+				self.next(out)?;
+			} else {
+				break;
+			}
+		}
+
+		Ok(())
+	}
 }
 // }}}
 // {{{ Macro

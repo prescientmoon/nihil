@@ -10,6 +10,16 @@ body {
   margin: auto;
 }
 
+.article-list {
+  max-width: 36em;
+  margin: auto;
+  list-style-type: none;
+
+  ul {
+    list-style-type: disc;
+  }
+}
+
 /* {{{ General element tweaks*/
 blockquote {
   padding-left: 1.25rem;
@@ -19,7 +29,7 @@ blockquote {
 
 ul,
 ol {
-  padding-left: 1rem;
+  padding-left: 1.5rem;
 }
 
 h1,
@@ -28,7 +38,7 @@ h3,
 h4,
 h5,
 h6 {
-  a {
+  .heading-anchor {
     display: inline-block;
     text-decoration: none;
     /* Note: I need to check whether this only aligns things better with the font I use */
@@ -198,10 +208,6 @@ math[display="block"] {
 
 /* {{{ Light theme */
 @media (prefers-color-scheme: light) {
-  body {
-    color: #4c4f69;
-  }
-
   code {
     background: #eff1f5;
   }

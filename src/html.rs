@@ -28,12 +28,13 @@ use crate::template::TemplateRenderer;
 /// Render djot content as HTML.
 pub fn render_html<'s>(
 	metadata: &'s PageMetadata,
+	pages: Option<&'s [PageMetadata]>,
 	mut events: impl Iterator<Item = Event<'s>>,
-	mut out: impl std::fmt::Write,
+	out: &mut impl std::fmt::Write,
 ) -> anyhow::Result<()> {
-	let mut w = Writer::new(Some(metadata));
-	events.try_for_each(|e| w.render_event(&e, &mut out))?;
-	w.render_epilogue(&mut out)?;
+	let mut w = Writer::new(Some(metadata), pages);
+	events.try_for_each(|e| w.render_event(&e, out))?;
+	w.render_epilogue(out)?;
 
 	Ok(())
 }
@@ -44,6 +45,7 @@ pub struct Writer<'s> {
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
 	metadata: Option<&'s PageMetadata<'s>>,
+	pages: Option<&'s [PageMetadata<'s>]>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,12 +61,13 @@ enum State<'s> {
 }
 
 impl<'s> Writer<'s> {
-	pub fn new(metadata: Option<&'s PageMetadata>) -> Self {
+	pub fn new(metadata: Option<&'s PageMetadata>, pages: Option<&'s [PageMetadata]>) -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
 			footnotes: Footnotes::default(),
 			metadata,
+			pages,
 		}
 	}
 
@@ -72,7 +75,7 @@ impl<'s> Writer<'s> {
 	pub fn render_event(
 		&mut self,
 		e: &Event<'s>,
-		mut out: impl std::fmt::Write,
+		out: &mut impl std::fmt::Write,
 	) -> anyhow::Result<()> {
 		// {{{ Handle "footnote" states
 		if matches!(self.states.last(), Some(State::Footnote(_))) {
@@ -126,16 +129,16 @@ impl<'s> Writer<'s> {
 				match &c {
 					// {{{ Section
 					Container::Section { id } => match self.metadata {
-						Some(meta)
-							if meta.title.id == *id && matches!(meta.route, PageRoute::Post(_)) =>
-						{
-							let mut renderer = template!("templates/post.html", &mut out)?;
+						Some(meta) if meta.title.id == *id => {
+							if matches!(meta.route, PageRoute::Post(_)) {
+								let mut renderer = template!("templates/post.html", out)?;
 
-							assert_eq!(renderer.current(), Some("attrs"));
-							write!(out, "{}", Attr("aria-labeledby", id))?;
-							renderer.next(&mut out)?;
+								assert_eq!(renderer.current(), Some("attrs"));
+								write!(out, "{}", Attr("aria-labeledby", id))?;
+								renderer.next(out)?;
 
-							self.states.push(State::Article(renderer));
+								self.states.push(State::Article(renderer));
+							}
 						}
 						_ => {
 							write!(out, "<section {}>", Attr("aria-labeledby", id))?;
@@ -147,11 +150,11 @@ impl<'s> Writer<'s> {
 						class: class @ ("aside" | "long-aside" | "char-aside"),
 					} => {
 						let mut renderer = if *class == "aside" {
-							template!("templates/aside.html", &mut out)?
+							template!("templates/aside.html", out)?
 						} else if *class == "char-aside" {
-							template!("templates/character-aside.html", &mut out)?
+							template!("templates/character-aside.html", out)?
 						} else {
-							template!("templates/long-aside.html", &mut out)?
+							template!("templates/long-aside.html", out)?
 						};
 
 						while let Some(label) = renderer.current() {
@@ -162,18 +165,18 @@ impl<'s> Writer<'s> {
 											anyhow!("Cannot find `character` attribute on `aside` element")
 										})?;
 
-									write_attribute(&mut out, &character)?;
+									write_attribute(out, &character)?;
 								}
 								"title" => {
 									let title = attrs.get_value("title").ok_or_else(|| {
 										anyhow!("Cannot find `title` attribute on `aside` element")
 									})?;
 
-									write_attribute(&mut out, &title)?;
+									write_attribute(out, &title)?;
 								}
 								_ => break,
 							}
-							renderer.next(&mut out)?;
+							renderer.next(out)?;
 						}
 
 						self.states.push(State::Aside(renderer));
@@ -219,7 +222,7 @@ impl<'s> Writer<'s> {
 								""
 							};
 
-							write!(out, r#"<a href="{prefix}{}"">"#, Escaped(dst))?;
+							write!(out, r#"<a href="{prefix}{}">"#, Escaped(dst))?;
 						}
 					}
 					// }}}
@@ -252,7 +255,7 @@ impl<'s> Writer<'s> {
 					Container::Heading { level, id, .. } => {
 						write!(
 							out,
-							r##"<h{level} id="{}"><a href="#{}">◇</a> "##,
+							r##"<h{level} id="{}"><a class="heading-anchor" href="#{}">◇</a> "##,
 							Escaped(id),
 							Escaped(id)
 						)?;
@@ -265,6 +268,50 @@ impl<'s> Writer<'s> {
 						}
 
 						out.write_str("<p>")?;
+					}
+					// }}}
+					// {{{ Post list
+					Container::Div { class: "posts" } => {
+						write!(out, r#"<ol class="article-list">"#)?;
+						for post in self.pages.ok_or_else(|| anyhow!("No post list given"))? {
+							// Skip drafts
+							if post.config.created_at.is_none() {
+								continue;
+							}
+
+							template!("templates/post-summary.html", out)?.feed(
+								out,
+								|label, out| {
+									match label {
+										"id" => {
+											if let PageRoute::Post(id) = &post.route {
+												write!(out, "{id}")?;
+											}
+										}
+										"title" => {
+											for event in &post.title.events {
+												self.render_event(event, out)?;
+											}
+										}
+										"description" => {
+											for event in &post.description {
+												self.render_event(event, out)?;
+											}
+										}
+										_ => {
+											if !fill_metadata_label(out, label, post)? {
+												bail!("Unknown label {label} in `post-summary` template");
+											};
+										}
+									}
+
+									Ok(true)
+								},
+							)?;
+						}
+						write!(out, "</ol>")?;
+						// We don't care about the contents of this block
+						self.states.push(State::Ignore);
 					}
 					// }}}
 					// {{{ Div
@@ -365,15 +412,14 @@ impl<'s> Writer<'s> {
 					// }}}
 					// {{{ Section
 					Container::Section { id, .. } => match self.metadata {
-						Some(meta)
-							if meta.title.id == *id
-								&& matches!(self.states.last(), Some(State::Article(_))) =>
-						{
-							let Some(State::Article(renderer)) = self.states.pop() else {
-								unreachable!()
-							};
+						Some(meta) if meta.title.id == *id => {
+							if matches!(self.states.last(), Some(State::Article(_))) {
+								let Some(State::Article(renderer)) = self.states.pop() else {
+									unreachable!()
+								};
 
-							renderer.finish(&mut out)?;
+								renderer.finish(out)?;
+							}
 						}
 						_ => out.write_str("</section>")?,
 					},
@@ -387,7 +433,7 @@ impl<'s> Writer<'s> {
 							panic!("Finished `aside` element without being in the `Aside` state.")
 						};
 
-						renderer.finish(&mut out)?;
+						renderer.finish(out)?;
 					}
 					// }}}
 					Container::Heading { level, .. } => {
@@ -399,49 +445,8 @@ impl<'s> Writer<'s> {
 								// SAFETY: we can never enter into the `article` state without having
 								// some metadata on hand.
 								let meta = self.metadata.unwrap();
-								while let Some(label) = renderer.next(&mut out)? {
-									if label == "posted_on" {
-										if let Some(d) = meta.config.created_at {
-											write!(out, "Posted on ")?;
-											write_datetime(&mut out, &d)?;
-										} else {
-											write!(out, "Being conjured by ")?;
-										}
-									} else if label == "updated_on" {
-										write_datetime(&mut out, &meta.last_modified)?;
-									} else if label == "word_count" {
-										let wc = meta.word_count;
-										if wc < 400 {
-											write!(out, "{}", wc)?;
-										} else if wc < 1000 {
-											write!(out, "{}", wc / 10 * 10)?;
-										} else if wc < 2000 {
-											write!(out, "{}", wc / 100 * 100)?;
-										} else {
-											write!(out, "{} thousand", wc / 1000)?;
-										}
-									} else if label == "reading_duration" {
-										let minutes = meta.word_count / 200;
-										if minutes == 0 {
-											let seconds = meta.word_count * 60 / 200;
-											write!(out, "very short {seconds} second")?;
-										} else if minutes < 10 {
-											write!(out, "short {minutes} minute")?;
-										} else if minutes < 20 {
-											write!(out, "somewhat short {minutes} minute")?;
-										} else if minutes < 30 {
-											write!(out, "somewhat long {minutes}")?;
-										} else if minutes < 60 {
-											write!(out, "long {minutes}")?;
-										} else {
-											let hours = minutes / 60;
-											let minutes = minutes % 60;
-											write!(
-												out,
-												"very long {hours} hour and {minutes} minute"
-											)?;
-										}
-									} else if label == "content" {
+								while let Some(label) = renderer.next(out)? {
+									if !fill_metadata_label(out, label, meta)? {
 										break;
 									}
 								}
@@ -526,13 +531,13 @@ impl<'s> Writer<'s> {
 									}
 									HighlightEvent::HighlightStart(Highlight(index)) => {
 										write!(
-											&mut out,
+											out,
 											r#"<span class="{}">"#,
 											highlight_classes[index]
 										)?;
 									}
 									HighlightEvent::HighlightEnd => {
-										write!(&mut out, r#"</span>"#)?;
+										write!(out, r#"</span>"#)?;
 									}
 								}
 							}
@@ -619,14 +624,14 @@ impl<'s> Writer<'s> {
 			Event::Softbreak => out.write_char('\n')?,
 			// }}}
 			Event::ThematicBreak(_) => out.write_str("<hr>")?,
-			Event::Escape | Event::Blankline | Event::Attributes(..) => {}
+			Event::Escape | Event::Blankline | Event::Attributes(_) => {}
 		}
 
 		Ok(())
 	}
 
 	// {{{ Render epilogue
-	fn render_epilogue(&mut self, mut out: impl std::fmt::Write) -> anyhow::Result<()> {
+	fn render_epilogue(&mut self, out: &mut impl std::fmt::Write) -> anyhow::Result<()> {
 		if self.footnotes.reference_encountered() {
 			// TODO: rewrite this using a template
 			out.write_str("<section role=\"doc-endnotes\"><hr><ol>")?;
@@ -635,19 +640,17 @@ impl<'s> Writer<'s> {
 				write!(out, r#"<li id="fn{number}">"#)?;
 
 				for e in events.iter().flatten() {
-					self.render_event(e, &mut out)?;
+					self.render_event(e, out)?;
 				}
 
 				write!(
 					out,
 					r##"
             <a href="#fnref{number}" role="doc-backlink">
-                Return to content 
+                Return to content ↩︎
             </a></li>
           "##,
 				)?;
-
-				println!("\u{21A9}\u{FE0E}");
 			}
 
 			out.write_str("</ol></section>")?;
@@ -702,12 +705,12 @@ impl<'s> Display for Attr<'s> {
 // {{{ Render datetimes
 #[inline]
 fn write_datetime<T: TimeZone>(
-	mut out: impl std::fmt::Write,
+	out: &mut impl std::fmt::Write,
 	datetime: &DateTime<T>,
 ) -> std::fmt::Result {
 	let datetime = datetime.to_utc();
 	write!(
-		&mut out,
+		out,
 		r#"<time datetime="{}">{}</time>"#,
 		datetime.to_rfc3339(),
 		datetime.format("%a, %d %b %Y")
@@ -716,7 +719,7 @@ fn write_datetime<T: TimeZone>(
 // }}}
 // {{{ Jotdown attribute helpers
 #[inline]
-fn write_attribute(mut out: impl std::fmt::Write, attr: &AttributeValue) -> std::fmt::Result {
+fn write_attribute(out: &mut impl std::fmt::Write, attr: &AttributeValue) -> std::fmt::Result {
 	attr.parts()
 		.try_for_each(|part| write!(out, "{}", Escaped(part)))
 }
@@ -773,4 +776,56 @@ impl<'s> Iterator for Footnotes<'s> {
 		})
 	}
 }
+// }}}
+// {{{ Fill in metadata labels
+fn fill_metadata_label(
+	out: &mut impl std::fmt::Write,
+	label: &str,
+	meta: &PageMetadata<'_>,
+) -> anyhow::Result<bool> {
+	if label == "posted_on" {
+		if let Some(d) = meta.config.created_at {
+			write!(out, "Posted on ")?;
+			write_datetime(out, &d)?;
+		} else {
+			write!(out, "Being conjured by ")?;
+		}
+	} else if label == "updated_on" {
+		write_datetime(out, &meta.last_modified)?;
+	} else if label == "word_count" {
+		let wc = meta.word_count;
+		if wc < 400 {
+			write!(out, "{}", wc)?;
+		} else if wc < 1000 {
+			write!(out, "{}", wc / 10 * 10)?;
+		} else if wc < 2000 {
+			write!(out, "{}", wc / 100 * 100)?;
+		} else {
+			write!(out, "{} thousand", wc / 1000)?;
+		}
+	} else if label == "reading_duration" {
+		let minutes = meta.word_count / 200;
+		if minutes == 0 {
+			let seconds = meta.word_count * 60 / 200;
+			write!(out, "very short {seconds} second")?;
+		} else if minutes < 10 {
+			write!(out, "short {minutes} minute")?;
+		} else if minutes < 20 {
+			write!(out, "somewhat short {minutes} minute")?;
+		} else if minutes < 30 {
+			write!(out, "somewhat long {minutes}")?;
+		} else if minutes < 60 {
+			write!(out, "long {minutes}")?;
+		} else {
+			let hours = minutes / 60;
+			let minutes = minutes % 60;
+			write!(out, "very long {hours} hour and {minutes} minute")?;
+		}
+	} else {
+		return Ok(false);
+	}
+
+	Ok(true)
+}
+
 // }}}

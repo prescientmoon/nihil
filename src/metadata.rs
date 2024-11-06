@@ -37,7 +37,6 @@ impl PageConfig {
 pub enum PageRoute {
 	Home,
 	Posts,
-	#[allow(dead_code)]
 	Post(String),
 }
 
@@ -86,7 +85,6 @@ pub struct PageMetadata<'s> {
 	pub route: PageRoute,
 
 	pub title: Heading<'s>,
-	#[allow(dead_code)]
 	pub description: Vec<jotdown::Event<'s>>,
 	#[allow(dead_code)]
 	pub toc: Vec<Heading<'s>>,
@@ -96,15 +94,7 @@ pub struct PageMetadata<'s> {
 }
 
 impl<'a> PageMetadata<'a> {
-	pub fn new(mut events: impl Iterator<Item = Event<'a>>, path: PathBuf) -> anyhow::Result<Self> {
-		let mut w = Writer::new();
-		events.try_for_each(|e| w.render_event(&e))?;
-
-		let title = w
-			.toc
-			.first()
-			.ok_or_else(|| anyhow!("No heading found to infer title from"))?;
-
+	pub fn new(path: PathBuf, mut events: impl Iterator<Item = Event<'a>>) -> anyhow::Result<Self> {
 		let last_modified_output = Command::new("git")
 			.arg("log")
 			.arg("-1")
@@ -126,19 +116,27 @@ impl<'a> PageMetadata<'a> {
 			})?
 		};
 
+		let mut w = Writer::new();
+		events.try_for_each(|e| w.render_event(&e))?;
+
+		let title = w
+			.toc
+			.first()
+			.ok_or_else(|| anyhow!("No heading found to infer title from"))?;
+
 		Ok(Self {
-			title: title.to_owned(),
-			description: w.description,
 			route: PageRoute::from_path(&path)?,
+			title: title.clone(),
+			last_modified,
 			config: w.config,
+			description: w.description,
 			toc: w.toc,
 			word_count: w.word_count,
-			last_modified,
 		})
 	}
 }
 // }}}
-
+// {{{ Metadata parsing
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum State {
 	Toplevel,
@@ -244,3 +242,4 @@ impl<'s> Writer<'s> {
 		Ok(())
 	}
 }
+// }}}
