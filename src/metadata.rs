@@ -5,7 +5,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, bail, Context};
 use chrono::{DateTime, FixedOffset, Utc};
-use jotdown::{Container, Event};
+use jotdown::{Attributes, Container, Event};
 use serde::Deserialize;
 
 // {{{ Config
@@ -196,10 +196,8 @@ impl<'s> Writer<'s> {
 			// {{{ TOML config blocks
 			Event::Start(Container::RawBlock { format: "toml" }, attrs) => {
 				assert_eq!(self.state, State::Toplevel);
-				if let Some(role_attr) = attrs.get_value("role") {
-					if format!("{}", role_attr) == "config" {
-						self.state = State::Config
-					}
+				if has_role(attrs, "config") {
+					self.state = State::Config
 				}
 			}
 			Event::End(Container::RawBlock { format: "toml" }) => {
@@ -216,10 +214,8 @@ impl<'s> Writer<'s> {
 			// }}}
 			// {{{ Descriptions
 			Event::Start(Container::Div { .. }, attrs) if self.state == State::Toplevel => {
-				if let Some(role_attr) = attrs.get_value("role") {
-					if format!("{}", role_attr) == "description" {
-						self.state = State::Description
-					}
+				if has_role(attrs, "description") {
+					self.state = State::Description
 				}
 			}
 			Event::End(Container::Div { .. }) if self.state == State::Description => {
@@ -241,5 +237,12 @@ impl<'s> Writer<'s> {
 
 		Ok(())
 	}
+}
+// }}}
+// {{{ Helpers
+pub fn has_role(attrs: &Attributes, value: &str) -> bool {
+	attrs
+		.get_value("role")
+		.map_or(false, |role| format!("{role}") == value)
 }
 // }}}

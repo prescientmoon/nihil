@@ -42,7 +42,7 @@ h6 {
     display: inline-block;
     text-decoration: none;
     /* Note: I need to check whether this only aligns things better with the font I use */
-    transform: translateY(-2px);
+    translate: translateY(-2px);
   }
 }
 
@@ -64,7 +64,7 @@ math[display="block"] {
 }
 
 .aside {
-  background: #f4daf7;
+  background: #faebff;
   border-radius: 3px;
 
   box-sizing: border-box;

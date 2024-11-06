@@ -3,7 +3,9 @@ use std::fmt::Display;
 
 use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context;
 use chrono::DateTime;
+use chrono::NaiveDate;
 use chrono::TimeZone;
 use jotdown::Alignment;
 use jotdown::AttributeValue;
@@ -19,6 +21,7 @@ use tree_sitter_highlight::HighlightConfiguration;
 use tree_sitter_highlight::HighlightEvent;
 use tree_sitter_highlight::Highlighter;
 
+use crate::metadata::has_role;
 use crate::metadata::PageMetadata;
 use crate::metadata::PageRoute;
 use crate::template;
@@ -58,6 +61,8 @@ enum State<'s> {
 	Aside(TemplateRenderer<'s>),
 	Article(TemplateRenderer<'s>),
 	Footnote(Vec<jotdown::Event<'s>>),
+	Datetime(String),
+	Date(String),
 }
 
 impl<'s> Writer<'s> {
@@ -214,7 +219,7 @@ impl<'s> Writer<'s> {
 					// {{{ Link
 					Container::Link(dst, ty) => {
 						if matches!(ty, LinkType::Span(SpanLinkType::Unresolved)) {
-							out.write_str("<a>")?;
+							bail!("Unresolved url {dst:?}")
 						} else {
 							let prefix = if matches!(ty, LinkType::Email) {
 								"mailto:"
@@ -316,10 +321,7 @@ impl<'s> Writer<'s> {
 					// }}}
 					// {{{ Div
 					Container::Div { class } => {
-						if attrs
-							.get_value("role")
-							.map_or(false, |role| format!("{role}") == "description")
-						{
+						if has_role(attrs, "description") {
 							self.states.push(State::Ignore);
 						} else {
 							write!(out, "<div{}>", Attr("class", class))?;
@@ -348,6 +350,7 @@ impl<'s> Writer<'s> {
 						out.write_str(r#"<img alt=""#)?;
 					}
 					Container::Footnote { .. } => self.states.push(State::Footnote(Vec::new())),
+					Container::LinkDefinition { .. } => self.states.push(State::Ignore),
 					Container::Blockquote => out.write_str("<blockquote>")?,
 					Container::ListItem { .. } => out.write_str("<li>")?,
 					Container::DescriptionList => out.write_str("<dl>")?,
@@ -356,7 +359,15 @@ impl<'s> Writer<'s> {
 					Container::TableRow { .. } => out.write_str("<tr>")?,
 					Container::Caption => out.write_str("<caption>")?,
 					Container::DescriptionTerm => out.write_str("<dt>")?,
-					Container::Span => out.write_str("<span>")?,
+					Container::Span => {
+						if has_role(attrs, "datetime") {
+							self.states.push(State::Datetime(String::new()))
+						} else if has_role(attrs, "date") {
+							self.states.push(State::Date(String::new()))
+						} else {
+							out.write_str("<span>")?
+						}
+					}
 					Container::Verbatim => out.write_str("<code>")?,
 					Container::Subscript => out.write_str("<sub>")?,
 					Container::Superscript => out.write_str("<sup>")?,
@@ -365,7 +376,6 @@ impl<'s> Writer<'s> {
 					Container::Strong => out.write_str("<strong>")?,
 					Container::Emphasis => out.write_str("<em>")?,
 					Container::Mark => out.write_str("<mark>")?,
-					Container::LinkDefinition { .. } => return Ok(()),
 					e => bail!("DJot element {e:?} is not supported"),
 				}
 			}
@@ -455,7 +465,6 @@ impl<'s> Writer<'s> {
 						// }}}
 					}
 					Container::Image(src, ..) => write!(out, r#" {}>"#, Attr("src", src))?,
-					Container::LinkDefinition { .. } => self.states.push(State::Ignore),
 					Container::Blockquote => out.write_str("</blockquote>")?,
 					Container::ListItem { .. } => out.write_str("</li>")?,
 					Container::DescriptionList => out.write_str("</dl>")?,
@@ -548,7 +557,31 @@ impl<'s> Writer<'s> {
 						out.write_str("</code></pre>")?
 					}
 					// }}}
-					Container::Span => out.write_str("</span>")?,
+					Container::Span => {
+						if matches!(self.states.last(), Some(State::Datetime(_))) {
+							let Some(State::Datetime(buffer)) = self.states.pop() else {
+								unreachable!()
+							};
+
+							write_datetime(out, &DateTime::parse_from_rfc3339(&buffer)?)?;
+						} else if matches!(self.states.last(), Some(State::Date(_))) {
+							let Some(State::Date(buffer)) = self.states.pop() else {
+								unreachable!()
+							};
+
+							let date = NaiveDate::parse_from_str(&buffer, "%Y-%m-%d")
+								.with_context(|| "Failed to parse date inside span")?;
+							write!(
+								out,
+								r#"<time datetime="{}">{}</time>"#,
+								date.format("%Y-%m-%d"),
+								date.format("%a, %d %b %Y")
+							)?;
+						} else {
+							out.write_str("</span>")?;
+						}
+					}
+
 					Container::Link(..) => out.write_str("</a>")?,
 					Container::Verbatim => out.write_str("</code>")?,
 					Container::Subscript => out.write_str("</sub>")?,
@@ -565,7 +598,9 @@ impl<'s> Writer<'s> {
 			// {{{ Raw string
 			Event::Str(s) => match self.states.last_mut() {
 				Some(State::Raw) => out.write_str(s)?,
-				Some(State::CodeBlock(buffer)) => buffer.push_str(s),
+				Some(State::CodeBlock(buffer) | State::Datetime(buffer) | State::Date(buffer)) => {
+					buffer.push_str(s)
+				}
 				// {{{ Math
 				Some(State::Math(display)) => {
 					let config = pulldown_latex::RenderConfig {
