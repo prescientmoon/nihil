@@ -4,12 +4,11 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, bail, Context};
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use jotdown::{Container, Event};
 use serde::Deserialize;
 
-use crate::html;
-
+// {{{ Config
 #[derive(Deserialize, Debug, Default)]
 pub struct PageConfig {
 	pub created_at: Option<DateTime<FixedOffset>>,
@@ -32,7 +31,8 @@ impl PageConfig {
 		Ok(())
 	}
 }
-
+// }}}
+// {{{ Routing
 #[derive(Debug)]
 pub enum PageRoute {
 	Home,
@@ -49,16 +49,19 @@ impl PageRoute {
 
 		let result = if first == OsStr::new("index.dj") {
 			Self::Home
-		} else if first == OsStr::new("posts") {
-			if let Some(Component::Normal(second)) = path.components().nth(2) {
-				let mut slice = second.to_str().unwrap();
-				if slice.ends_with(".dj") {
-					slice = slice.strip_suffix(".dj").unwrap();
-				}
+		} else if first == OsStr::new("echoes") {
+			let Some(Component::Normal(second)) = path.components().nth(2) else {
+				bail!("Cannot convert path '{:?}' to page route", path);
+			};
+			let mut slice = second.to_str().unwrap();
+			if slice.ends_with(".dj") {
+				slice = slice.strip_suffix(".dj").unwrap();
+			}
 
-				Self::Post(slice.to_owned())
-			} else {
+			if slice == "index" {
 				Self::Posts
+			} else {
+				Self::Post(slice.to_owned())
 			}
 		} else {
 			bail!("Cannot convert path '{:?}' to page route", path);
@@ -67,26 +70,33 @@ impl PageRoute {
 		Ok(result)
 	}
 }
-
-#[derive(Debug)]
-pub struct PageMetadata {
-	pub title: Heading,
-	pub config: PageConfig,
-	pub word_count: usize,
-	pub last_modified: DateTime<FixedOffset>,
-	pub route: PageRoute,
-
+// }}}
+// {{{ Metadata
+#[derive(Debug, Clone)]
+pub struct Heading<'a> {
 	#[allow(dead_code)]
-	pub toc: Vec<Heading>,
-	#[allow(dead_code)]
-	pub path: PathBuf,
+	pub level: u8,
+	pub id: String, // Heading events own their ID, so we have to clone
+	pub events: Vec<jotdown::Event<'a>>,
 }
 
-impl PageMetadata {
-	pub fn new<'s>(
-		mut events: impl Iterator<Item = Event<'s>>,
-		path: PathBuf,
-	) -> anyhow::Result<Self> {
+#[derive(Debug)]
+pub struct PageMetadata<'s> {
+	pub config: PageConfig,
+	pub route: PageRoute,
+
+	pub title: Heading<'s>,
+	#[allow(dead_code)]
+	pub description: Vec<jotdown::Event<'s>>,
+	#[allow(dead_code)]
+	pub toc: Vec<Heading<'s>>,
+
+	pub word_count: usize,
+	pub last_modified: DateTime<FixedOffset>,
+}
+
+impl<'a> PageMetadata<'a> {
+	pub fn new(mut events: impl Iterator<Item = Event<'a>>, path: PathBuf) -> anyhow::Result<Self> {
 		let mut w = Writer::new();
 		events.try_for_each(|e| w.render_event(&e))?;
 
@@ -104,56 +114,53 @@ impl PageMetadata {
 			.with_context(|| anyhow!("Could not read the last modification date for file"))?
 			.stdout;
 		let last_modified = String::from_utf8(last_modified_output)?;
-		let last_modified = DateTime::parse_from_rfc3339(&last_modified).with_context(|| {
-			anyhow!(
-				"Failed to parse datetime returned by git '{}'",
-				last_modified
-			)
-		})?;
+
+		let last_modified = if last_modified.is_empty() {
+			Utc::now().fixed_offset()
+		} else {
+			DateTime::parse_from_rfc3339(&last_modified).with_context(|| {
+				anyhow!(
+					"Failed to parse datetime returned by git '{}'",
+					last_modified
+				)
+			})?
+		};
 
 		Ok(Self {
 			title: title.to_owned(),
+			description: w.description,
 			route: PageRoute::from_path(&path)?,
 			config: w.config,
 			toc: w.toc,
 			word_count: w.word_count,
 			last_modified,
-			path,
 		})
 	}
 }
-
-#[derive(Debug, Clone)]
-pub struct Heading {
-	#[allow(dead_code)]
-	pub level: u8,
-	pub id: String,
-	pub text: String,
-	pub html: String,
-}
+// }}}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum State {
 	Toplevel,
 	Heading,
 	Config,
+	Description,
 }
 
 struct Writer<'s> {
-	/// This renderer is used for generating the html for the titles
-	html_renderer: html::Writer<'s>,
 	config: PageConfig,
-	toc: Vec<Heading>,
+	toc: Vec<Heading<'s>>,
 	toml_text: String,
 	state: State,
 	word_count: usize,
+	description: Vec<jotdown::Event<'s>>,
 }
 
 impl<'s> Writer<'s> {
 	fn new() -> Self {
 		Self {
-			html_renderer: html::Writer::new(None),
 			config: PageConfig::default(),
+			description: Vec::new(),
 			toc: Vec::new(),
 			toml_text: String::new(),
 			state: State::Toplevel,
@@ -161,7 +168,7 @@ impl<'s> Writer<'s> {
 		}
 	}
 
-	fn render_event(&mut self, e: &jotdown::Event<'s>) -> anyhow::Result<()> {
+	fn render_event<'a>(&mut self, e: &'a jotdown::Event<'s>) -> anyhow::Result<()> {
 		if let Event::Str(content) = e {
 			if self.state != State::Config {
 				self.word_count += content
@@ -172,20 +179,23 @@ impl<'s> Writer<'s> {
 		}
 
 		match e {
+			// {{{ Headings
 			Event::Start(Container::Heading { level, id, .. }, _) => {
 				assert_eq!(self.state, State::Toplevel);
 				self.state = State::Heading;
 				self.toc.push(Heading {
 					level: *level as u8,
+					events: Vec::new(),
+					// These ids are always borrowed, unless modified by the user (i.e. me)
 					id: id.to_string(),
-					text: String::new(),
-					html: String::new(),
 				})
 			}
 			Event::End(Container::Heading { .. }) => {
 				assert_eq!(self.state, State::Heading);
 				self.state = State::Toplevel;
 			}
+			// }}}
+			// {{{ TOML config blocks
 			Event::Start(Container::RawBlock { format: "toml" }, attrs) => {
 				assert_eq!(self.state, State::Toplevel);
 				if let Some(role_attr) = attrs.get_value("role") {
@@ -205,16 +215,28 @@ impl<'s> Writer<'s> {
 					self.toml_text.clear();
 				}
 			}
+			// }}}
+			// {{{ Descriptions
+			Event::Start(Container::Div { .. }, attrs) if self.state == State::Toplevel => {
+				if let Some(role_attr) = attrs.get_value("role") {
+					if format!("{}", role_attr) == "description" {
+						self.state = State::Description
+					}
+				}
+			}
+			Event::End(Container::Div { .. }) if self.state == State::Description => {
+				self.state = State::Toplevel;
+			}
+			// }}}
 			Event::Str(str) if self.state == State::Config => {
 				self.toml_text.write_str(str)?;
 			}
-			other if self.state == State::Heading => {
+			_ if self.state == State::Description => {
+				self.description.push(e.clone());
+			}
+			_ if self.state == State::Heading => {
 				let last_heading = self.toc.last_mut().unwrap();
-				self.html_renderer.render_event(e, &mut last_heading.html)?;
-
-				if let Event::Str(str) = other {
-					last_heading.text.write_str(str)?;
-				}
+				last_heading.events.push(e.clone());
 			}
 			_ => {}
 		}

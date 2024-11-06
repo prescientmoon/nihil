@@ -1,16 +1,23 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 
 use anyhow::anyhow;
 use anyhow::bail;
 use chrono::DateTime;
 use chrono::TimeZone;
 use jotdown::Alignment;
+use jotdown::AttributeValue;
 use jotdown::Container;
 use jotdown::Event;
 use jotdown::LinkType;
 use jotdown::ListKind;
 use jotdown::OrderedListNumbering::*;
 use jotdown::SpanLinkType;
+use tree_sitter::Language;
+use tree_sitter_highlight::Highlight;
+use tree_sitter_highlight::HighlightConfiguration;
+use tree_sitter_highlight::HighlightEvent;
+use tree_sitter_highlight::Highlighter;
 
 use crate::metadata::PageMetadata;
 use crate::metadata::PageRoute;
@@ -36,7 +43,7 @@ pub struct Writer<'s> {
 	list_tightness: Vec<bool>,
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
-	metadata: Option<&'s PageMetadata>,
+	metadata: Option<&'s PageMetadata<'s>>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,8 +52,10 @@ enum State<'s> {
 	Ignore,
 	Raw,
 	Math(bool),
+	CodeBlock(String),
 	Aside(TemplateRenderer<'s>),
 	Article(TemplateRenderer<'s>),
+	Footnote(Vec<jotdown::Event<'s>>),
 }
 
 impl<'s> Writer<'s> {
@@ -65,80 +74,72 @@ impl<'s> Writer<'s> {
 		e: &Event<'s>,
 		mut out: impl std::fmt::Write,
 	) -> anyhow::Result<()> {
-		// {{{ Handle footnotes
-		if let Event::Start(Container::Footnote { label }, ..) = e {
-			self.footnotes.start(label, Vec::new());
-			return Ok(());
-		} else if let Some(events) = self.footnotes.current() {
-			if matches!(e, Event::End(Container::Footnote { .. })) {
-				self.footnotes.end();
-			} else {
-				events.push(e.clone());
-			}
-			return Ok(());
-		}
-		// }}}
-		// {{{ Handle important state changes
-		match e {
-			Event::Start(Container::LinkDefinition { .. }, ..) => {
-				self.states.push(State::Ignore);
-				return Ok(());
-			}
-			Event::End(Container::LinkDefinition { .. }) => {
-				// Sanity check
-				assert!(matches!(self.states.last(), Some(State::Ignore)));
-				self.states.pop();
-			}
-
-			Event::Start(Container::RawBlock { format } | Container::RawInline { format }, ..) => {
-				if format == &"html" {
-					self.states.push(State::Raw);
-				} else {
-					self.states.push(State::Ignore);
+		// {{{ Handle "footnote" states
+		if matches!(self.states.last(), Some(State::Footnote(_))) {
+			if let Event::End(Container::Footnote { label }) = e {
+				let Some(State::Footnote(events)) = self.states.pop() else {
+					unreachable!()
 				};
 
+				self.footnotes.insert(label, events);
+			} else {
+				let Some(State::Footnote(events)) = self.states.last_mut() else {
+					unreachable!()
+				};
+
+				events.push(e.clone());
 				return Ok(());
 			}
-			Event::End(Container::RawBlock { .. } | Container::RawInline { .. }) => {
-				// Sanity check
-				assert!(matches!(
-					self.states.last(),
-					Some(State::Raw | State::Ignore)
-				));
-
-				self.states.pop();
-			}
-
-			_ => {}
 		}
 		// }}}
-
-		if matches!(self.states.last(), Some(State::Ignore)) {
-			return Ok(());
+		// {{{ Handle "text-only" states
+		if matches!(self.states.last(), Some(State::TextOnly)) {
+			match e {
+				Event::End(Container::Image(..)) => {
+					self.states.pop();
+				}
+				Event::Str(s) => write!(out, "{}", Escaped(s))?,
+				_ => return Ok(()),
+			}
 		}
+		// }}}
+		// {{{ Handle "ignore" states
+		if matches!(self.states.last(), Some(State::Ignore)) {
+			match e {
+				Event::End(
+					Container::RawBlock { .. }
+					| Container::RawInline { .. }
+					| Container::LinkDefinition { .. }
+					| Container::Div { .. },
+				) => {
+					self.states.pop();
+					return Ok(());
+				}
+				_ => return Ok(()),
+			}
+		}
+		// }}}
 
 		match e {
 			// {{{ Container start
 			Event::Start(c, attrs) => {
-				if matches!(self.states.last(), Some(&State::TextOnly)) {
-					return Ok(());
-				}
-
 				match &c {
-					Container::RawBlock { .. } => {}
-					Container::RawInline { .. } => unreachable!(),
-					Container::Footnote { .. } => unreachable!(),
 					// {{{ Section
 					Container::Section { id } => match self.metadata {
 						Some(meta)
-							if &meta.title.id == id && matches!(meta.route, PageRoute::Post(_)) =>
+							if meta.title.id == *id && matches!(meta.route, PageRoute::Post(_)) =>
 						{
-							let renderer = template!("templates/post.html", &mut out)?;
-							// Sanity check
+							let mut renderer = template!("templates/post.html", &mut out)?;
+
 							assert_eq!(renderer.current(), Some("attrs"));
+							write!(out, "{}", Attr("aria-labeledby", id))?;
+							renderer.next(&mut out)?;
+
 							self.states.push(State::Article(renderer));
 						}
-						_ => out.write_str("<section")?,
+						_ => {
+							write!(out, "<section {}>", Attr("aria-labeledby", id))?;
+						}
 					},
 					// }}}
 					// {{{ Aside
@@ -154,27 +155,25 @@ impl<'s> Writer<'s> {
 						};
 
 						while let Some(label) = renderer.current() {
-							if label == "character" {
-								let character = attrs.get_value("character").ok_or_else(|| {
-									anyhow!("Cannot find `character` attribute on `aside` element")
-								})?;
+							match label {
+								"character" => {
+									let character =
+										attrs.get_value("character").ok_or_else(|| {
+											anyhow!("Cannot find `character` attribute on `aside` element")
+										})?;
 
-								character
-									.parts()
-									.try_for_each(|part| write_attr_contents(part, &mut out))?;
-								renderer.next(&mut out)?;
-							} else if label == "title" {
-								let title = attrs.get_value("title").ok_or_else(|| {
-									anyhow!("Cannot find `title` attribute on `aside` element")
-								})?;
+									write_attribute(&mut out, &character)?;
+								}
+								"title" => {
+									let title = attrs.get_value("title").ok_or_else(|| {
+										anyhow!("Cannot find `title` attribute on `aside` element")
+									})?;
 
-								title
-									.parts()
-									.try_for_each(|part| write_attr_contents(part, &mut out))?;
-								renderer.next(&mut out)?;
-							} else {
-								break;
+									write_attribute(&mut out, &title)?;
+								}
+								_ => break,
 							}
+							renderer.next(&mut out)?;
 						}
 
 						self.states.push(State::Aside(renderer));
@@ -184,7 +183,7 @@ impl<'s> Writer<'s> {
 					Container::List { kind, tight } => {
 						self.list_tightness.push(*tight);
 						match kind {
-							ListKind::Unordered(..) => out.write_str("<ul")?,
+							ListKind::Unordered(..) => out.write_str("<ul>")?,
 							ListKind::Ordered {
 								numbering, start, ..
 							} => {
@@ -202,6 +201,8 @@ impl<'s> Writer<'s> {
 								} {
 									write!(out, r#" type="{}""#, ty)?;
 								}
+
+								write!(out, ">")?;
 							}
 							ListKind::Task(_) => bail!("Task lists are not supported"),
 						}
@@ -210,15 +211,51 @@ impl<'s> Writer<'s> {
 					// {{{ Link
 					Container::Link(dst, ty) => {
 						if matches!(ty, LinkType::Span(SpanLinkType::Unresolved)) {
-							out.write_str("<a")?;
+							out.write_str("<a>")?;
 						} else {
-							out.write_str(r#"<a href=""#)?;
-							if matches!(ty, LinkType::Email) {
-								out.write_str("mailto:")?;
-							}
-							write_attr_contents(dst, &mut out)?;
-							out.write_char('"')?;
+							let prefix = if matches!(ty, LinkType::Email) {
+								"mailto:"
+							} else {
+								""
+							};
+
+							write!(out, r#"<a href="{prefix}{}"">"#, Escaped(dst))?;
 						}
+					}
+					// }}}
+					// {{{ Table cell
+					Container::TableCell {
+						head, alignment, ..
+					} => {
+						if *head {
+							out.write_str("<td")?;
+						} else {
+							out.write_str("<th")?;
+						}
+
+						if !matches!(alignment, Alignment::Unspecified) {
+							// TODO: move this to css
+							let a = match alignment {
+								Alignment::Unspecified => unreachable!(),
+								Alignment::Left => "left",
+								Alignment::Center => "center",
+								Alignment::Right => "right",
+							};
+
+							write!(out, r#" style="text-align: {};""#, a)?;
+						}
+
+						write!(out, ">")?;
+					}
+					// }}}
+					// {{{ Heading
+					Container::Heading { level, id, .. } => {
+						write!(
+							out,
+							r##"<h{level} id="{}"><a href="#{}">◇</a> "##,
+							Escaped(id),
+							Escaped(id)
+						)?;
 					}
 					// }}}
 					// {{{ Paragraph
@@ -227,162 +264,77 @@ impl<'s> Writer<'s> {
 							return Ok(());
 						}
 
-						out.write_str("<p")?;
+						out.write_str("<p>")?;
 					}
 					// }}}
-					Container::Blockquote => out.write_str("<blockquote")?,
-					Container::ListItem { .. } => out.write_str("<li")?,
-					Container::DescriptionList => out.write_str("<dl")?,
-					Container::DescriptionDetails => out.write_str("<dd")?,
-					Container::Table => out.write_str("<table")?,
-					Container::TableRow { .. } => out.write_str("<tr")?,
-					Container::Div { .. } => out.write_str("<div")?,
-					Container::Heading { level, .. } => write!(out, "<h{}", level)?,
-					Container::TableCell { head: false, .. } => out.write_str("<td")?,
-					Container::TableCell { head: true, .. } => out.write_str("<th")?,
-					Container::Caption => out.write_str("<caption")?,
-					Container::Image(..) => out.write_str("<img")?,
-					Container::DescriptionTerm => out.write_str("<dt")?,
-					Container::CodeBlock { .. } => out.write_str("<pre")?,
-					Container::Span | Container::Math { .. } => out.write_str("<span")?,
-					Container::Verbatim => out.write_str("<code")?,
-					Container::Subscript => out.write_str("<sub")?,
-					Container::Superscript => out.write_str("<sup")?,
-					Container::Insert => out.write_str("<ins")?,
-					Container::Delete => out.write_str("<del")?,
-					Container::Strong => out.write_str("<strong")?,
-					Container::Emphasis => out.write_str("<em")?,
-					Container::Mark => out.write_str("<mark")?,
+					// {{{ Div
+					Container::Div { class } => {
+						if attrs
+							.get_value("role")
+							.map_or(false, |role| format!("{role}") == "description")
+						{
+							self.states.push(State::Ignore);
+						} else {
+							write!(out, "<div{}>", Attr("class", class))?;
+						}
+					}
+					// }}}
+					// {{{ Raw block
+					Container::RawBlock { format } | Container::RawInline { format } => {
+						if format == &"html" {
+							self.states.push(State::Raw);
+						} else {
+							self.states.push(State::Ignore);
+						};
+					}
+					// }}}
+					Container::CodeBlock { .. } => {
+						self.states.push(State::CodeBlock(String::new()));
+						out.write_str("<pre><code>")?;
+					}
+					Container::Math { display } => {
+						self.states.push(State::Math(*display));
+						out.write_str("<math>")?;
+					}
+					Container::Image(_, _) => {
+						self.states.push(State::TextOnly);
+						out.write_str(r#"<img alt=""#)?;
+					}
+					Container::Footnote { .. } => self.states.push(State::Footnote(Vec::new())),
+					Container::Blockquote => out.write_str("<blockquote>")?,
+					Container::ListItem { .. } => out.write_str("<li>")?,
+					Container::DescriptionList => out.write_str("<dl>")?,
+					Container::DescriptionDetails => out.write_str("<dd>")?,
+					Container::Table => out.write_str("<table>")?,
+					Container::TableRow { .. } => out.write_str("<tr>")?,
+					Container::Caption => out.write_str("<caption>")?,
+					Container::DescriptionTerm => out.write_str("<dt>")?,
+					Container::Span => out.write_str("<span>")?,
+					Container::Verbatim => out.write_str("<code>")?,
+					Container::Subscript => out.write_str("<sub>")?,
+					Container::Superscript => out.write_str("<sup>")?,
+					Container::Insert => out.write_str("<ins>")?,
+					Container::Delete => out.write_str("<del>")?,
+					Container::Strong => out.write_str("<strong>")?,
+					Container::Emphasis => out.write_str("<em>")?,
+					Container::Mark => out.write_str("<mark>")?,
 					Container::LinkDefinition { .. } => return Ok(()),
 					e => bail!("DJot element {e:?} is not supported"),
 				}
-
-				// {{{ Decide whether this element supports attributes
-				let mut write_attr_contentsibs = true;
-				if matches!(
-					c,
-					Container::Div {
-						class: "aside" | "long-aside" | "char-aside"
-					}
-				) {
-					write_attr_contentsibs = false;
-				}
-				// }}}
-
-				if write_attr_contentsibs {
-					// {{{ Write attributes
-					let mut id_written = false;
-					let mut class_written = false;
-
-					if write_attr_contentsibs {
-						for (a, v) in attrs.unique_pairs() {
-							let is_class = a == "class";
-							let is_id = a == "id";
-							if (!is_id || !id_written) && (!is_class || !class_written) {
-								write!(out, r#" {}=""#, a)?;
-								v.parts()
-									.try_for_each(|part| write_attr_contents(part, &mut out))?;
-								out.write_char('"')?;
-
-								id_written |= is_id;
-								class_written |= is_class;
-							};
-						}
-					}
-					// }}}
-					// {{{ Write default ids/classes
-					match c {
-						Container::Heading { id, .. } if !id_written => {
-							write_attr("id", id, &mut out)?;
-						}
-						Container::Section { id, .. } => {
-							write_attr("aria-labeledby", id, &mut out)?;
-						}
-						Container::Div { class } if !class.is_empty() && !class_written => {
-							write_attr("class", class, &mut out)?;
-						}
-						_ => {}
-					}
-					// }}}
-					// {{{ Write special attributes
-					match c {
-						// {{{ Write css for aligning table cell text
-						Container::TableCell { alignment, .. }
-							if !matches!(alignment, Alignment::Unspecified) =>
-						{
-							let a = match alignment {
-								Alignment::Unspecified => unreachable!(),
-								Alignment::Left => "left",
-								Alignment::Center => "center",
-								Alignment::Right => "right",
-							};
-							write!(out, r#" style="text-align: {};">"#, a)?;
-						}
-						// }}}
-						// {{{ Write language for codeblock
-						Container::CodeBlock { language } => {
-							if language.is_empty() {
-								out.write_str("><code>")?;
-							} else {
-								out.write_str(r#"><code class="language-"#)?;
-								write_attr_contents(language, &mut out)?;
-								out.write_str(r#"">"#)?;
-							}
-						}
-						// }}}
-						Container::Image(..) => out.write_str(r#" alt=""#)?,
-						Container::Math { display } => {
-							out.write_str(r#">"#)?;
-							self.states.push(State::Math(*display));
-						}
-						_ => match self.states.last_mut() {
-							Some(State::Article(renderer))
-								if renderer.current() == Some("attrs") =>
-							{
-								renderer.next(&mut out)?;
-							}
-							_ => out.write_char('>')?,
-						},
-					}
-					// }}}
-				}
-
-				// {{{ Post-start effects
-				match &c {
-					Container::Heading { id, .. } => {
-						out.write_str(r##"<a href="#"##)?;
-						write_attr_contents(id, &mut out)?;
-						out.write_str(r#"">◇</a> "#)?;
-					}
-					Container::Image(..) => {
-						self.states.push(State::TextOnly);
-					}
-					_ => {}
-				}
-				// }}}
 			}
 			// }}}
 			// {{{ Container end
 			Event::End(c) => {
-				// {{{ Pre-end effects
-				match &c {
-					Container::Image(..) => {
+				match c {
+					Container::Footnote { .. } => unreachable!(),
+					// {{{ Raw block
+					Container::RawBlock { .. } | Container::RawInline { .. } => {
 						// Sanity check
-						assert!(matches!(self.states.last(), Some(State::TextOnly)));
+						assert!(matches!(self.states.last(), Some(State::Raw)));
+
 						self.states.pop();
 					}
-					_ => {}
-				}
-				// }}}
-
-				if matches!(self.states.last(), Some(State::TextOnly)) {
-					return Ok(());
-				}
-
-				match c {
-					Container::RawBlock { .. } => {}
-					Container::RawInline { .. } => unreachable!(),
-					Container::Footnote { .. } => unreachable!(),
+					// }}}
 					// {{{ List
 					Container::List { kind, .. } => {
 						self.list_tightness.pop();
@@ -403,28 +355,18 @@ impl<'s> Writer<'s> {
 						out.write_str("</p>")?;
 					}
 					// }}}
-					// {{{ Image
-					Container::Image(src, ..) => {
-						if !src.is_empty() {
-							out.write_str(r#"" src=""#)?;
-							write_attr_contents(src, &mut out)?;
-						}
-
-						out.write_str(r#"">"#)?;
-					}
-					// }}}
 					// {{{ Math
 					Container::Math { .. } => {
 						// Sanity check
 						assert!(matches!(self.states.last(), Some(State::Math(_))));
 						self.states.pop();
-						out.write_str(r#"</span>"#)?;
+						out.write_str(r#"</math>"#)?;
 					}
 					// }}}
 					// {{{ Section
 					Container::Section { id, .. } => match self.metadata {
 						Some(meta)
-							if &meta.title.id == id
+							if meta.title.id == *id
 								&& matches!(self.states.last(), Some(State::Article(_))) =>
 						{
 							let Some(State::Article(renderer)) = self.states.pop() else {
@@ -445,8 +387,6 @@ impl<'s> Writer<'s> {
 							panic!("Finished `aside` element without being in the `Aside` state.")
 						};
 
-						// Sanity check
-						assert_eq!(renderer.current(), Some("content"));
 						renderer.finish(&mut out)?;
 					}
 					// }}}
@@ -462,42 +402,42 @@ impl<'s> Writer<'s> {
 								while let Some(label) = renderer.next(&mut out)? {
 									if label == "posted_on" {
 										if let Some(d) = meta.config.created_at {
-											write!(&mut out, "Posted on ")?;
-											write_datetime(&d, &mut out)?;
+											write!(out, "Posted on ")?;
+											write_datetime(&mut out, &d)?;
 										} else {
-											write!(&mut out, "Being conjured by ")?;
+											write!(out, "Being conjured by ")?;
 										}
 									} else if label == "updated_on" {
-										write_datetime(&meta.last_modified, &mut out)?;
+										write_datetime(&mut out, &meta.last_modified)?;
 									} else if label == "word_count" {
 										let wc = meta.word_count;
 										if wc < 400 {
-											write!(&mut out, "{}", wc)?;
+											write!(out, "{}", wc)?;
 										} else if wc < 1000 {
-											write!(&mut out, "{}", wc / 10 * 10)?;
+											write!(out, "{}", wc / 10 * 10)?;
 										} else if wc < 2000 {
-											write!(&mut out, "{}", wc / 100 * 100)?;
+											write!(out, "{}", wc / 100 * 100)?;
 										} else {
-											write!(&mut out, "{} thousand", wc / 1000)?;
+											write!(out, "{} thousand", wc / 1000)?;
 										}
 									} else if label == "reading_duration" {
 										let minutes = meta.word_count / 200;
 										if minutes == 0 {
 											let seconds = meta.word_count * 60 / 200;
-											write!(&mut out, "very short {seconds} second")?;
+											write!(out, "very short {seconds} second")?;
 										} else if minutes < 10 {
-											write!(&mut out, "short {minutes} minute")?;
+											write!(out, "short {minutes} minute")?;
 										} else if minutes < 20 {
-											write!(&mut out, "somewhat short {minutes} minute")?;
+											write!(out, "somewhat short {minutes} minute")?;
 										} else if minutes < 30 {
-											write!(&mut out, "somewhat long {minutes}")?;
+											write!(out, "somewhat long {minutes}")?;
 										} else if minutes < 60 {
-											write!(&mut out, "long {minutes}")?;
+											write!(out, "long {minutes}")?;
 										} else {
 											let hours = minutes / 60;
 											let minutes = minutes % 60;
 											write!(
-												&mut out,
+												out,
 												"very long {hours} hour and {minutes} minute"
 											)?;
 										}
@@ -509,6 +449,8 @@ impl<'s> Writer<'s> {
 						}
 						// }}}
 					}
+					Container::Image(src, ..) => write!(out, r#" {}>"#, Attr("src", src))?,
+					Container::LinkDefinition { .. } => self.states.push(State::Ignore),
 					Container::Blockquote => out.write_str("</blockquote>")?,
 					Container::ListItem { .. } => out.write_str("</li>")?,
 					Container::DescriptionList => out.write_str("</dl>")?,
@@ -520,7 +462,87 @@ impl<'s> Writer<'s> {
 					Container::TableCell { head: true, .. } => out.write_str("</th>")?,
 					Container::Caption => out.write_str("</caption>")?,
 					Container::DescriptionTerm => out.write_str("</dt>")?,
-					Container::CodeBlock { .. } => out.write_str("</code></pre>")?,
+					// {{{ Syntax highlighting
+					Container::CodeBlock { language } => {
+						let Some(State::CodeBlock(buffer)) = self.states.pop() else {
+							panic!("Arrived at end of code block without being in the approriate state.");
+						};
+
+						if *language == "rust" {
+							let mut highlighter = Highlighter::new();
+							let language = Language::new(tree_sitter_rust::LANGUAGE);
+
+							let mut config = HighlightConfiguration::new(
+								language,
+								"rust",
+								tree_sitter_rust::HIGHLIGHTS_QUERY,
+								tree_sitter_rust::INJECTIONS_QUERY,
+								"",
+							)?;
+
+							let highlight_names = [
+								"attribute",
+								"comment",
+								"comment.documentation",
+								"constant",
+								"constant.builtin",
+								"constructor",
+								"function",
+								"function.builtin",
+								"function.macro",
+								"function.method",
+								"keyword",
+								"label",
+								"operator",
+								"property",
+								"punctuation",
+								"punctuation.bracket",
+								"punctuation.delimiter",
+								"string",
+								"string.special",
+								"tag",
+								"type",
+								"type.builtin",
+								"variable",
+								"variable.builtin",
+								"variable.parameter",
+							];
+
+							let highlight_classes = highlight_names
+								.iter()
+								.map(|s| s.replace(".", "-"))
+								.collect::<Vec<_>>();
+
+							config.configure(&highlight_names);
+
+							let highlights =
+								highlighter
+									.highlight(&config, buffer.as_bytes(), None, |_| None)?;
+
+							for event in highlights {
+								match event? {
+									HighlightEvent::Source { start, end } => {
+										write!(out, "{}", Escaped(&buffer[start..end]))?;
+									}
+									HighlightEvent::HighlightStart(Highlight(index)) => {
+										write!(
+											&mut out,
+											r#"<span class="{}">"#,
+											highlight_classes[index]
+										)?;
+									}
+									HighlightEvent::HighlightEnd => {
+										write!(&mut out, r#"</span>"#)?;
+									}
+								}
+							}
+						} else {
+							write!(out, "{}", Escaped(&buffer))?;
+						}
+
+						out.write_str("</code></pre>")?
+					}
+					// }}}
 					Container::Span => out.write_str("</span>")?,
 					Container::Link(..) => out.write_str("</a>")?,
 					Container::Verbatim => out.write_str("</code>")?,
@@ -531,15 +553,14 @@ impl<'s> Writer<'s> {
 					Container::Strong => out.write_str("</strong>")?,
 					Container::Emphasis => out.write_str("</em>")?,
 					Container::Mark => out.write_str("</mark>")?,
-					Container::LinkDefinition { .. } => unreachable!(),
 					e => bail!("DJot element {e:?} is not supported"),
 				}
 			}
 			// }}}
 			// {{{ Raw string
-			Event::Str(s) => match self.states.last() {
-				Some(State::TextOnly) => write_attr_contents(s, &mut out)?,
+			Event::Str(s) => match self.states.last_mut() {
 				Some(State::Raw) => out.write_str(s)?,
+				Some(State::CodeBlock(buffer)) => buffer.push_str(s),
 				// {{{ Math
 				Some(State::Math(display)) => {
 					let config = pulldown_latex::RenderConfig {
@@ -564,7 +585,7 @@ impl<'s> Writer<'s> {
 					out.write_str(&mathml)?;
 				}
 				// }}}
-				_ => write_escape(s, false, &mut out)?,
+				_ => write!(out, "{}", Escaped(s))?,
 			},
 			// }}}
 			// {{{ Footnote reference
@@ -573,8 +594,13 @@ impl<'s> Writer<'s> {
 				if !matches!(self.states.last(), Some(State::TextOnly)) {
 					write!(
 						out,
-						r##"<sup><a id="fnref{}" href="#fn{}" role="doc-noteref">{}</a></sup>"##,
-						number, number, number
+						r##"
+              <sup>
+                <a id="fnref{number}" href="#fn{number}" role="doc-noteref">
+                  {number}
+                </a>
+              </sup>
+            "##
 					)?;
 				}
 			}
@@ -592,18 +618,7 @@ impl<'s> Writer<'s> {
 			Event::Hardbreak => out.write_str("<br>")?,
 			Event::Softbreak => out.write_char('\n')?,
 			// }}}
-			// {{{ Thematic break
-			Event::ThematicBreak(attrs) => {
-				out.write_str("<hr")?;
-				for (a, v) in attrs.unique_pairs() {
-					write!(out, r#" {}=""#, a)?;
-					v.parts()
-						.try_for_each(|part| write_attr_contents(part, &mut out))?;
-					out.write_char('"')?;
-				}
-				out.write_str(">")?;
-			}
-			// }}}
+			Event::ThematicBreak(_) => out.write_str("<hr>")?,
 			Event::Escape | Event::Blankline | Event::Attributes(..) => {}
 		}
 
@@ -617,7 +632,7 @@ impl<'s> Writer<'s> {
 			out.write_str("<section role=\"doc-endnotes\"><hr><ol>")?;
 
 			while let Some((number, events)) = self.footnotes.next() {
-				write!(out, "<li id=\"fn{}\">", number)?;
+				write!(out, r#"<li id="fn{number}">"#)?;
 
 				for e in events.iter().flatten() {
 					self.render_event(e, &mut out)?;
@@ -625,9 +640,14 @@ impl<'s> Writer<'s> {
 
 				write!(
 					out,
-					"<a href=\"#fnref{}\" role=\"doc-backlink\">Return to content \u{21A9}\u{FE0E}</a></li>",
-					number,
+					r##"
+            <a href="#fnref{number}" role="doc-backlink">
+                Return to content 
+            </a></li>
+          "##,
 				)?;
+
+				println!("\u{21A9}\u{FE0E}");
 			}
 
 			out.write_str("</ol></section>")?;
@@ -638,50 +658,52 @@ impl<'s> Writer<'s> {
 	// }}}
 }
 
-// {{{ Writing helpers
-#[inline]
-fn write_attr_contents(s: &str, out: impl std::fmt::Write) -> std::fmt::Result {
-	write_escape(s, true, out)
-}
+// {{{ HTMl escaper
+pub struct Escaped<'a>(&'a str);
 
-#[inline]
-fn write_attr(attr: &str, content: &str, mut out: impl std::fmt::Write) -> std::fmt::Result {
-	write!(&mut out, r#" {attr}=""#)?;
-	write_attr_contents(content, &mut out)?;
-	out.write_char('"')?;
-	Ok(())
-}
-
-fn write_escape(
-	mut s: &str,
-	escape_quotes: bool,
-	mut out: impl std::fmt::Write,
-) -> std::fmt::Result {
-	let mut ent = "";
-	while let Some(i) = s.find(|c| {
-		match c {
-			'<' => Some("&lt;"),
-			'>' => Some("&gt;"),
-			'&' => Some("&amp;"),
-			'"' if escape_quotes => Some("&quot;"),
-			_ => None,
+impl<'s> Display for Escaped<'s> {
+	fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut s = self.0;
+		let mut ent = "";
+		while let Some(i) = s.find(|c| {
+			match c {
+				'<' => Some("&lt;"),
+				'>' => Some("&gt;"),
+				'&' => Some("&amp;"),
+				'"' => Some("&quot;"),
+				_ => None,
+			}
+			.map_or(false, |s| {
+				ent = s;
+				true
+			})
+		}) {
+			out.write_str(&s[..i])?;
+			out.write_str(ent)?;
+			s = &s[i + 1..];
 		}
-		.map_or(false, |s| {
-			ent = s;
-			true
-		})
-	}) {
-		out.write_str(&s[..i])?;
-		out.write_str(ent)?;
-		s = &s[i + 1..];
+		out.write_str(s)
 	}
-	out.write_str(s)
 }
+// }}}
+// {{{ Render attributes
+pub struct Attr<'a>(&'static str, &'a str);
 
+impl<'s> Display for Attr<'s> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		if !self.1.is_empty() {
+			write!(f, r#" {}="{}""#, self.0, Escaped(self.1))?;
+		}
+
+		Ok(())
+	}
+}
+// }}}
+// {{{ Render datetimes
 #[inline]
 fn write_datetime<T: TimeZone>(
-	datetime: &DateTime<T>,
 	mut out: impl std::fmt::Write,
+	datetime: &DateTime<T>,
 ) -> std::fmt::Result {
 	let datetime = datetime.to_utc();
 	write!(
@@ -692,6 +714,13 @@ fn write_datetime<T: TimeZone>(
 	)
 }
 // }}}
+// {{{ Jotdown attribute helpers
+#[inline]
+fn write_attribute(mut out: impl std::fmt::Write, attr: &AttributeValue) -> std::fmt::Result {
+	attr.parts()
+		.try_for_each(|part| write!(out, "{}", Escaped(part)))
+}
+// }}}
 // {{{ Footnotes
 /// Helper to aggregate footnotes for rendering at the end of the document. It will cache footnote
 /// events until they should be emitted at the end.
@@ -700,8 +729,6 @@ fn write_datetime<T: TimeZone>(
 /// the order they were first referenced.
 #[derive(Default)]
 struct Footnotes<'s> {
-	/// Stack of current open footnotes, with label and staging buffer.
-	open: Vec<(&'s str, Vec<Event<'s>>)>,
 	/// Footnote references in the order they were first encountered.
 	references: Vec<&'s str>,
 	/// Events for each footnote.
@@ -730,20 +757,9 @@ impl<'s> Footnotes<'s> {
 			)
 	}
 
-	/// Start aggregating a footnote.
-	fn start(&mut self, label: &'s str, events: Vec<Event<'s>>) {
-		self.open.push((label, events));
-	}
-
-	/// Obtain the current (most recently started) footnote.
-	fn current(&mut self) -> Option<&mut Vec<Event<'s>>> {
-		self.open.last_mut().map(|(_, e)| e)
-	}
-
-	/// End the current (most recently started) footnote.
-	fn end(&mut self) {
-		let (label, stage) = self.open.pop().unwrap();
-		self.events.insert(label, stage);
+	/// Insert a new footnote to be renderer later
+	fn insert(&mut self, label: &'s str, events: Vec<jotdown::Event<'s>>) {
+		self.events.insert(label, events);
 	}
 }
 

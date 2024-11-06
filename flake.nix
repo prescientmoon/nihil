@@ -17,6 +17,7 @@
               pkgs.rust-analyzer
               pkgs.rustfmt
               pkgs.imagemagick
+              pkgs.http-server
             ];
 
             buildInputs = with pkgs; [ ];

@@ -195,3 +195,112 @@ math[display="block"] {
   /* }}}*/
 }
 /* }}}*/
+
+/* {{{ Light theme */
+@media (prefers-color-scheme: light) {
+  body {
+    color: #4c4f69;
+  }
+
+  code {
+    background: #eff1f5;
+  }
+
+  pre > code {
+    display: block;
+    padding: 1rem;
+  }
+
+  /* {{{ Syntax highlighting*/
+  span.variable {
+    color: #4c4f69;
+  }
+
+  span.attribute,
+  span.constant {
+    color: #fe640b;
+  }
+
+  span.comment,
+  span.comment-documentation {
+    color: #9ca0b0;
+    font-style: italic;
+  }
+
+  span.constant-builtin {
+    color: #fe640b;
+  }
+
+  span.constructor {
+    color: #209fb5;
+  }
+
+  span.function,
+  span.function-method {
+    color: #1e66f5;
+  }
+
+  span.function-builtin {
+    color: #fe640b;
+  }
+
+  span.function-macro {
+    color: #179299;
+  }
+
+  span.keyword {
+    color: #8839ef;
+  }
+
+  span.label {
+    color: #209fb5;
+  }
+
+  span.operator {
+    color: #04a5e5;
+  }
+
+  span.property {
+    color: #7287fd;
+  }
+
+  span.punctuation,
+  span.punctuation-delimiter {
+    color: #7c7f93;
+  }
+
+  span.punctuation-bracket {
+    color: #7c7f93;
+  }
+
+  span.string {
+    color: #40a02b;
+  }
+
+  span.string-special {
+    color: #ea76cb;
+  }
+
+  span.tag {
+    color: #8839ef;
+  }
+
+  span.type,
+  span.type-builtin {
+    color: #df8e1d;
+  }
+
+  span.variable {
+    color: #4c4f69;
+  }
+
+  span.variable-builtin {
+    color: #d20f39;
+  }
+
+  span.variable-parameter {
+    color: #e64553;
+  }
+  /* }}}*/
+}
+/* }}} */

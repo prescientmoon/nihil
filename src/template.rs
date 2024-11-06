@@ -127,7 +127,6 @@ impl<'a> TemplateRenderer<'a> {
 			None => (self.template.text.len(), self.template.text.len()),
 		}
 	}
-
 	// }}}
 }
 // }}}

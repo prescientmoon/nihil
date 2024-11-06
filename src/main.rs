@@ -38,7 +38,7 @@ fn generate_page(path: &Path) -> anyhow::Result<()> {
 		} else if label == "navigation" {
 			out.write_str(r#"<a href="/"><code>~</code></a>"#)?;
 			out.write_str(" / ")?;
-			out.write_str(r#"<a href="/posts"><code>posts</code></a>"#)?;
+			out.write_str(r#"<a href="/echoes"><code>echoes</code></a>"#)?;
 			page_renderer.next(&mut out)?;
 		} else {
 			break;
