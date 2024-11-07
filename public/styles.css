@@ -5,22 +5,7 @@ body {
   padding: 1em;
 }
 
-.article-content {
-  max-width: 40em;
-  margin: auto;
-}
-
-.article-list {
-  max-width: 36em;
-  margin: auto;
-  list-style-type: none;
-
-  ul {
-    list-style-type: disc;
-  }
-}
-
-/* {{{ General element tweaks*/
+/* {{{ General element tweaks */
 blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
@@ -49,7 +34,23 @@ h6 {
 math[display="block"] {
   margin: 1.5em 0;
 }
-/* }}}*/
+/* }}} */
+/* {{{ General article styling */
+.article-content {
+  max-width: 40em;
+  margin: auto;
+}
+
+.article-list {
+  max-width: 36em;
+  margin: auto;
+  list-style-type: none;
+
+  ul {
+    list-style-type: disc;
+  }
+}
+/* }}} */
 /* {{{ Asides */
 /* TODO: remove aside-header altogether */
 .aside-header {
@@ -86,13 +87,13 @@ math[display="block"] {
   }
 }
 
-/* {{{ Override marker*/
+/* {{{ Override marker */
 .aside > summary {
   &::marker {
     display: none;
   }
 
-  &:before {
+  &::before {
     content: "▶";
     font-size: 0.75rem;
     padding: 0 0.75rem 0 0.25rem;
@@ -100,11 +101,11 @@ math[display="block"] {
   }
 }
 
-.aside[open] > summary:before {
+.aside[open] > summary::before {
   content: "▼";
 }
-/* }}}*/
-/* }}}*/
+/* }}} */
+/* }}} */
 /* {{{ Tier lists */
 .tier-list {
   background: #444;
@@ -161,7 +162,7 @@ math[display="block"] {
     }
   }
 
-  /* {{{ Tier colors*/
+  /* {{{ Tier colors */
   .tier:nth-child(1) > .tier-heading {
     background: #b39ddb;
   }
@@ -202,9 +203,9 @@ math[display="block"] {
       #e2baff
     );
   }
-  /* }}}*/
+  /* }}} */
 }
-/* }}}*/
+/* }}} */
 
 /* {{{ Light theme */
 @media (prefers-color-scheme: light) {
@@ -217,11 +218,7 @@ math[display="block"] {
     padding: 1rem;
   }
 
-  /* {{{ Syntax highlighting*/
-  span.variable {
-    color: #4c4f69;
-  }
-
+  /* {{{ Syntax highlighting */
   span.attribute,
   span.constant {
     color: #fe640b;
@@ -307,6 +304,6 @@ math[display="block"] {
   span.variable-parameter {
     color: #e64553;
   }
-  /* }}}*/
+  /* }}} */
 }
 /* }}} */

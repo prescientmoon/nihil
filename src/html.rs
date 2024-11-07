@@ -27,28 +27,13 @@ use crate::metadata::PageRoute;
 use crate::template;
 use crate::template::TemplateRenderer;
 
-// {{{ Renderer
-/// Render djot content as HTML.
-pub fn render_html<'s>(
-	metadata: &'s PageMetadata,
-	pages: &'s [PageMetadata],
-	mut events: impl Iterator<Item = Event<'s>>,
-	out: &mut impl std::fmt::Write,
-) -> anyhow::Result<()> {
-	let mut w = Writer::new(Some(metadata), pages);
-	events.try_for_each(|e| w.render_event(&e, out))?;
-	w.render_epilogue(out)?;
-
-	Ok(())
-}
-// }}}
-
 pub struct Writer<'s> {
 	list_tightness: Vec<bool>,
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
-	metadata: Option<&'s PageMetadata<'s>>,
+	metadata: &'s PageMetadata<'s>,
 	pages: &'s [PageMetadata<'s>],
+	base_url: &'s str,
 }
 
 #[derive(Debug, Clone)]
@@ -66,13 +51,14 @@ enum State<'s> {
 }
 
 impl<'s> Writer<'s> {
-	pub fn new(metadata: Option<&'s PageMetadata>, pages: &'s [PageMetadata]) -> Self {
+	pub fn new(metadata: &'s PageMetadata, pages: &'s [PageMetadata], base_url: &'s str) -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
 			footnotes: Footnotes::default(),
 			metadata,
 			pages,
+			base_url,
 		}
 	}
 
@@ -133,22 +119,21 @@ impl<'s> Writer<'s> {
 			Event::Start(c, attrs) => {
 				match &c {
 					// {{{ Section
-					Container::Section { id } => match self.metadata {
-						Some(meta) if meta.title.id == *id => {
-							if matches!(meta.route, PageRoute::Post(_)) {
+					Container::Section { id } => {
+						if self.metadata.title.id == *id {
+							if matches!(self.metadata.route, PageRoute::Post(_)) {
 								let mut renderer = template!("templates/post.html", out)?;
 
 								assert_eq!(renderer.current(), Some("attrs"));
-								write!(out, "{}", Attr("aria-labeledby", id))?;
+								write!(out, "{}", Attr("aria-labelledby", id))?;
 								renderer.next(out)?;
 
 								self.states.push(State::Article(renderer));
 							}
+						} else {
+							write!(out, "<section {}>", Attr("aria-labelledby", id))?;
 						}
-						_ => {
-							write!(out, "<section {}>", Attr("aria-labeledby", id))?;
-						}
-					},
+					}
 					// }}}
 					// {{{ Aside
 					Container::Div {
@@ -164,6 +149,13 @@ impl<'s> Writer<'s> {
 
 						while let Some(label) = renderer.current() {
 							match label {
+								"id" => {
+									let id = attrs.get_value("id").ok_or_else(|| {
+										anyhow!("Cannot find `id` attribute on `aside` element")
+									})?;
+
+									write_attribute(out, &id)?;
+								}
 								"character" => {
 									let character =
 										attrs.get_value("character").ok_or_else(|| {
@@ -304,7 +296,7 @@ impl<'s> Writer<'s> {
 											}
 										}
 										_ => {
-											if !fill_metadata_label(out, label, post)? {
+											if !Self::write_metadata_label(out, label, post)? {
 												bail!("Unknown label {label} in `post-summary` template");
 											};
 										}
@@ -343,7 +335,6 @@ impl<'s> Writer<'s> {
 					}
 					Container::Math { display } => {
 						self.states.push(State::Math(*display));
-						out.write_str("<math>")?;
 					}
 					Container::Image(_, _) => {
 						self.states.push(State::TextOnly);
@@ -417,12 +408,11 @@ impl<'s> Writer<'s> {
 						// Sanity check
 						assert!(matches!(self.states.last(), Some(State::Math(_))));
 						self.states.pop();
-						out.write_str(r#"</math>"#)?;
 					}
 					// }}}
 					// {{{ Section
-					Container::Section { id, .. } => match self.metadata {
-						Some(meta) if meta.title.id == *id => {
+					Container::Section { id, .. } => {
+						if self.metadata.title.id == *id {
 							if matches!(self.states.last(), Some(State::Article(_))) {
 								let Some(State::Article(renderer)) = self.states.pop() else {
 									unreachable!()
@@ -430,9 +420,10 @@ impl<'s> Writer<'s> {
 
 								renderer.finish(out)?;
 							}
+						} else {
+							out.write_str("</section>")?
 						}
-						_ => out.write_str("</section>")?,
-					},
+					}
 					// }}}
 					// {{{ Aside
 					Container::Div {
@@ -452,11 +443,10 @@ impl<'s> Writer<'s> {
 						// {{{ Article title
 						if let Some(State::Article(renderer)) = self.states.last_mut() {
 							if renderer.current() == Some("title") {
-								// SAFETY: we can never enter into the `article` state without having
-								// some metadata on hand.
-								let meta = self.metadata.unwrap();
 								while let Some(label) = renderer.next(out)? {
-									if !fill_metadata_label(out, label, meta)? {
+									if !Self::write_common_label(out, label, self.base_url)?
+										&& !Self::write_metadata_label(out, label, self.metadata)?
+									{
 										break;
 									}
 								}
@@ -658,7 +648,7 @@ impl<'s> Writer<'s> {
 			Event::Hardbreak => out.write_str("<br>")?,
 			Event::Softbreak => out.write_char('\n')?,
 			// }}}
-			Event::ThematicBreak(_) => out.write_str("<hr>")?,
+			Event::ThematicBreak(_) => out.write_str("<hr />")?,
 			Event::Escape | Event::Blankline | Event::Attributes(_) => {}
 		}
 
@@ -666,10 +656,10 @@ impl<'s> Writer<'s> {
 	}
 
 	// {{{ Render epilogue
-	fn render_epilogue(&mut self, out: &mut impl std::fmt::Write) -> anyhow::Result<()> {
+	pub fn render_epilogue(&mut self, out: &mut impl std::fmt::Write) -> anyhow::Result<()> {
 		if self.footnotes.reference_encountered() {
 			// TODO: rewrite this using a template
-			out.write_str("<section role=\"doc-endnotes\"><hr><ol>")?;
+			out.write_str("<section role=\"doc-endnotes\"><hr/><ol>")?;
 
 			while let Some((number, events)) = self.footnotes.next() {
 				write!(out, r#"<li id="fn{number}">"#)?;
@@ -693,6 +683,72 @@ impl<'s> Writer<'s> {
 
 		Ok(())
 	}
+	// }}}
+	// {{{ Fill in metadata labels
+	fn write_common_label(
+		out: &mut impl std::fmt::Write,
+		label: &str,
+		base_url: &str,
+	) -> anyhow::Result<bool> {
+		if label == "base_url" {
+			write!(out, "{}", base_url)?;
+		} else {
+			return Ok(false);
+		}
+
+		Ok(true)
+	}
+
+	fn write_metadata_label(
+		out: &mut impl std::fmt::Write,
+		label: &str,
+		meta: &PageMetadata,
+	) -> anyhow::Result<bool> {
+		if label == "posted_on" {
+			if let Some(d) = meta.config.created_at {
+				write!(out, "Posted on ")?;
+				write_datetime(out, &d)?;
+			} else {
+				write!(out, "Being conjured by ")?;
+			}
+		} else if label == "updated_on" {
+			write_datetime(out, &meta.last_modified)?;
+		} else if label == "word_count" {
+			let wc = meta.word_count;
+			if wc < 400 {
+				write!(out, "{}", wc)?;
+			} else if wc < 1000 {
+				write!(out, "{}", wc / 10 * 10)?;
+			} else if wc < 2000 {
+				write!(out, "{}", wc / 100 * 100)?;
+			} else {
+				write!(out, "{} thousand", wc / 1000)?;
+			}
+		} else if label == "reading_duration" {
+			let minutes = meta.word_count / 200;
+			if minutes == 0 {
+				let seconds = meta.word_count * 60 / 200;
+				write!(out, "very short {seconds} second")?;
+			} else if minutes < 10 {
+				write!(out, "short {minutes} minute")?;
+			} else if minutes < 20 {
+				write!(out, "somewhat short {minutes} minute")?;
+			} else if minutes < 30 {
+				write!(out, "somewhat long {minutes}")?;
+			} else if minutes < 60 {
+				write!(out, "long {minutes}")?;
+			} else {
+				let hours = minutes / 60;
+				let minutes = minutes % 60;
+				write!(out, "very long {hours} hour and {minutes} minute")?;
+			}
+		} else {
+			return Ok(false);
+		}
+
+		Ok(true)
+	}
+
 	// }}}
 }
 
@@ -811,56 +867,4 @@ impl<'s> Iterator for Footnotes<'s> {
 		})
 	}
 }
-// }}}
-// {{{ Fill in metadata labels
-fn fill_metadata_label(
-	out: &mut impl std::fmt::Write,
-	label: &str,
-	meta: &PageMetadata<'_>,
-) -> anyhow::Result<bool> {
-	if label == "posted_on" {
-		if let Some(d) = meta.config.created_at {
-			write!(out, "Posted on ")?;
-			write_datetime(out, &d)?;
-		} else {
-			write!(out, "Being conjured by ")?;
-		}
-	} else if label == "updated_on" {
-		write_datetime(out, &meta.last_modified)?;
-	} else if label == "word_count" {
-		let wc = meta.word_count;
-		if wc < 400 {
-			write!(out, "{}", wc)?;
-		} else if wc < 1000 {
-			write!(out, "{}", wc / 10 * 10)?;
-		} else if wc < 2000 {
-			write!(out, "{}", wc / 100 * 100)?;
-		} else {
-			write!(out, "{} thousand", wc / 1000)?;
-		}
-	} else if label == "reading_duration" {
-		let minutes = meta.word_count / 200;
-		if minutes == 0 {
-			let seconds = meta.word_count * 60 / 200;
-			write!(out, "very short {seconds} second")?;
-		} else if minutes < 10 {
-			write!(out, "short {minutes} minute")?;
-		} else if minutes < 20 {
-			write!(out, "somewhat short {minutes} minute")?;
-		} else if minutes < 30 {
-			write!(out, "somewhat long {minutes}")?;
-		} else if minutes < 60 {
-			write!(out, "long {minutes}")?;
-		} else {
-			let hours = minutes / 60;
-			let minutes = minutes % 60;
-			write!(out, "very long {hours} hour and {minutes} minute")?;
-		}
-	} else {
-		return Ok(false);
-	}
-
-	Ok(true)
-}
-
 // }}}

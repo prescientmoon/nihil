@@ -2,3 +2,5 @@ target
 dist
 oldicons
 result
+node_modules
+tmp

@@ -11,13 +11,24 @@
         {
           devShells.default = pkgs.mkShell rec {
             nativeBuildInputs = with pkgs; [
+              # Rust tooling
               pkgs.cargo
               pkgs.rustc
               pkgs.clippy
               pkgs.rust-analyzer
               pkgs.rustfmt
+
+              # Dev tooling
               pkgs.imagemagick
               pkgs.http-server
+
+              # Build / test pipeline
+              pkgs.nodejs
+              pkgs.just
+              pkgs.terser
+              pkgs.libxml2
+              pkgs.validator-nu
+              pkgs.htmltest
             ];
 
             buildInputs = with pkgs; [ ];

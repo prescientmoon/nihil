@@ -13,30 +13,65 @@ use serde::Deserialize;
 #[derive(Deserialize, Debug, Default)]
 pub struct PageConfig {
 	pub created_at: Option<DateTime<FixedOffset>>,
+	pub sitemap_priority: Option<f32>,
+	pub sitemap_changefreq: Option<String>,
+
+	#[serde(default)]
+	pub sitemap_exclude: bool,
 }
 
 impl PageConfig {
-	/// Merge another config into the current one. Might error out on duplicate values.
-	fn merge(&mut self, other: PageConfig) -> anyhow::Result<()> {
-		match &self.created_at {
-			None => self.created_at = other.created_at,
-			Some(first_created) => {
-				if let Some(second_created) = other.created_at {
-					if second_created != *first_created {
-						bail!("Conflicting values for `created_at` page attribute: {first_created} and {second_created}");
+	// {{{ Merge a single property. Errors out on duplicate values.
+	fn merge_prop<A: PartialEq + std::fmt::Debug>(
+		label: &str,
+		first: Option<A>,
+		second: Option<A>,
+	) -> anyhow::Result<Option<A>> {
+		match first {
+			None => Ok(second),
+			Some(first) => {
+				if let Some(second) = second {
+					if second != first {
+						bail!(
+							"Conflicting values for `{label}` page attribute: {first:?} and {second:?}"
+						);
 					}
 				}
+
+				Ok(Some(first))
 			}
-		};
+		}
+	}
+	// }}}
+	// {{{ Config merging
+	/// Merge another config into the current one. Might error out on duplicate values.
+	fn merge(&mut self, other: PageConfig) -> anyhow::Result<()> {
+		self.created_at = Self::merge_prop("created_at", self.created_at, other.created_at)?;
+
+		self.sitemap_priority = Self::merge_prop(
+			"sitemap_priority",
+			self.sitemap_priority,
+			other.sitemap_priority,
+		)?;
+
+		self.sitemap_changefreq = Self::merge_prop(
+			"sitemap_changefreq",
+			self.sitemap_changefreq.take(),
+			other.sitemap_changefreq,
+		)?;
+
+		self.sitemap_exclude |= other.sitemap_exclude;
 
 		Ok(())
 	}
+	// }}}
 }
 // }}}
 // {{{ Routing
 #[derive(Debug)]
 pub enum PageRoute {
 	Home,
+	NotFound,
 	Posts,
 	Post(String),
 }
@@ -50,9 +85,11 @@ impl PageRoute {
 
 		let result = if first == OsStr::new("index.dj") {
 			Self::Home
+		} else if first == OsStr::new("404.dj") {
+			Self::NotFound
 		} else if first == OsStr::new("echoes") {
 			let Some(Component::Normal(second)) = path.components().nth(2) else {
-				bail!("Cannot convert path '{:?}' to page route", path);
+				bail!("Cannot convert path '{:?}' to echo route", path);
 			};
 			let mut slice = second.to_str().unwrap();
 			if slice.ends_with(".dj") {
@@ -75,7 +112,8 @@ impl PageRoute {
 	#[inline]
 	pub fn to_path(&self) -> PathBuf {
 		match self {
-			Self::Home => PathBuf::from_str(".").unwrap(),
+			Self::Home => PathBuf::from_str("").unwrap(),
+			Self::NotFound => PathBuf::from_str("404").unwrap(),
 			Self::Posts => PathBuf::from_str("echoes").unwrap(),
 			Self::Post(id) => PathBuf::from_str(&format!("echoes/{id}")).unwrap(),
 		}

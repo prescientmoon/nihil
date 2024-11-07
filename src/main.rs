@@ -18,10 +18,14 @@ fn main() -> anyhow::Result<()> {
 
 	std::fs::create_dir(&dist_path).with_context(|| "Cannot create `dist` directory")?;
 
-	let mut page = generate::Pages::default();
+	let mut page = generate::Pages::new(
+		PathBuf::from_str("content").unwrap(),
+		PathBuf::from_str("dist").unwrap(),
+	);
+
 	page.add_dir(&PathBuf::from_str("")?)
 		.with_context(|| "Failed to collect directories")?;
-	page.generate(PathBuf::from_str("dist")?)
+	page.generate()
 		.with_context(|| "Failed to generate markup")?;
 
 	for p in std::fs::read_dir(public_path)? {

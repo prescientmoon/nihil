@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "html-validate": "^8.24.2",
+    "stylelint": "^16.10.0",
+    "stylelint-config-standard": "^36.0.1"
+  }
+}

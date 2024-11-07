@@ -1,0 +1,10 @@
+CacheExpires: "168h" # one week
+CheckFavicon: true
+EnforceHTML5: true
+EnforceHTTPS: true
+ExternalTimeout: 20
+HTTPConcurrencyLimit: 128
+IgnoreAltEmpty: true
+IgnoreHTTPS:
+  - "http://localhost:"
+IgnoreURLs:

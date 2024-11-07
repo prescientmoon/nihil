@@ -1,8 +1,8 @@
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
-use crate::html::render_html;
 use crate::metadata::PageMetadata;
 use crate::template;
 use anyhow::{bail, Context};
@@ -13,13 +13,26 @@ pub fn copy_recursively(from: &Path, to: &Path) -> anyhow::Result<()> {
 	Ok(())
 }
 
-#[derive(Debug, Default)]
 pub struct Pages<'a> {
 	pages: Vec<PageMetadata<'a>>,
 	assets: Vec<PathBuf>,
+
+	content_root: PathBuf,
+	out_root: PathBuf,
+	base_url: &'a str,
 }
 
 impl<'a> Pages<'a> {
+	pub fn new(content_root: PathBuf, out_root: PathBuf) -> Self {
+		Self {
+			pages: Vec::new(),
+			assets: Vec::new(),
+			content_root,
+			out_root,
+			base_url: "http://localhost:3000",
+		}
+	}
+
 	// {{{ Collect simple pages
 	pub fn add_page(&mut self, path: &Path) -> anyhow::Result<()> {
 		let content_path = PathBuf::from_str("content")?.join(path);
@@ -63,9 +76,9 @@ impl<'a> Pages<'a> {
 	}
 	// }}}
 	// {{{ Generate
-	pub fn generate(&self, out_root: PathBuf) -> anyhow::Result<()> {
+	pub fn generate(&self) -> anyhow::Result<()> {
 		for page in &self.pages {
-			let out_dir = out_root.join(page.route.to_path());
+			let out_dir = self.out_root.join(page.route.to_path());
 			std::fs::create_dir_all(&out_dir)
 				.with_context(|| format!("Failed to generate {out_dir:?} directory"))?;
 
@@ -75,8 +88,13 @@ impl<'a> Pages<'a> {
 			page_renderer.feed(&mut out, |label, out| {
 				match label {
 					"content" => {
-						let events = jotdown::Parser::new(page.source);
-						render_html(page, &self.pages, events, out)?;
+						let mut w = crate::html::Writer::new(page, &self.pages, self.base_url);
+
+						for event in jotdown::Parser::new(page.source) {
+							w.render_event(&event, out)?;
+						}
+
+						w.render_epilogue(out)?;
 					}
 					_ => bail!("Unknown label {label} in page template"),
 				}
@@ -88,14 +106,61 @@ impl<'a> Pages<'a> {
 				.with_context(|| format!("Failed to write {out_dir:?} post"))?;
 		}
 
-		let content_root = PathBuf::from_str("content")?;
 		for path in &self.assets {
-			std::fs::create_dir_all(out_root.join(path).parent().unwrap())
+			std::fs::create_dir_all(self.out_root.join(path).parent().unwrap())
 				.with_context(|| format!("Failed to create parent dir for asset at {path:?}"))?;
 
-			std::fs::copy(content_root.join(path), out_root.join(path))
+			std::fs::copy(self.content_root.join(path), self.out_root.join(path))
 				.with_context(|| format!("Failed to copy asset at {path:?}"))?;
 		}
+
+		self.generate_sitemap()?;
+
+		Ok(())
+	}
+	// }}}
+	// {{{ Generate sitemap
+	fn generate_sitemap(&self) -> anyhow::Result<()> {
+		let mut out = String::new();
+
+		write!(
+			out,
+			r#"
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+			  <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      "#
+		)?;
+
+		for page in &self.pages {
+			if page.config.sitemap_exclude {
+				continue;
+			}
+
+			write!(
+				out,
+				"<url>
+          <loc>https://moonythm.dev/{}</loc>
+          <lastmod>{}</lastmod>
+        ",
+				page.route.to_path().to_str().unwrap(),
+				page.last_modified.to_rfc3339()
+			)?;
+
+			if let Some(priority) = page.config.sitemap_priority {
+				write!(out, "<priority>{priority}</priority>")?;
+			}
+
+			if let Some(changefreq) = &page.config.sitemap_changefreq {
+				write!(out, "<changefreq>{changefreq}</changefreq>")?;
+			}
+
+			write!(out, "</url>")?;
+		}
+
+		write!(out, "</urlset>")?;
+
+		std::fs::write(self.out_root.join("sitemap.xml"), out.trim())
+			.with_context(|| "Failed to write sitemap")?;
 
 		Ok(())
 	}
