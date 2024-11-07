@@ -31,7 +31,7 @@ use crate::template::TemplateRenderer;
 /// Render djot content as HTML.
 pub fn render_html<'s>(
 	metadata: &'s PageMetadata,
-	pages: Option<&'s [PageMetadata]>,
+	pages: &'s [PageMetadata],
 	mut events: impl Iterator<Item = Event<'s>>,
 	out: &mut impl std::fmt::Write,
 ) -> anyhow::Result<()> {
@@ -48,7 +48,7 @@ pub struct Writer<'s> {
 	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
 	metadata: Option<&'s PageMetadata<'s>>,
-	pages: Option<&'s [PageMetadata<'s>]>,
+	pages: &'s [PageMetadata<'s>],
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +66,7 @@ enum State<'s> {
 }
 
 impl<'s> Writer<'s> {
-	pub fn new(metadata: Option<&'s PageMetadata>, pages: Option<&'s [PageMetadata]>) -> Self {
+	pub fn new(metadata: Option<&'s PageMetadata>, pages: &'s [PageMetadata]) -> Self {
 		Self {
 			list_tightness: Vec::new(),
 			states: Vec::new(),
@@ -278,7 +278,7 @@ impl<'s> Writer<'s> {
 					// {{{ Post list
 					Container::Div { class: "posts" } => {
 						write!(out, r#"<ol class="article-list">"#)?;
-						for post in self.pages.ok_or_else(|| anyhow!("No post list given"))? {
+						for post in self.pages {
 							// Skip drafts
 							if post.config.created_at.is_none() {
 								continue;

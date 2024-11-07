@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Context};
 use chrono::{DateTime, FixedOffset, Utc};
@@ -41,6 +42,7 @@ pub enum PageRoute {
 }
 
 impl PageRoute {
+	// {{{ Convert a path to a route
 	fn from_path(path: &Path) -> anyhow::Result<Self> {
 		let Some(Component::Normal(first)) = path.components().nth(1) else {
 			bail!("Path is too short");
@@ -68,6 +70,17 @@ impl PageRoute {
 
 		Ok(result)
 	}
+	// }}}
+	// {{{ Convert a route to a path
+	#[inline]
+	pub fn to_path(&self) -> PathBuf {
+		match self {
+			Self::Home => PathBuf::from_str(".").unwrap(),
+			Self::Posts => PathBuf::from_str("echoes").unwrap(),
+			Self::Post(id) => PathBuf::from_str(&format!("echoes/{id}")).unwrap(),
+		}
+	}
+	// }}}
 }
 // }}}
 // {{{ Metadata
@@ -88,13 +101,18 @@ pub struct PageMetadata<'s> {
 	pub description: Vec<jotdown::Event<'s>>,
 	#[allow(dead_code)]
 	pub toc: Vec<Heading<'s>>,
+	pub source: &'s str,
 
 	pub word_count: usize,
 	pub last_modified: DateTime<FixedOffset>,
 }
 
 impl<'a> PageMetadata<'a> {
-	pub fn new(path: PathBuf, mut events: impl Iterator<Item = Event<'a>>) -> anyhow::Result<Self> {
+	pub fn new(
+		path: PathBuf,
+		source: &'a str,
+		mut events: impl Iterator<Item = Event<'a>>,
+	) -> anyhow::Result<Self> {
 		let last_modified_output = Command::new("git")
 			.arg("log")
 			.arg("-1")
@@ -128,6 +146,7 @@ impl<'a> PageMetadata<'a> {
 			route: PageRoute::from_path(&path)?,
 			title: title.clone(),
 			last_modified,
+			source,
 			config: w.config,
 			description: w.description,
 			toc: w.toc,
