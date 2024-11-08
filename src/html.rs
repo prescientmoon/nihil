@@ -313,51 +313,63 @@ impl<'s> Writer<'s> {
 					}
 					// }}}
 					// {{{ Table of contents
+					// This component renders out a nice tree of all the headings in the article.
 					Container::Div { class: "toc" } => {
 						template!("templates/table-of-contents.html", out)?.feed_fully(
 							out,
 							|label, out| {
 								if label == "content" {
+									// Sometimes we can have TOCs that look like this:
+									// # foo
+									//   ## bar
+									//     ### goo
+									// # help
+									//
+									// In this case, we need to close two different sublists when
+									// going from ### goo to # help. To achieve this, we use this
+									// vec as a stack of all the different levels we are yet to
+									// close out.
+									//
+									// Note that the list for the initial level is included in the
+									// template, as it would never get opened/closed out otherwise
+									// (there can be no level smaller than 1).
 									let mut level_stack = Vec::with_capacity(6);
-									level_stack.push(1);
+									level_stack.push(2);
 
 									for (i, heading) in self.metadata.toc.iter().enumerate() {
-										loop {
-											let level = level_stack.last().unwrap();
-											match heading.level.cmp(level) {
-												Ordering::Greater => {
-													writeln!(out, "<ol>")?;
-													level_stack.push(heading.level);
-													break;
-												}
-												Ordering::Equal => {
-													if i != 0 {
-														writeln!(out, "</li>")?;
-													}
-
-													break;
-												}
-												Ordering::Less => {
-													writeln!(out, "</li></ol>")?;
-													level_stack.pop();
-												}
-											}
+										// We exclude the article title from the table of contents.
+										if heading.level == 1 {
+											continue;
 										}
 
 										write!(out, r##"<li><a href="#{}">"##, heading.id)?;
-
 										for event in &heading.events {
 											self.render_event(event, out)?;
 										}
 
-										writeln!(out, "</a>")?;
-									}
+										// We only close the <a> here, as we might want to include a
+										// sublist inside the same <li> element.
+										write!(out, "</a>")?;
 
-									for _ in 0..level_stack.len() - 1 {
-										writeln!(out, "</li></ol>")?;
-									}
+										let next_level =
+											self.metadata.toc.get(i + 1).map_or(2, |h| h.level);
 
-									writeln!(out, "</li>")?;
+										match heading.level.cmp(&next_level) {
+											Ordering::Equal => {
+												write!(out, "</li>")?;
+											}
+											Ordering::Less => {
+												write!(out, "<ol>")?;
+												level_stack.push(next_level);
+											}
+											Ordering::Greater => {
+												while level_stack.last().unwrap() > &next_level {
+													write!(out, "</ol></li>")?;
+													level_stack.pop();
+												}
+											}
+										}
+									}
 
 									Ok(true)
 								} else {

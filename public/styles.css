@@ -27,7 +27,7 @@ h6 {
     display: inline-block;
     text-decoration: none;
     /* Note: I need to check whether this only aligns things better with the font I use */
-    translate: translateY(-2px);
+    transform: translateY(-2px);
   }
 }
 
@@ -204,6 +204,46 @@ math[display="block"] {
     );
   }
   /* }}} */
+}
+/* }}} */
+/* {{{ Tables of contents */
+.toc {
+  border-radius: 3px;
+  border: 1px solid black;
+
+  box-sizing: border-box;
+  padding: 1rem;
+  margin: 1.5rem 0;
+
+  summary span {
+    margin-left: 0.5rem;
+  }
+
+  nav {
+    margin-left: 1rem;
+  }
+
+  li {
+    padding: 0.25rem;
+  }
+
+  ol {
+    margin-bottom: 0;
+  }
+
+  ol ol {
+    position: relative;
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0.5rem;
+      bottom: 0.5rem;
+      left: -1.25rem;
+      border-left: 1px solid white;
+      width: 2px;
+      background: #003f5233;
+    }
+  }
 }
 /* }}} */
 
