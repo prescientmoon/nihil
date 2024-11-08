@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
 
@@ -307,6 +308,64 @@ impl<'s> Writer<'s> {
 							)?;
 						}
 						write!(out, "</ol>")?;
+						// We don't care about the contents of this block
+						self.states.push(State::Ignore);
+					}
+					// }}}
+					// {{{ Table of contents
+					Container::Div { class: "toc" } => {
+						template!("templates/table-of-contents.html", out)?.feed_fully(
+							out,
+							|label, out| {
+								if label == "content" {
+									let mut level_stack = Vec::with_capacity(6);
+									level_stack.push(1);
+
+									for (i, heading) in self.metadata.toc.iter().enumerate() {
+										loop {
+											let level = level_stack.last().unwrap();
+											match heading.level.cmp(level) {
+												Ordering::Greater => {
+													writeln!(out, "<ol>")?;
+													level_stack.push(heading.level);
+													break;
+												}
+												Ordering::Equal => {
+													if i != 0 {
+														writeln!(out, "</li>")?;
+													}
+
+													break;
+												}
+												Ordering::Less => {
+													writeln!(out, "</li></ol>")?;
+													level_stack.pop();
+												}
+											}
+										}
+
+										write!(out, r##"<li><a href="#{}">"##, heading.id)?;
+
+										for event in &heading.events {
+											self.render_event(event, out)?;
+										}
+
+										writeln!(out, "</a>")?;
+									}
+
+									for _ in 0..level_stack.len() - 1 {
+										writeln!(out, "</li></ol>")?;
+									}
+
+									writeln!(out, "</li>")?;
+
+									Ok(true)
+								} else {
+									Ok(false)
+								}
+							},
+						)?;
+
 						// We don't care about the contents of this block
 						self.states.push(State::Ignore);
 					}

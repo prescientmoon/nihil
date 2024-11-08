@@ -129,6 +129,7 @@ impl<'a> TemplateRenderer<'a> {
 	}
 	// }}}
 
+	/// Automatically fill in placeholders until the provided lambda returns false.
 	pub fn feed<W: std::fmt::Write>(
 		&mut self,
 		out: &mut W,
@@ -141,6 +142,18 @@ impl<'a> TemplateRenderer<'a> {
 				break;
 			}
 		}
+
+		Ok(())
+	}
+
+	/// Equivalent to running [Self::feed] and then [Self::finish].
+	pub fn feed_fully<W: std::fmt::Write>(
+		mut self,
+		out: &mut W,
+		f: impl FnMut(&str, &mut W) -> anyhow::Result<bool>,
+	) -> anyhow::Result<()> {
+		self.feed(out, f)?;
+		self.finish(out)?;
 
 		Ok(())
 	}
