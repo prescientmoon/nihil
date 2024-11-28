@@ -272,10 +272,15 @@ impl<'s> Writer<'s> {
 					Container::Div { class: "posts" } => {
 						write!(out, r#"<ol class="article-list">"#)?;
 						for post in self.pages {
-							// Skip drafts
-							if post.config.created_at.is_none() {
+							// Skip non-posts
+							if !matches!(post.route, PageRoute::Post(_)) {
 								continue;
 							}
+
+							// Skip drafts
+							// if post.config.created_at.is_none() {
+							// 	continue;
+							// }
 
 							template!("templates/post-summary.html", out)?.feed(
 								out,
@@ -284,6 +289,8 @@ impl<'s> Writer<'s> {
 										"id" => {
 											if let PageRoute::Post(id) = &post.route {
 												write!(out, "{id}")?;
+											} else {
+												unreachable!()
 											}
 										}
 										"title" => {

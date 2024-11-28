@@ -29,6 +29,15 @@ h6 {
     /* Note: I need to check whether this only aligns things better with the font I use */
     transform: translateY(-2px);
   }
+
+  /* Neuromoprhism */
+  /* &:has(.heading-anchor) { */
+  /*   padding: 0.5rem 1rem; */
+  /*   border-radius: 6px; */
+  /*   box-shadow: */
+  /*     3px 3px 6px #cccbc9, */
+  /*     -3px -3px 10px white; */
+  /* } */
 }
 
 math[display="block"] {
@@ -210,6 +219,11 @@ math[display="block"] {
 .toc {
   border-radius: 3px;
   border: 1px solid black;
+
+  /* Neuromoprhism */
+  /* box-shadow: */
+  /*   inset 3px 3px 6px #cccbc9, */
+  /*   inset -3px -3px 6px white; */
 
   box-sizing: border-box;
   padding: 1rem;

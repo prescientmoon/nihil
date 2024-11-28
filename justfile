@@ -1,6 +1,9 @@
 minify-sitemap:
   xmllint --noblanks dist/sitemap.xml --output dist/sitemap.xml
 
+serve-dev:
+  http-server dist
+
 # {{{ Linting
 lint: lint-vnu lint-css lint-htmltest lint-htmlvalidate
 
