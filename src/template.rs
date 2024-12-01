@@ -62,6 +62,7 @@ pub struct TemplateRenderer<'a> {
 }
 
 impl<'a> TemplateRenderer<'a> {
+	// {{{ Lifecycle (start / current / finish)
 	#[inline]
 	pub fn start(template: &'a Template, w: &mut impl std::fmt::Write) -> anyhow::Result<Self> {
 		let stop_index = if !template.stops.is_empty() {
@@ -94,7 +95,7 @@ impl<'a> TemplateRenderer<'a> {
 
 		Ok(())
 	}
-
+	// }}}
 	// {{{ Advance to the next placeholder
 	/// Move onto the next placeholder
 	pub fn next(&mut self, w: &mut impl std::fmt::Write) -> anyhow::Result<Option<&'a str>> {
@@ -128,7 +129,7 @@ impl<'a> TemplateRenderer<'a> {
 		}
 	}
 	// }}}
-
+	// {{{ Stop feeding helpers
 	/// Automatically fill in placeholders until the provided lambda returns false.
 	pub fn feed<W: std::fmt::Write>(
 		&mut self,
@@ -157,6 +158,7 @@ impl<'a> TemplateRenderer<'a> {
 
 		Ok(())
 	}
+	// }}}
 }
 // }}}
 // {{{ Macro

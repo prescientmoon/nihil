@@ -3,6 +3,7 @@ body {
   max-width: 43em;
   margin: auto;
   padding: 1em;
+  background: white;
 }
 
 /* {{{ General element tweaks */
@@ -43,6 +44,11 @@ h6 {
 math[display="block"] {
   margin: 1.5em 0;
 }
+
+pre > code {
+  display: block;
+  padding: 1rem;
+}
 /* }}} */
 /* {{{ General article styling */
 .article-content {
@@ -74,6 +80,9 @@ math[display="block"] {
 }
 
 .aside {
+  /* box-shadow: */
+  /*   inset 3px 3px 6px #cccbc9, */
+  /*   inset -3px -3px 6px white; */
   background: #faebff;
   border-radius: 3px;
 
@@ -83,7 +92,7 @@ math[display="block"] {
   margin: 1.5rem 0;
 
   /* Prevents margin-collapsing of the children. */
-  border: 1px solid transparent;
+  border: 1px solid black;
 
   /* Slightly move things to the left to more nicely align with the marker */
   &.aside-long > :not(summary) {
@@ -218,7 +227,10 @@ math[display="block"] {
 /* {{{ Tables of contents */
 .toc {
   border-radius: 3px;
-  border: 1px solid black;
+  border: 1px solid;
+  background: #eff1f5;
+
+  /* background: #faebff; */
 
   /* Neuromoprhism */
   /* box-shadow: */
@@ -265,11 +277,6 @@ math[display="block"] {
 @media (prefers-color-scheme: light) {
   code {
     background: #eff1f5;
-  }
-
-  pre > code {
-    display: block;
-    padding: 1rem;
   }
 
   /* {{{ Syntax highlighting */
