@@ -20,7 +20,7 @@ pub struct Pages<'a> {
 
 	content_root: PathBuf,
 	out_root: PathBuf,
-	base_url: &'a str,
+	base_url: String,
 }
 
 impl<'a> Pages<'a> {
@@ -31,7 +31,8 @@ impl<'a> Pages<'a> {
 			assets: Vec::new(),
 			content_root,
 			out_root,
-			base_url: "http://localhost:8080",
+			base_url: std::env::var("MOONYTHM_BASE_URL")
+				.unwrap_or_else(|_| "http://localhost:8080".to_owned()),
 		})
 	}
 
@@ -91,7 +92,7 @@ impl<'a> Pages<'a> {
 			page_renderer.feed(&mut out, |label, out| {
 				match label {
 					"title" => {
-						let mut w = crate::html::Writer::new(page, &[], self.base_url);
+						let mut w = crate::html::Writer::new(page, &[], &self.base_url);
 						w.states.push(crate::html::State::TextOnly);
 
 						for event in &page.title.events {
@@ -99,7 +100,7 @@ impl<'a> Pages<'a> {
 						}
 					}
 					"description" => {
-						let mut w = crate::html::Writer::new(page, &[], self.base_url);
+						let mut w = crate::html::Writer::new(page, &[], &self.base_url);
 						w.states.push(crate::html::State::TextOnly);
 
 						for event in &page.description {
@@ -115,7 +116,7 @@ impl<'a> Pages<'a> {
 						)?;
 					}
 					"content" => {
-						let mut w = crate::html::Writer::new(page, &self.pages, self.base_url);
+						let mut w = crate::html::Writer::new(page, &self.pages, &self.base_url);
 
 						for event in jotdown::Parser::new(page.source) {
 							w.render_event(&event, out)?;

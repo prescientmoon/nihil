@@ -38,7 +38,7 @@
 
             buildInputs = with pkgs; [ ];
 
-            MOONYTYM_DRAFTS = 1;
+            MOONYTHM_DRAFTS = 1;
             LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
           };
         };

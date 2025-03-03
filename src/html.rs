@@ -43,6 +43,7 @@ pub enum State<'s> {
 	Ignore,
 	Raw,
 	Figure,
+	Strikethrough,
 	Math(bool),
 	CodeBlock(String),
 	Aside(TemplateRenderer<'s>),
@@ -466,6 +467,9 @@ impl<'s> Writer<'s> {
 							self.states.push(State::Datetime(String::new()))
 						} else if has_role(attrs, "date") {
 							self.states.push(State::Date(String::new()))
+						} else if has_role(attrs, "strike") {
+							self.states.push(State::Strikethrough);
+							out.write_str("<s>")?
 						} else {
 							out.write_str("<span>")?
 						}
@@ -721,6 +725,8 @@ impl<'s> Writer<'s> {
 								date.format("%Y-%m-%d"),
 								date.format("%a, %d %b %Y")
 							)?;
+						} else if matches!(self.states.last(), Some(State::Strikethrough)) {
+							out.write_str("</s>")?;
 						} else {
 							out.write_str("</span>")?;
 						}
