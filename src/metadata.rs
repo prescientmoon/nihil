@@ -9,6 +9,10 @@ use chrono::{DateTime, FixedOffset, Utc};
 use jotdown::{Attributes, Container, Event};
 use serde::Deserialize;
 
+pub fn should_refresh_last_modified() -> bool {
+	std::env::var("MOONYTHM_UPDATE_LAST_MODIFIED").unwrap_or_default() == "1"
+}
+
 // {{{ Config
 #[derive(Deserialize, Debug, Default)]
 pub struct PageConfig {
@@ -18,6 +22,9 @@ pub struct PageConfig {
 
 	#[serde(default)]
 	pub sitemap_exclude: bool,
+
+	#[serde(default)]
+	pub hidden: bool,
 }
 
 impl PageConfig {
@@ -61,6 +68,7 @@ impl PageConfig {
 		)?;
 
 		self.sitemap_exclude |= other.sitemap_exclude;
+		self.hidden |= other.hidden;
 
 		Ok(())
 	}
@@ -68,7 +76,7 @@ impl PageConfig {
 }
 // }}}
 // {{{ Routing
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PageRoute {
 	Home,
 	NotFound,
@@ -134,6 +142,7 @@ pub struct Heading<'a> {
 pub struct PageMetadata<'s> {
 	pub config: PageConfig,
 	pub route: PageRoute,
+	pub source_path: PathBuf,
 
 	pub title: Heading<'s>,
 	pub description: Vec<jotdown::Event<'s>>,
@@ -147,29 +156,46 @@ pub struct PageMetadata<'s> {
 
 impl<'a> PageMetadata<'a> {
 	pub fn new(
+		last_modified_cache: &mut LastModifiedCache,
 		path: PathBuf,
 		source: &'a str,
 		mut events: impl Iterator<Item = Event<'a>>,
 	) -> anyhow::Result<Self> {
-		let last_modified_output = Command::new("git")
-			.arg("log")
-			.arg("-1")
-			.arg(r#"--pretty=format:%cI"#)
-			.arg(&path)
-			.output()
-			.with_context(|| anyhow!("Could not read the last modification date for file"))?
-			.stdout;
-		let last_modified = String::from_utf8(last_modified_output)?;
+		let route = PageRoute::from_path(&path)?;
+		let last_modified = if should_refresh_last_modified() {
+			let last_modified_output = Command::new("git")
+				.arg("log")
+				.arg("-1")
+				.arg(r#"--pretty=format:%cI"#)
+				.arg(&path)
+				.output()
+				.with_context(|| anyhow!("Could not read the last modification date for file"))?
+				.stdout;
+			let last_modified = String::from_utf8(last_modified_output)?;
 
-		let last_modified = if last_modified.is_empty() {
-			Utc::now().fixed_offset()
+			let last_modified = if last_modified.is_empty() {
+				Utc::now().fixed_offset()
+			} else {
+				DateTime::parse_from_rfc3339(&last_modified).with_context(|| {
+					anyhow!(
+						"Failed to parse datetime returned by git '{}'",
+						last_modified
+					)
+				})?
+			};
+
+			last_modified_cache
+				.pages
+				.push((route.clone(), last_modified));
+
+			last_modified
 		} else {
-			DateTime::parse_from_rfc3339(&last_modified).with_context(|| {
-				anyhow!(
-					"Failed to parse datetime returned by git '{}'",
-					last_modified
-				)
-			})?
+			last_modified_cache
+				.pages
+				.iter()
+				.find(|item| item.0 == route)
+				.map(|(_, last_modified)| *last_modified)
+				.unwrap_or_else(|| Utc::now().fixed_offset())
 		};
 
 		let mut w = Writer::new();
@@ -181,9 +207,10 @@ impl<'a> PageMetadata<'a> {
 			.ok_or_else(|| anyhow!("No heading found to infer title from"))?;
 
 		Ok(Self {
-			route: PageRoute::from_path(&path)?,
+			route,
 			title: title.clone(),
 			last_modified,
+			source_path: path,
 			source,
 			config: w.config,
 			description: w.description,
@@ -301,5 +328,30 @@ pub fn has_role(attrs: &Attributes, value: &str) -> bool {
 	attrs
 		.get_value("role")
 		.map_or(false, |role| format!("{role}") == value)
+}
+// }}}
+// {{{ Last modified cache
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct LastModifiedCache {
+	pages: Vec<(PageRoute, DateTime<FixedOffset>)>,
+}
+
+impl LastModifiedCache {
+	pub fn from_file() -> anyhow::Result<LastModifiedCache> {
+		if should_refresh_last_modified() {
+			Ok(Self::default())
+		} else {
+			Ok(toml::de::from_str(&std::fs::read_to_string(
+				"last_modified.toml",
+			)?)?)
+		}
+	}
+
+	pub fn save(&self) -> anyhow::Result<()> {
+		Ok(std::fs::write(
+			"last_modified.toml",
+			toml::ser::to_string(self)?,
+		)?)
+	}
 }
 // }}}

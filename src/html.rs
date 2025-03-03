@@ -29,8 +29,8 @@ use crate::template;
 use crate::template::TemplateRenderer;
 
 pub struct Writer<'s> {
+	pub states: Vec<State<'s>>,
 	list_tightness: Vec<bool>,
-	states: Vec<State<'s>>,
 	footnotes: Footnotes<'s>,
 	metadata: &'s PageMetadata<'s>,
 	pages: &'s [PageMetadata<'s>],
@@ -38,10 +38,11 @@ pub struct Writer<'s> {
 }
 
 #[derive(Debug, Clone)]
-enum State<'s> {
+pub enum State<'s> {
 	TextOnly,
 	Ignore,
 	Raw,
+	Figure,
 	Math(bool),
 	CodeBlock(String),
 	Aside(TemplateRenderer<'s>),
@@ -93,7 +94,10 @@ impl<'s> Writer<'s> {
 				Event::End(Container::Image(..)) => {
 					self.states.pop();
 				}
-				Event::Str(s) => write!(out, "{}", Escaped(s))?,
+				Event::Str(s) => {
+					write!(out, "{}", Escaped(s))?;
+					return Ok(());
+				}
 				_ => return Ok(()),
 			}
 		}
@@ -277,10 +281,17 @@ impl<'s> Writer<'s> {
 								continue;
 							}
 
+							// Skip hidden pages
+							if post.config.hidden {
+								continue;
+							}
+
 							// Skip drafts
-							// if post.config.created_at.is_none() {
-							// 	continue;
-							// }
+							if std::env::var("MOONYTHM_DRAFTS").unwrap_or_default() != "1"
+								&& post.config.created_at.is_none()
+							{
+								continue;
+							}
 
 							template!("templates/post-summary.html", out)?.feed(
 								out,
@@ -304,7 +315,12 @@ impl<'s> Writer<'s> {
 											}
 										}
 										_ => {
-											if !Self::write_metadata_label(out, label, post)? {
+											if !Self::write_metadata_label(
+												out,
+												label,
+												post,
+												self.base_url,
+											)? {
 												bail!("Unknown label {label} in `post-summary` template");
 											};
 										}
@@ -387,6 +403,23 @@ impl<'s> Writer<'s> {
 
 						// We don't care about the contents of this block
 						self.states.push(State::Ignore);
+					}
+					// }}}
+					// {{{ Figure
+					Container::Div { class: "figure" } => {
+						self.states.push(State::Figure);
+						let alt = attrs.get_value("alt").ok_or_else(|| {
+							anyhow!("Figure element encountered without an `alt` attribute")
+						})?;
+						let src = attrs.get_value("src").ok_or_else(|| {
+							anyhow!("Figure element encountered without a `src` attribute")
+						})?;
+
+						write!(out, r#"<figure><img alt=""#)?;
+						write_attribute(out, &alt)?;
+						write!(out, r#"" src=""#)?;
+						write_attribute(out, &src)?;
+						write!(out, r#""><figcaption>"#)?;
 					}
 					// }}}
 					// {{{ Div
@@ -515,6 +548,17 @@ impl<'s> Writer<'s> {
 						renderer.finish(out)?;
 					}
 					// }}}
+					// {{{ Figure
+					Container::Div { class: "figure" } => {
+						let State::Figure = self.states.pop().unwrap() else {
+							panic!(
+								"Arrived at end of figure without being in the approriate state."
+							);
+						};
+
+						write!(out, "</figcaption></figure>")?;
+					}
+					// }}}
 					Container::Heading { level, .. } => {
 						write!(out, "</h{}>", level)?;
 
@@ -522,9 +566,12 @@ impl<'s> Writer<'s> {
 						if let Some(State::Article(renderer)) = self.states.last_mut() {
 							if renderer.current() == Some("title") {
 								while let Some(label) = renderer.next(out)? {
-									if !Self::write_common_label(out, label, self.base_url)?
-										&& !Self::write_metadata_label(out, label, self.metadata)?
-									{
+									if !Self::write_metadata_label(
+										out,
+										label,
+										self.metadata,
+										self.base_url,
+									)? {
 										break;
 									}
 								}
@@ -532,7 +579,9 @@ impl<'s> Writer<'s> {
 						}
 						// }}}
 					}
-					Container::Image(src, ..) => write!(out, r#" {}>"#, Attr("src", src))?,
+					Container::Image(src, ..) => {
+						write!(out, r#"" {}>"#, Attr("src", src))?;
+					}
 					Container::Blockquote => out.write_str("</blockquote>")?,
 					Container::ListItem { .. } => out.write_str("</li>")?,
 					Container::DescriptionList => out.write_str("</dl>")?,
@@ -550,15 +599,42 @@ impl<'s> Writer<'s> {
 							panic!("Arrived at end of code block without being in the approriate state.");
 						};
 
-						if *language == "rust" {
-							let mut highlighter = Highlighter::new();
-							let language = Language::new(tree_sitter_rust::LANGUAGE);
-
-							let mut config = HighlightConfiguration::new(
-								language,
+						let grammar = match *language {
+							"rust" => Some((
 								"rust",
+								Language::new(tree_sitter_rust::LANGUAGE),
 								tree_sitter_rust::HIGHLIGHTS_QUERY,
 								tree_sitter_rust::INJECTIONS_QUERY,
+							)),
+							"djot" => Some((
+								"dj",
+								tree_sitter_djot::language(),
+								tree_sitter_djot::HIGHLIGHTS_QUERY,
+								tree_sitter_djot::INJECTIONS_QUERY,
+							)),
+							"html" => Some((
+								"html",
+								Language::new(tree_sitter_html::LANGUAGE),
+								tree_sitter_html::HIGHLIGHTS_QUERY,
+								tree_sitter_html::INJECTIONS_QUERY,
+							)),
+							// "tex" => Some((
+							// 	"tex",
+							// 	crate::bindings::tree_sitter_latex::language(),
+							// 	"",
+							// 	"",
+							// )),
+							_ => None,
+						};
+
+						if let Some((ft, ts_language, highlights, injections)) = grammar {
+							let mut highlighter = Highlighter::new();
+
+							let mut config = HighlightConfiguration::new(
+								ts_language,
+								ft,
+								highlights,
+								injections,
 								"",
 							)?;
 
@@ -763,65 +839,75 @@ impl<'s> Writer<'s> {
 	}
 	// }}}
 	// {{{ Fill in metadata labels
-	fn write_common_label(
-		out: &mut impl std::fmt::Write,
-		label: &str,
-		base_url: &str,
-	) -> anyhow::Result<bool> {
-		if label == "base_url" {
-			write!(out, "{}", base_url)?;
-		} else {
-			return Ok(false);
-		}
-
-		Ok(true)
-	}
-
 	fn write_metadata_label(
 		out: &mut impl std::fmt::Write,
 		label: &str,
 		meta: &PageMetadata,
+		base_url: &str,
 	) -> anyhow::Result<bool> {
-		if label == "posted_on" {
-			if let Some(d) = meta.config.created_at {
-				write!(out, "Posted on ")?;
-				write_datetime(out, &d)?;
-			} else {
-				write!(out, "Being conjured by ")?;
+		match label {
+			"posted_on" => {
+				if let Some(d) = meta.config.created_at {
+					write!(out, "Posted on ")?;
+					write_datetime(out, &d)?;
+				} else {
+					write!(out, "Being conjured ")?;
+				}
 			}
-		} else if label == "updated_on" {
-			write_datetime(out, &meta.last_modified)?;
-		} else if label == "word_count" {
-			let wc = meta.word_count;
-			if wc < 400 {
-				write!(out, "{}", wc)?;
-			} else if wc < 1000 {
-				write!(out, "{}", wc / 10 * 10)?;
-			} else if wc < 2000 {
-				write!(out, "{}", wc / 100 * 100)?;
-			} else {
-				write!(out, "{} thousand", wc / 1000)?;
+			"base_url" => {
+				write!(out, "{}", base_url)?;
 			}
-		} else if label == "reading_duration" {
-			let minutes = meta.word_count / 200;
-			if minutes == 0 {
-				let seconds = meta.word_count * 60 / 200;
-				write!(out, "very short {seconds} second")?;
-			} else if minutes < 10 {
-				write!(out, "short {minutes} minute")?;
-			} else if minutes < 20 {
-				write!(out, "somewhat short {minutes} minute")?;
-			} else if minutes < 30 {
-				write!(out, "somewhat long {minutes}")?;
-			} else if minutes < 60 {
-				write!(out, "long {minutes}")?;
-			} else {
-				let hours = minutes / 60;
-				let minutes = minutes % 60;
-				write!(out, "very long {hours} hour and {minutes} minute")?;
+			"updated_on" => {
+				write_datetime(out, &meta.last_modified)?;
 			}
-		} else {
-			return Ok(false);
+			"word_count" => {
+				let wc = meta.word_count;
+				if wc < 400 {
+					write!(out, "{}", wc)?;
+				} else if wc < 1000 {
+					write!(out, "{}", wc / 10 * 10)?;
+				} else if wc < 2000 {
+					write!(out, "{}", wc / 100 * 100)?;
+				} else {
+					write!(out, "{} thousand", wc / 1000)?;
+				}
+			}
+			"reading_duration" => {
+				let minutes = meta.word_count / 200;
+				if minutes == 0 {
+					let seconds = meta.word_count * 60 / 200;
+					write!(out, "very short {seconds} second")?;
+				} else if minutes < 10 {
+					write!(out, "short {minutes} minute")?;
+				} else if minutes < 20 {
+					write!(out, "somewhat short {minutes} minute")?;
+				} else if minutes < 30 {
+					write!(out, "somewhat long {minutes}")?;
+				} else if minutes < 60 {
+					write!(out, "long {minutes}")?;
+				} else {
+					let hours = minutes / 60;
+					let minutes = minutes % 60;
+					write!(out, "very long {hours} hour and {minutes} minute")?;
+				}
+			}
+			"source_url" => {
+				write!(
+					out,
+					"https://git.moonythm.dev/prescientmoon/moonythm/src/branch/main/{}",
+					meta.source_path.to_str().unwrap()
+				)?;
+			}
+			"changelog_url" => {
+				write!(
+					out,
+					"https://git.moonythm.dev/prescientmoon/moonythm/commits/branch/main/{}",
+					meta.source_path.to_str().unwrap()
+				)?;
+			}
+			_ => {
+				return Ok(false);
+			}
 		}
 
 		Ok(true)
@@ -878,10 +964,11 @@ fn write_datetime<T: TimeZone>(
 	datetime: &DateTime<T>,
 ) -> std::fmt::Result {
 	let datetime = datetime.to_utc();
+
 	write!(
 		out,
 		r#"<time datetime="{}">{}</time>"#,
-		datetime.to_rfc3339(),
+		datetime.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
 		datetime.format("%a, %d %b %Y")
 	)
 }

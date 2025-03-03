@@ -6,6 +6,11 @@
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [ "x86_64-linux" ];
+      imports = [
+        inputs.flake-parts.flakeModules.easyOverlay
+        ./nix
+      ];
+
       perSystem =
         { pkgs, lib, ... }:
         {
@@ -33,6 +38,7 @@
 
             buildInputs = with pkgs; [ ];
 
+            MOONYTYM_DRAFTS = 1;
             LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
           };
         };

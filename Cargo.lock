@@ -61,9 +61,9 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
 name = "cc"
-version = "1.1.32"
+version = "1.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "538b056773ee67775e422d15c33169f5415706855814b96505c84ee942f2bae2"
+checksum = "be714c154be609ec7f5dad223a33bf1482fff90472de28f7362806e6d4832b8c"
 dependencies = [
  "shlex",
 ]
@@ -232,7 +232,9 @@ dependencies = [
  "sha2",
  "toml",
  "tree-sitter",
+ "tree-sitter-djot",
  "tree-sitter-highlight",
+ "tree-sitter-html",
  "tree-sitter-rust",
 ]
 
@@ -438,6 +440,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-djot"
+version = "2.0.0"
+source = "git+https://github.com/treeman/tree-sitter-djot?rev=eb31845d59b9ee8c1b2098e78e9ca72004bd1579#eb31845d59b9ee8c1b2098e78e9ca72004bd1579"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
+
+[[package]]
 name = "tree-sitter-highlight"
 version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -448,6 +459,16 @@ dependencies = [
  "streaming-iterator",
  "thiserror",
  "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-html"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "261b708e5d92061ede329babaaa427b819329a9d427a1d710abb0f67bbef63ee"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]

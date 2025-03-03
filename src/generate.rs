@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
-use crate::metadata::PageMetadata;
+use crate::metadata::{LastModifiedCache, PageMetadata};
 use crate::template;
 use anyhow::{bail, Context};
 
@@ -16,6 +16,7 @@ pub fn copy_recursively(from: &Path, to: &Path) -> anyhow::Result<()> {
 pub struct Pages<'a> {
 	pages: Vec<PageMetadata<'a>>,
 	assets: Vec<PathBuf>,
+	pub last_modified_cache: LastModifiedCache,
 
 	content_root: PathBuf,
 	out_root: PathBuf,
@@ -23,14 +24,15 @@ pub struct Pages<'a> {
 }
 
 impl<'a> Pages<'a> {
-	pub fn new(content_root: PathBuf, out_root: PathBuf) -> Self {
-		Self {
+	pub fn new(content_root: PathBuf, out_root: PathBuf) -> anyhow::Result<Self> {
+		Ok(Self {
+			last_modified_cache: LastModifiedCache::from_file()?,
 			pages: Vec::new(),
 			assets: Vec::new(),
 			content_root,
 			out_root,
-			base_url: "http://localhost:3000",
-		}
+			base_url: "http://localhost:8080",
+		})
 	}
 
 	// {{{ Collect simple pages
@@ -48,7 +50,8 @@ impl<'a> Pages<'a> {
 		let source = Box::leak(Box::new(source));
 
 		let events = jotdown::Parser::new(source);
-		let metadata = PageMetadata::new(content_path, source, events)?;
+		let metadata =
+			PageMetadata::new(&mut self.last_modified_cache, content_path, source, events)?;
 
 		self.pages.push(metadata);
 
@@ -87,6 +90,30 @@ impl<'a> Pages<'a> {
 
 			page_renderer.feed(&mut out, |label, out| {
 				match label {
+					"title" => {
+						let mut w = crate::html::Writer::new(page, &[], self.base_url);
+						w.states.push(crate::html::State::TextOnly);
+
+						for event in &page.title.events {
+							w.render_event(event, out)?;
+						}
+					}
+					"description" => {
+						let mut w = crate::html::Writer::new(page, &[], self.base_url);
+						w.states.push(crate::html::State::TextOnly);
+
+						for event in &page.description {
+							w.render_event(event, out)?;
+						}
+					}
+					"url" => {
+						write!(
+							out,
+							"{}/{}",
+							self.base_url,
+							page.route.to_path().to_str().unwrap(),
+						)?;
+					}
 					"content" => {
 						let mut w = crate::html::Writer::new(page, &self.pages, self.base_url);
 
@@ -132,16 +159,17 @@ impl<'a> Pages<'a> {
 		)?;
 
 		for page in &self.pages {
-			if page.config.sitemap_exclude {
+			if page.config.sitemap_exclude || page.config.hidden {
 				continue;
 			}
 
 			write!(
 				out,
 				"<url>
-          <loc>https://moonythm.dev/{}</loc>
+          <loc>{}/{}</loc>
           <lastmod>{}</lastmod>
         ",
+				self.base_url,
 				page.route.to_path().to_str().unwrap(),
 				page.last_modified.to_rfc3339()
 			)?;

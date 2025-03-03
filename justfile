@@ -1,3 +1,6 @@
+default:
+  @just --list
+
 minify-sitemap:
   xmllint --noblanks dist/sitemap.xml --output dist/sitemap.xml
 
