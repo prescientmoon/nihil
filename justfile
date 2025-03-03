@@ -7,6 +7,16 @@ minify-sitemap:
 serve-dev:
   http-server dist
 
+# {{{ Building
+build:
+  cargo run
+
+build-dev:
+  MOONYTHM_DRAFTS=1 cargo run
+
+update-modification-dates:
+  MOONYTHM_UPDATE_LAST_MODIFIED=1 cargo run
+# }}}
 # {{{ Linting
 lint: lint-vnu lint-css lint-htmltest lint-htmlvalidate
 

@@ -287,13 +287,6 @@ impl<'s> Writer<'s> {
 								continue;
 							}
 
-							// Skip drafts
-							if std::env::var("MOONYTHM_DRAFTS").unwrap_or_default() != "1"
-								&& post.config.created_at.is_none()
-							{
-								continue;
-							}
-
 							template!("templates/post-summary.html", out)?.feed(
 								out,
 								|label, out| {
@@ -366,29 +359,30 @@ impl<'s> Writer<'s> {
 											continue;
 										}
 
-										write!(out, r##"<li><a href="#{}">"##, heading.id)?;
+										writeln!(out, r##"<li><a href="#{}">"##, heading.id)?;
 										for event in &heading.events {
 											self.render_event(event, out)?;
 										}
 
 										// We only close the <a> here, as we might want to include a
 										// sublist inside the same <li> element.
-										write!(out, "</a>")?;
+										writeln!(out, "</a>")?;
 
 										let next_level =
 											self.metadata.toc.get(i + 1).map_or(2, |h| h.level);
 
 										match heading.level.cmp(&next_level) {
 											Ordering::Equal => {
-												write!(out, "</li>")?;
+												writeln!(out, "</li>")?;
 											}
 											Ordering::Less => {
-												write!(out, "<ol>")?;
+												writeln!(out, "<ol>")?;
 												level_stack.push(next_level);
 											}
 											Ordering::Greater => {
+												writeln!(out, "</li>")?;
 												while level_stack.last().unwrap() > &next_level {
-													write!(out, "</ol></li>")?;
+													writeln!(out, "</ol></li>")?;
 													level_stack.pop();
 												}
 											}
@@ -726,6 +720,7 @@ impl<'s> Writer<'s> {
 								date.format("%a, %d %b %Y")
 							)?;
 						} else if matches!(self.states.last(), Some(State::Strikethrough)) {
+							self.states.pop();
 							out.write_str("</s>")?;
 						} else {
 							out.write_str("</span>")?;

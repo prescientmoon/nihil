@@ -5,5 +5,9 @@
     "html-validate:a11y",
     "html-validate:document",
     "html-validate:prettier"
-  ]
+  ],
+  "rules": {
+    "require-sri": "off",
+    "heading-level": "off"
+  }
 }

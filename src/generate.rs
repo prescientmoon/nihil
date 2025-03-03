@@ -54,7 +54,12 @@ impl<'a> Pages<'a> {
 		let metadata =
 			PageMetadata::new(&mut self.last_modified_cache, content_path, source, events)?;
 
-		self.pages.push(metadata);
+		if std::env::var("MOONYTHM_DRAFTS").unwrap_or_default() == "1"
+			|| metadata.config.created_at.is_some()
+			|| !matches!(metadata.route, crate::metadata::PageRoute::Post(_))
+		{
+			self.pages.push(metadata);
+		}
 
 		Ok(())
 	}
