@@ -8,6 +8,7 @@ use anyhow::Context;
 use chrono::DateTime;
 use chrono::NaiveDate;
 use chrono::TimeZone;
+use chrono::Utc;
 use jotdown::Alignment;
 use jotdown::AttributeValue;
 use jotdown::Container;
@@ -42,7 +43,7 @@ pub enum State<'s> {
 	TextOnly,
 	Ignore,
 	Raw,
-	Figure,
+	ImageFigure,
 	Strikethrough,
 	Math(bool),
 	CodeBlock(String),
@@ -276,7 +277,18 @@ impl<'s> Writer<'s> {
 					// {{{ Post list
 					Container::Div { class: "posts" } => {
 						write!(out, r#"<ol class="article-list">"#)?;
-						for post in self.pages {
+
+						let mut pages = self.pages.iter().collect::<Vec<_>>();
+						pages.sort_by_key(|page| {
+							if let Some(created_at) = page.config.created_at {
+								(0, created_at)
+							} else {
+								(1, Utc::now().fixed_offset())
+							}
+						});
+						pages.reverse();
+
+						for post in pages {
 							// Skip non-posts
 							if !matches!(post.route, PageRoute::Post(_)) {
 								continue;
@@ -414,7 +426,17 @@ impl<'s> Writer<'s> {
 					// }}}
 					// {{{ Figure
 					Container::Div { class: "figure" } => {
-						self.states.push(State::Figure);
+						out.write_str("<figure>")?;
+					}
+					Container::Div { class: "caption" } => {
+						out.write_str("<figcaption>")?;
+					}
+					// }}}
+					// {{{ Image figure
+					Container::Div {
+						class: "image-figure",
+					} => {
+						self.states.push(State::ImageFigure);
 						let alt = attrs.get_value("alt").ok_or_else(|| {
 							anyhow!("Figure element encountered without an `alt` attribute")
 						})?;
@@ -559,14 +581,24 @@ impl<'s> Writer<'s> {
 					}
 					// }}}
 					// {{{ Figure
-					Container::Div { class: "figure" } => {
-						let State::Figure = self.states.pop().unwrap() else {
+					Container::Div {
+						class: "image-figure",
+					} => {
+						let State::ImageFigure = self.states.pop().unwrap() else {
 							panic!(
 								"Arrived at end of figure without being in the approriate state."
 							);
 						};
 
 						write!(out, "</figcaption></figure>")?;
+					}
+					// }}}
+					// {{{ Figure
+					Container::Div { class: "figure" } => {
+						out.write_str("</figure>")?;
+					}
+					Container::Div { class: "caption" } => {
+						out.write_str("</figcaption>")?;
 					}
 					// }}}
 					Container::Heading { level, .. } => {
