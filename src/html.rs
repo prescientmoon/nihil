@@ -400,6 +400,18 @@ impl<'s> Writer<'s> {
 						self.states.push(State::Ignore);
 					}
 					// }}}
+					// {{{ Embed description
+					Container::Div {
+						class: "embed-description",
+					} => {
+						for event in &self.metadata.description {
+							self.render_event(event, out)?;
+						}
+
+						// We don't care about the contents of this block
+						self.states.push(State::Ignore);
+					}
+					// }}}
 					// {{{ Figure
 					Container::Div { class: "figure" } => {
 						self.states.push(State::Figure);
