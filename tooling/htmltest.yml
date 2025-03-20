@@ -8,3 +8,4 @@ IgnoreAltEmpty: true
 IgnoreHTTPS:
   - "http://localhost:"
 IgnoreURLs:
+  - "https://www.reddit.com"
