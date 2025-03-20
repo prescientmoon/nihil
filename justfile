@@ -17,7 +17,7 @@ build-dev:
 update-modification-dates:
   MOONYTHM_UPDATE_LAST_MODIFIED=1 cargo run
   git add last_modified.toml
-  git commit -m "Update `last_modified.toml`"
+  git commit -m "Update \`last_modified.toml\`"
 # }}}
 # {{{ Linting
 lint: lint-vnu lint-css lint-htmltest lint-htmlvalidate
