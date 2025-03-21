@@ -116,6 +116,11 @@ impl<'s> Writer<'s> {
 					self.states.pop();
 					return Ok(());
 				}
+				// Nest ignores for nested containers
+				Event::Start(Container::Div { .. }, _) => {
+					self.states.push(State::Ignore);
+					return Ok(());
+				}
 				_ => return Ok(()),
 			}
 		}
@@ -409,6 +414,11 @@ impl<'s> Writer<'s> {
 						)?;
 
 						// We don't care about the contents of this block
+						self.states.push(State::Ignore);
+					}
+					// }}}
+					// {{{ Block comments
+					Container::Div { class: "comment" } => {
 						self.states.push(State::Ignore);
 					}
 					// }}}
