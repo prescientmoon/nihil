@@ -25,6 +25,9 @@ pub struct PageConfig {
 
 	#[serde(default)]
 	pub hidden: bool,
+
+	#[serde(default)]
+	pub draft: bool,
 }
 
 impl PageConfig {
@@ -69,6 +72,7 @@ impl PageConfig {
 
 		self.sitemap_exclude |= other.sitemap_exclude;
 		self.hidden |= other.hidden;
+		self.draft |= other.draft;
 
 		Ok(())
 	}
