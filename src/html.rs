@@ -133,7 +133,9 @@ impl<'s> Writer<'s> {
 					// {{{ Section
 					Container::Section { id } => {
 						if self.metadata.title.id == *id {
-							if matches!(self.metadata.route, PageRoute::Post(_)) {
+							if matches!(self.metadata.route, PageRoute::Post(_))
+								&& !self.metadata.config.compact
+							{
 								let mut renderer = template!("templates/post.html", out)?;
 
 								assert_eq!(renderer.current(), Some("attrs"));

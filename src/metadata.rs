@@ -28,6 +28,10 @@ pub struct PageConfig {
 
 	#[serde(default)]
 	pub draft: bool,
+
+	/// Hides away the traditional header
+	#[serde(default)]
+	pub compact: bool,
 }
 
 impl PageConfig {
@@ -73,6 +77,7 @@ impl PageConfig {
 		self.sitemap_exclude |= other.sitemap_exclude;
 		self.hidden |= other.hidden;
 		self.draft |= other.draft;
+		self.compact |= other.compact;
 
 		Ok(())
 	}
