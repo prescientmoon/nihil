@@ -7,6 +7,7 @@ runCommand "moonythm" { } ''
 
   cd ${../.}
 
-  export MOONYTHM_BASE_URL="https://moonythm.dev"
-  MOONYTHM_OUT_DIR="$out" ${moonythm-generator}/bin/moonythm
+  export MOONYTHM_BASE_URL "https://moonythm.dev"
+  export MOONYTHM_OUT_DIR  "$out"
+  ${moonythm-generator}/bin/moonythm
 ''

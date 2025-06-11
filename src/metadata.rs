@@ -166,17 +166,17 @@ pub struct PageMetadata<'s> {
 impl<'a> PageMetadata<'a> {
 	pub fn new(
 		last_modified_cache: &mut LastModifiedCache,
-		path: PathBuf,
+		path: &Path,
 		source: &'a str,
 		mut events: impl Iterator<Item = Event<'a>>,
 	) -> anyhow::Result<Self> {
-		let route = PageRoute::from_path(&path)?;
+		let route = PageRoute::from_path(path)?;
 		let last_modified = if should_refresh_last_modified() {
 			let last_modified_output = Command::new("git")
 				.arg("log")
 				.arg("-1")
 				.arg(r#"--pretty=format:%cI"#)
-				.arg(&path)
+				.arg(path)
 				.output()
 				.with_context(|| anyhow!("Could not read the last modification date for file"))?
 				.stdout;
@@ -219,7 +219,7 @@ impl<'a> PageMetadata<'a> {
 			route,
 			title: title.clone(),
 			last_modified,
-			source_path: path,
+			source_path: path.to_path_buf(),
 			source,
 			config: w.config,
 			description: w.description,
@@ -306,11 +306,12 @@ impl<'s> Writer<'s> {
 			}
 			// }}}
 			// {{{ Descriptions
-			Event::Start(Container::Div { .. }, attrs) if self.state == State::Toplevel => {
-				if has_role(attrs, "description") {
-					self.state = State::Description
-				}
-			}
+			Event::Start(
+				Container::Div {
+					class: "description",
+				},
+				_,
+			) if self.state == State::Toplevel => self.state = State::Description,
 			Event::End(Container::Div { .. }) if self.state == State::Description => {
 				self.state = State::Toplevel;
 			}
@@ -336,7 +337,7 @@ impl<'s> Writer<'s> {
 pub fn has_role(attrs: &Attributes, value: &str) -> bool {
 	attrs
 		.get_value("role")
-		.map_or(false, |role| format!("{role}") == value)
+		.is_some_and(|role| format!("{role}") == value)
 }
 // }}}
 // {{{ Last modified cache

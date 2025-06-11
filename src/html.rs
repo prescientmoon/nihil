@@ -424,7 +424,12 @@ impl<'s> Writer<'s> {
 						self.states.push(State::Ignore);
 					}
 					// }}}
-					// {{{ Embed description
+					// {{{ Descriptions
+					Container::Div {
+						class: "description",
+					} => {
+						self.states.push(State::Ignore);
+					}
 					Container::Div {
 						class: "embed-description",
 					} => {
@@ -455,21 +460,22 @@ impl<'s> Writer<'s> {
 						let src = attrs.get_value("src").ok_or_else(|| {
 							anyhow!("Figure element encountered without a `src` attribute")
 						})?;
+						let width = attrs.get_value("width");
 
 						write!(out, r#"<figure><img alt=""#)?;
 						write_attribute(out, &alt)?;
 						write!(out, r#"" src=""#)?;
 						write_attribute(out, &src)?;
+						if let Some(width) = width {
+							write!(out, r#"" width=""#)?;
+							write_attribute(out, &width)?;
+						}
 						write!(out, r#""><figcaption>"#)?;
 					}
 					// }}}
 					// {{{ Div
 					Container::Div { class } => {
-						if has_role(attrs, "description") {
-							self.states.push(State::Ignore);
-						} else {
-							write!(out, "<div{}>", Attr("class", class))?;
-						}
+						write!(out, "<div{}>", Attr("class", class))?;
 					}
 					// }}}
 					// {{{ Raw block
@@ -976,7 +982,7 @@ impl<'s> Writer<'s> {
 // {{{ HTMl escaper
 pub struct Escaped<'a>(&'a str);
 
-impl<'s> Display for Escaped<'s> {
+impl Display for Escaped<'_> {
 	fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut s = self.0;
 		let mut ent = "";
@@ -988,7 +994,7 @@ impl<'s> Display for Escaped<'s> {
 				'"' => Some("&quot;"),
 				_ => None,
 			}
-			.map_or(false, |s| {
+			.is_some_and(|s| {
 				ent = s;
 				true
 			})
@@ -1004,7 +1010,7 @@ impl<'s> Display for Escaped<'s> {
 // {{{ Render attributes
 pub struct Attr<'a>(&'static str, &'a str);
 
-impl<'s> Display for Attr<'s> {
+impl Display for Attr<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		if !self.1.is_empty() {
 			write!(f, r#" {}="{}""#, self.0, Escaped(self.1))?;

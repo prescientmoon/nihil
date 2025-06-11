@@ -1,30 +1,50 @@
-default:
-  @just --list
+[private]
+@default:
+  just --list
 
-minify-sitemap:
-  xmllint --noblanks dist/sitemap.xml --output dist/sitemap.xml
-
-serve-dev:
-  http-server dist
-
-# {{{ Building
-build:
-  cargo run
-
-build-dev:
-  MOONYTHM_DRAFTS=1 cargo run
-
+[doc("Update file modification dates, comitting them to git")]
 update-modification-dates:
   MOONYTHM_UPDATE_LAST_MODIFIED=1 cargo run
   git add last_modified.toml
   git commit -m "Update \`last_modified.toml\`"
+
+[doc("Copy the current date to clipboard in the required `created_at` format")]
+current-date:
+  date --rfc-3339=seconds | wl-copy
+
+[doc("Serve the build website locally")]
+serve-dev:
+  http-server dist
+
+# {{{ Building
+[private]
+[group("build")]
+[doc("Minify the sitemap .xml file")]
+minify-sitemap:
+  xmllint --noblanks dist/sitemap.xml --output dist/sitemap.xml
+
+[group("build")]
+[doc("Build the website")]
+build:
+  cargo run
+  just minify-sitemap
+
+[group("build")]
+[doc("Build the website, including draft posts")]
+build-dev:
+  MOONYTHM_DRAFTS=1 cargo run
 # }}}
 # {{{ Linting
+[group("lint")]
 lint: lint-vnu lint-css lint-htmltest lint-htmlvalidate
 
+[group("lint")]
+[doc("Run htmltest on the generated html files")]
 lint-htmltest:
   htmltest -c tooling/htmltest.yml dist
 
+[group("lint")]
+[doc("Run htmlvalidate on the generated html files")]
 lint-htmlvalidate:
   #!/usr/bin/env bash
   shopt -s globstar
@@ -32,6 +52,8 @@ lint-htmlvalidate:
   npx --prefix tooling \
     html-validate -c tooling/htmlvalidate.json dist/**/*.html
 
+[group("lint")]
+[doc("Run the VNU linter on the generated html & svg files")]
 lint-vnu:
   #!/usr/bin/env bash
   shopt -s globstar
@@ -52,6 +74,8 @@ lint-vnu:
     exit 0
   fi
 
+[group("lint")]
+[doc("Run stylelint on the generated stylesheets")]
 lint-css:
   npx --prefix tooling stylelint dist/**/*.css \
     --config ./tooling/stylelintrc.json \

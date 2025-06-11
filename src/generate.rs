@@ -23,7 +23,7 @@ pub struct Pages<'a> {
 	base_url: String,
 }
 
-impl<'a> Pages<'a> {
+impl Pages<'_> {
 	pub fn new(content_root: PathBuf, out_root: PathBuf) -> anyhow::Result<Self> {
 		Ok(Self {
 			last_modified_cache: LastModifiedCache::from_file()?,
@@ -51,8 +51,13 @@ impl<'a> Pages<'a> {
 		let source = Box::leak(Box::new(source));
 
 		let events = jotdown::Parser::new(source);
-		let metadata =
-			PageMetadata::new(&mut self.last_modified_cache, content_path, source, events)?;
+		let metadata = PageMetadata::new(
+			&mut self.last_modified_cache,
+			content_path.as_path(),
+			source,
+			events,
+		)
+		.with_context(|| format!("While reading file {content_path:?}"))?;
 
 		if std::env::var("MOONYTHM_DRAFTS").unwrap_or_default() == "1"
 			|| (metadata.config.created_at.is_some()
@@ -75,7 +80,7 @@ impl<'a> Pages<'a> {
 			let path = path.join(filename);
 			if file_path.is_dir() {
 				self.add_dir(&path)?;
-			} else if file_path.extension().map_or(false, |ext| ext == "dj") {
+			} else if file_path.extension().is_some_and(|ext| ext == "dj") {
 				self.add_page(&path)?;
 			} else {
 				self.assets.push(path);
