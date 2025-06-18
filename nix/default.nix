@@ -1,7 +1,11 @@
 { ... }:
 {
   perSystem =
-    { config, final, ... }:
+    {
+      config,
+      final,
+      ...
+    }:
     {
       packages = {
         moonythm-generator = final.callPackage (import ./moonythm-generator.nix) { };

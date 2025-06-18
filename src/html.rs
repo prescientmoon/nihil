@@ -665,18 +665,38 @@ impl<'s> Writer<'s> {
 								Language::new(tree_sitter_rust::LANGUAGE),
 								tree_sitter_rust::HIGHLIGHTS_QUERY,
 								tree_sitter_rust::INJECTIONS_QUERY,
+								"",
 							)),
 							"djot" => Some((
 								"dj",
 								tree_sitter_djot::language(),
 								tree_sitter_djot::HIGHLIGHTS_QUERY,
 								tree_sitter_djot::INJECTIONS_QUERY,
+								"",
 							)),
 							"html" => Some((
 								"html",
 								Language::new(tree_sitter_html::LANGUAGE),
 								tree_sitter_html::HIGHLIGHTS_QUERY,
 								tree_sitter_html::INJECTIONS_QUERY,
+								"",
+							)),
+							"ts" => Some((
+								"typescript",
+								Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
+								concat!(
+									include_str!(concat!(
+										env!("NVIM_TREESITTER"),
+										"/queries/ecma/highlights.scm"
+									)),
+									"\n",
+									include_str!(concat!(
+										env!("NVIM_TREESITTER"),
+										"/queries/typescript/highlights.scm"
+									))
+								),
+								"",
+								tree_sitter_typescript::LOCALS_QUERY,
 							)),
 							// "tex" => Some((
 							// 	"tex",
@@ -687,7 +707,7 @@ impl<'s> Writer<'s> {
 							_ => None,
 						};
 
-						if let Some((ft, ts_language, highlights, injections)) = grammar {
+						if let Some((ft, ts_language, highlights, injections, locals)) = grammar {
 							let mut highlighter = Highlighter::new();
 
 							let mut config = HighlightConfiguration::new(
@@ -695,7 +715,7 @@ impl<'s> Writer<'s> {
 								ft,
 								highlights,
 								injections,
-								"",
+								locals,
 							)?;
 
 							let highlight_names = [
@@ -706,6 +726,7 @@ impl<'s> Writer<'s> {
 								"constant.builtin",
 								"constructor",
 								"function",
+								"function.declaration",
 								"function.builtin",
 								"function.macro",
 								"function.method",

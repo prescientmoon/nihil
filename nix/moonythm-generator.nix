@@ -1,6 +1,7 @@
 {
   lib,
   rustPlatform,
+  vimPlugins,
 }:
 rustPlatform.buildRustPackage {
   pname = "moonythm-generator";
@@ -16,6 +17,8 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [ ];
   buildInputs = [ ];
+
+  NVIM_TREESITTER = vimPlugins.nvim-treesitter.withAllGrammars;
 
   useFetchCargoVendor = true;
   cargoLock = {

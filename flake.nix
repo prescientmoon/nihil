@@ -12,7 +12,11 @@
       ];
 
       perSystem =
-        { pkgs, lib, ... }:
+        {
+          pkgs,
+          lib,
+          ...
+        }:
         {
           devShells.default = pkgs.mkShell rec {
             nativeBuildInputs = with pkgs; [
@@ -34,11 +38,15 @@
               pkgs.libxml2
               pkgs.validator-nu
               pkgs.htmltest
+
             ];
 
             buildInputs = with pkgs; [ ];
 
             LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
+
+            # Contains all the treesitter highlights I use
+            NVIM_TREESITTER = pkgs.vimPlugins.nvim-treesitter.withAllGrammars;
           };
         };
     };

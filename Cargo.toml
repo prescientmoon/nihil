@@ -21,3 +21,4 @@ tree-sitter-djot = { git="https://github.com/treeman/tree-sitter-djot", rev="eb3
 tree-sitter-html = "0.23.2"
 sha2 = "0.10.8"
 base64 = "0.22.1"
+tree-sitter-typescript = "0.23.2"
