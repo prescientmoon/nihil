@@ -39,6 +39,7 @@ math[display="block"] {
 pre > code {
   display: block;
   padding: 1rem;
+  overflow-x: scroll;
 }
 /* }}} */
 /* {{{ General article styling */
@@ -278,7 +279,6 @@ figure > figcaption > p {
 @media (prefers-color-scheme: light) {
   code {
     background: #eff1f5;
-    white-space: pre-wrap;
   }
 
   .aside code {
