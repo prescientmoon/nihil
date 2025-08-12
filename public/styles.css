@@ -1,5 +1,88 @@
+/* {{{ Fonts */
+@font-face {
+  font-family: "Latin Modern";
+  src: url("/fonts/lmroman-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Latin Modern";
+  src: url("/fonts/lmroman-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: bold;
+}
+
+@font-face {
+  font-family: "Latin Modern";
+  src: url("/fonts/lmroman-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Latin Modern";
+  src: url("/fonts/lmroman-bolditalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Latin Modern Math";
+  src: url("/fonts/lmroman-math.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Computer Modern";
+  src: url("/fonts/cm-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Computer Modern";
+  src: url("/fonts/cm-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: bold;
+}
+
+@font-face {
+  font-family: "Computer Modern";
+  src: url("/fonts/cm-italic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Computer Modern";
+  src: url("/fonts/cm-bolditalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Computer Modern Math";
+  src: url("/fonts/cm-math.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+/* Style mathml elements  */
+mtext {
+  font-family: "Computer Modern";
+}
+
+math {
+  font-family: "Latin Modern Math";
+}
+/* }}} */
+
 body {
-  font: 16pt/1.6 sans-serif;
+  /* font: 16pt/1.6 sans-serif; */
+  /* font: 16pt/1.6 "Latin Modern"; */
+  font: 16pt/1.6 "Computer Modern";
   max-width: 43rem;
   margin: auto;
   padding: 1rem;
@@ -32,6 +115,12 @@ h6 {
   }
 }
 
+/* https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/Heading_Elements#specifying_a_uniform_font_size_for_h1 */
+h1 {
+  margin-block: 0.67em;
+  font-size: 2em;
+}
+
 math[display="block"] {
   margin: 1.5rem 0;
 }
@@ -56,6 +145,11 @@ pre > code {
   ul {
     list-style-type: disc;
   }
+}
+
+.change-list {
+  max-width: 36rem;
+  margin: auto;
 }
 /* }}} */
 /* {{{ Asides */

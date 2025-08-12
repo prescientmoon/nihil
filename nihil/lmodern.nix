@@ -37,7 +37,7 @@ stdenvNoCC.mkDerivation rec {
       woff2_compress "$out/share/fonts/woff2/$font"
     done
     cd ../../
-    rm -rf $out/share/fonts/woff2/*.otf
+    rm -rf $out/share/fonts/woff2/**/*.otf
 
     runHook postBuild
   '';

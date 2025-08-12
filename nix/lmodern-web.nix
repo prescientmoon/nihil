@@ -15,8 +15,8 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p $out/share/fonts/{woff,truetype}
 
-    cp -r $src/fonts/*.woff $out/share/fonts/woff
-    cp -r $src/fonts/*.ttf $out/share/fonts/truetype
+    cp $src/font/*.woff $out/share/fonts/woff
+    cp $src/font/*.ttf $out/share/fonts/truetype
 
     runHook postInstall
   '';

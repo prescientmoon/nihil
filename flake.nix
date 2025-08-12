@@ -18,6 +18,7 @@
           ...
         }:
         {
+          devShells.nihil = import ./nihil/shell.nix { inherit pkgs; };
           devShells.default = pkgs.mkShell rec {
             nativeBuildInputs = with pkgs; [
               # Rust tooling
@@ -38,7 +39,6 @@
               pkgs.libxml2
               pkgs.validator-nu
               pkgs.htmltest
-
             ];
 
             buildInputs = with pkgs; [ ];

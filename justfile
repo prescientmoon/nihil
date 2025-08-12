@@ -14,14 +14,14 @@ current-date:
 
 [doc("Serve the build website locally")]
 serve-dev:
-  http-server dist
+  http-server dist/web
 
 # {{{ Building
 [private]
 [group("build")]
 [doc("Minify the sitemap .xml file")]
 minify-sitemap:
-  xmllint --noblanks dist/sitemap.xml --output dist/sitemap.xml
+  xmllint --noblanks dist/web/sitemap.xml --output dist/web/sitemap.xml
 
 [group("build")]
 [doc("Build the website")]
@@ -41,7 +41,7 @@ lint: lint-vnu lint-css lint-htmltest lint-htmlvalidate
 [group("lint")]
 [doc("Run htmltest on the generated html files")]
 lint-htmltest:
-  htmltest -c tooling/htmltest.yml dist
+  htmltest -c tooling/htmltest.yml dist/web/
 
 [group("lint")]
 [doc("Run htmlvalidate on the generated html files")]
@@ -50,7 +50,7 @@ lint-htmlvalidate:
   shopt -s globstar
   shopt -s extglob
   npx --prefix tooling \
-    html-validate -c tooling/htmlvalidate.json dist/**/*.html
+    html-validate -c tooling/htmlvalidate.json dist/web/**/*.html
 
 [group("lint")]
 [doc("Run the VNU linter on the generated html & svg files")]
@@ -62,7 +62,7 @@ lint-vnu:
   output=$(
     vnu --also-check-svg --no-langdetect \
       --stdout --exit-zero-always \
-      dist/**/*.{html,svg} 2>&1 \
+      dist/web/**/*.{html,svg} 2>&1 \
       | grep -v "Trailing slash on void elements"
   )
 
@@ -77,7 +77,7 @@ lint-vnu:
 [group("lint")]
 [doc("Run stylelint on the generated stylesheets")]
 lint-css:
-  npx --prefix tooling stylelint dist/**/*.css \
+  npx --prefix tooling stylelint dist/web/**/*.css \
     --config ./tooling/stylelintrc.json \
     --rd --rdd # All disables must come with an explanation and must be necessary
 # }}}

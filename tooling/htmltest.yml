@@ -6,6 +6,8 @@ ExternalTimeout: 20
 HTTPConcurrencyLimit: 128
 IgnoreAltEmpty: true
 IgnoreHTTPS:
-  - "http://localhost:"
+  - "http://localhost:8080"
 IgnoreURLs:
   - "https://www.reddit.com"
+  - "https://www.youtube.com"
+  - "http://localhost:8080"

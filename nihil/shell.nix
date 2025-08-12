@@ -14,9 +14,10 @@ pkgs.mkShell {
   NIHIL_CONTENT = "../content";
   NIHIL_OUT = "../dist";
   NIHIL_DRAFTS = 1;
-  NIHIL_LMODERN_WEB =
+  NIHIL_LMODERN =
     let
       lmodern = pkgs.callPackage ./lmodern.nix { };
     in
-    "${lmodern}/share/fonts";
+    "${lmodern}/share/fonts/woff2/public/";
+  NIHIL_CMODERN = "${pkgs.cm_unicode}/share/fonts/opentype/";
 }
