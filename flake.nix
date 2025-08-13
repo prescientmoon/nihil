@@ -1,55 +1,30 @@
 {
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-  inputs.flake-parts.url = "github:hercules-ci/flake-parts";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  };
 
   outputs =
-    inputs:
-    inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [ "x86_64-linux" ];
-      imports = [
-        inputs.flake-parts.flakeModules.easyOverlay
-        ./nix
-      ];
-
-      perSystem =
+    { nixpkgs, ... }:
+    {
+      packages."x86_64-linux" =
+        let
+          pkgs = nixpkgs.legacyPackages."x86_64-linux";
+        in
         {
-          pkgs,
-          lib,
-          ...
-        }:
+          nihil = pkgs.callPackage ./nihil { };
+          math-renderer = pkgs.callPackage ./math-renderer { };
+          highlighter = pkgs.callPackage ./highlighter { };
+        };
+
+      devShells."x86_64-linux" =
+        let
+          pkgs = nixpkgs.legacyPackages."x86_64-linux";
+        in
         {
-          devShells.nihil = import ./nihil/shell.nix { inherit pkgs; };
-          devShells.highlighter = import ./highlighter/shell.nix { inherit pkgs; };
-          devShells.math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
-          devShells.default = pkgs.mkShell rec {
-            nativeBuildInputs = with pkgs; [
-              # Rust tooling
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.clippy
-              pkgs.rust-analyzer
-              pkgs.rustfmt
-
-              # Dev tooling
-              pkgs.imagemagick
-              pkgs.http-server
-
-              # Build / test pipeline
-              pkgs.nodejs
-              pkgs.just
-              pkgs.terser
-              pkgs.libxml2
-              pkgs.validator-nu
-              pkgs.htmltest
-            ];
-
-            buildInputs = with pkgs; [ ];
-
-            LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
-
-            # Contains all the treesitter highlights I use
-            NVIM_TREESITTER = pkgs.vimPlugins.nvim-treesitter.withAllGrammars;
-          };
+          nihil = import ./nihil/shell.nix { inherit pkgs; };
+          math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
+          highlighter = import ./highlighter/shell.nix { inherit pkgs; };
+          default = import ./shell.nix { inherit pkgs; };
         };
     };
 }
