@@ -49,9 +49,9 @@ inlinesToText = foldMap go . Djot.unMany
     Djot.Superscript ils → inlinesToText ils
     Djot.Subscript ils → inlinesToText ils
     Djot.Quoted Djot.SingleQuotes ils →
-      "‘" <> inlinesToText ils <> "’"
+      "'" <> inlinesToText ils <> "'"
     Djot.Quoted Djot.DoubleQuotes ils →
-      "’" <> inlinesToText ils <> "”"
+      "\"" <> inlinesToText ils <> "\""
     Djot.Verbatim bs → decodeUtf8 bs
     Djot.Math Djot.DisplayMath bs → "$$" <> decodeUtf8 bs <> "$$"
     Djot.Math Djot.InlineMath bs → "$" <> decodeUtf8 bs <> "$"

@@ -223,6 +223,33 @@ genPage ctx page = do
                 & goMetadata page'
                 & encodeUtf8
                 & Html.rawContent
+      | Djot.hasClass "aside" attrs
+          || Djot.hasClass "long-aside" attrs
+          || Djot.hasClass "char-aside" attrs → do
+          let template
+                | Djot.hasClass "aside" attrs = Text.pack $(embedStringFile "./templates/aside.html")
+                | Djot.hasClass "long-aside" attrs = Text.pack $(embedStringFile "./templates/long-aside.html")
+                | Djot.hasClass "char-aside" attrs = Text.pack $(embedStringFile "./templates/char-aside.html")
+                | otherwise = error "Impossible"
+
+          let asideId =
+                fromMaybe (error "No ID found on non-simple aside") $
+                  decodeUtf8 @Text <$> Djot.getAttr "id" attrs
+          let asideTitle =
+                fromMaybe (error $ "No title found on non-simple aside " <> asideId) $
+                  decodeUtf8 @Text <$> Djot.getAttr "title" attrs
+          let asideChar =
+                fromMaybe (error $ "No character found for non-simple aside " <> asideId) $
+                  decodeUtf8 @Text <$> Djot.getAttr "character" attrs
+
+          let notSimple = not $ Djot.hasClass "aside" attrs
+          template
+            & endoIf notSimple (Text.replace "{{id}}" asideId)
+            & endoIf notSimple (Text.replace "{{title}}" asideTitle)
+            & endoIf notSimple (Text.replace "{{character}}" asideChar)
+            & replaceHtml "{{content}}" (goBlocks blocks)
+            & encodeUtf8
+            & Html.rawContent
       | otherwise → Html.tag "div" $ goBlocks blocks
      where
       -- {{{ TOC algorithm
@@ -485,3 +512,7 @@ showReadingDuration page
   minutes = wc `div` 200
   seconds = wc * 60 `div` 200
   wc = page.meta.wordCount
+
+endoIf ∷ ∀ a. Bool → (a → a) → (a → a)
+endoIf True e = e
+endoIf False _ = Relude.id

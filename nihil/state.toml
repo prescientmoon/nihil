@@ -1,6 +1,6 @@
 
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/angelfold"
 
   [[pages.changes]]
@@ -18,8 +18,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/the-realm-s-secrets"
 
   [[pages.changes]]
@@ -62,8 +67,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-07-23T21:51:03+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/ts-array-variance-standup"
 
   [[pages.changes]]
@@ -86,8 +96,13 @@
     hash = "324217e"
     message = "Add a few more people to the arc pookies bug finder list"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-08-06T22:48:15+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/arcaea-pookies"
 
   [[pages.changes]]
@@ -135,8 +150,13 @@
     hash = "00d81f7"
     message = "Bump patched app links"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = ""
 
   [[pages.changes]]
@@ -169,8 +189,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/games"
 
   [[pages.changes]]
@@ -223,8 +248,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/angelfold-2025-february"
 
   [[pages.changes]]
@@ -247,8 +277,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/arcaea"
 
   [[pages.changes]]
@@ -331,8 +366,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes"
 
   [[pages.changes]]
@@ -365,8 +405,13 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-19T12:01:50+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/404"
 
   [[pages.changes]]
@@ -384,8 +429,13 @@
     hash = "a8cba40"
     message = "Shorten 404 spam for mobile"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:48+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/spherical-cmb"
 
   [[pages.changes]]
@@ -423,11 +473,21 @@
     hash = "d2510af"
     message = "Update posts to fit the new generator changes"
 
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
+
 [[pages]]
-  lastUpdated = 2025-06-11T05:18:54+00:00
+  lastUpdated = 2025-08-12T23:26:28+00:00
   route = "/echoes/updating-lunarbox"
 
   [[pages.changes]]
     at = 2025-06-11T05:18:54+00:00
     hash = "7f55203"
     message = "Start working on lunarbox article"
+
+  [[pages.changes]]
+    at = 2025-08-12T23:26:28+00:00
+    hash = "8dd4654"
+    message = "Migrate content to new format"
