@@ -20,6 +20,7 @@
         {
           devShells.nihil = import ./nihil/shell.nix { inherit pkgs; };
           devShells.highlighter = import ./highlighter/shell.nix { inherit pkgs; };
+          devShells.math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
           devShells.default = pkgs.mkShell rec {
             nativeBuildInputs = with pkgs; [
               # Rust tooling

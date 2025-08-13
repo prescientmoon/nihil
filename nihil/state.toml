@@ -24,7 +24,7 @@
     message = "Migrate content to new format"
 
 [[pages]]
-  lastUpdated = 2025-08-12T23:26:28+00:00
+  lastUpdated = 2025-08-13T14:55:11+00:00
   route = "/echoes/the-realm-s-secrets"
 
   [[pages.changes]]
@@ -71,6 +71,11 @@
     at = 2025-08-12T23:26:28+00:00
     hash = "8dd4654"
     message = "Migrate content to new format"
+
+  [[pages.changes]]
+    at = 2025-08-13T14:55:11+00:00
+    hash = "c01fec2"
+    message = "I give up trying to improve the highlighter aaaaaaaaaaaa"
 
 [[pages]]
   lastUpdated = 2025-08-12T23:26:28+00:00
@@ -283,7 +288,7 @@
     message = "Migrate content to new format"
 
 [[pages]]
-  lastUpdated = 2025-08-12T23:26:28+00:00
+  lastUpdated = 2025-08-13T14:55:11+00:00
   route = "/echoes/arcaea"
 
   [[pages.changes]]
@@ -370,6 +375,11 @@
     at = 2025-08-12T23:26:28+00:00
     hash = "8dd4654"
     message = "Migrate content to new format"
+
+  [[pages.changes]]
+    at = 2025-08-13T14:55:11+00:00
+    hash = "c01fec2"
+    message = "I give up trying to improve the highlighter aaaaaaaaaaaa"
 
 [[pages]]
   lastUpdated = 2025-08-12T23:26:28+00:00

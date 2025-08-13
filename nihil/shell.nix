@@ -6,6 +6,7 @@ pkgs.mkShell {
     fourmolu
     haskell-language-server
     (pkgs.callPackage ../highlighter { })
+    (pkgs.callPackage ../math-renderer { })
   ];
 
   NIHIL_MUTATE = 1;
@@ -15,10 +16,6 @@ pkgs.mkShell {
   NIHIL_CONTENT = "../content";
   NIHIL_OUT = "../dist";
   NIHIL_DRAFTS = 1;
-  NIHIL_LMODERN =
-    let
-      lmodern = pkgs.callPackage ./lmodern.nix { };
-    in
-    "${lmodern}/share/fonts/woff2/public/";
+  NIHIL_MATH_ASSETS = pkgs.callPackage ../math-renderer/assets.nix { };
   NIHIL_CMODERN = "${pkgs.cm_unicode}/share/fonts/opentype/";
 }

@@ -2,12 +2,11 @@ module Main where
 
 import Data.Sequence qualified as Seq
 import Nihil.Config (Config (..), getConfig)
-import Nihil.Content.Config (PageConfig (..))
-import Nihil.Content.Find (findAssets, findPages)
 import Nihil.Content.Html qualified as Html
 import Nihil.Context (Context (..))
 import Nihil.File.Out qualified as Gen
-import Nihil.Gen.Page (FullPage (..), PageMetadata (..), elabPage)
+import Nihil.Page.Find (findAssets, findPages)
+import Nihil.Page.Meta (FullPage (..), PageConfig (..), PageMetadata (..), elabPage)
 import Nihil.State (conjureState)
 import Relude
 import System.Directory (copyFile, createDirectoryIfMissing)

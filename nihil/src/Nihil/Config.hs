@@ -17,7 +17,7 @@ data Config = Config
   , statePath ∷ FilePath
   , mutateState ∷ Bool
   , includeDrafts ∷ Bool
-  , lmodernPath ∷ FilePath
+  , pulldownLatexAssetPath ∷ FilePath
   , cmodernPath ∷ FilePath
   }
   deriving (Generic, Show)
@@ -31,7 +31,7 @@ getConfig = do
   statePath ← getEnv "NIHIL_STATE"
   mutateState ← getEnvDefault "NIHIL_MUTATE" "0"
   includeDrafts ← getEnvDefault "NIHIL_DRAFTS" "0"
-  lmodernPath ← getEnv "NIHIL_LMODERN"
+  pulldownLatexAssetPath ← getEnv "NIHIL_MATH_ASSETS"
   cmodernPath ← getEnv "NIHIL_CMODERN"
   pure $
     Config
@@ -42,6 +42,6 @@ getConfig = do
       , statePath = statePath
       , mutateState = mutateState == "1"
       , includeDrafts = includeDrafts == "1"
-      , lmodernPath = lmodernPath
+      , pulldownLatexAssetPath = pulldownLatexAssetPath
       , cmodernPath = cmodernPath
       }

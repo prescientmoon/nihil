@@ -3,7 +3,6 @@
 module Nihil.Content.Html (genSite) where
 
 import Data.FileEmbed (embedStringFile)
-import Data.HashMap.Strict qualified as HashMap
 import Data.Sequence (Seq ((:<|)))
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
@@ -11,30 +10,31 @@ import Data.Time qualified as Time
 import Data.Time.Format.ISO8601 qualified as Time
 import Djot qualified
 import Nihil.Config (Config (..))
-import Nihil.Content.Config (PageConfig (..))
-import Nihil.Content.Find (InputPage (..))
-import Nihil.Context (Context (..))
+import Nihil.Content.Rss (genRssFeed)
+import Nihil.Content.Sitemap (genSitemap)
+import Nihil.Context (Context (..), echoes)
 import Nihil.Djot qualified as Djot
+import Nihil.File.In qualified as File
 import Nihil.File.Out (FileGen)
 import Nihil.File.Out qualified as Gen
-import Nihil.Gen.Html qualified as Html
-import Nihil.Gen.Page
+import Nihil.Gen.Xml qualified as Html
+import Nihil.Highlight (highlight)
+import Nihil.Math (renderMath)
+import Nihil.Page.Find (InputPage (..))
+import Nihil.Page.Meta
   ( FullPage (..)
   , Heading (..)
+  , PageConfig (..)
   , PageMetadata (..)
   )
-import Nihil.Gen.Text qualified as Djot
-import Nihil.Highlight (highlight)
 import Nihil.Route (Route (..), routeToPath)
 import Nihil.State
   ( GitChange (..)
   , PerPageState (..)
-  , PersistentState (..)
+  , pageStateFor
   )
 import Relude
-import System.FilePath ((</>))
-import Text.TeXMath qualified as TeXMath
-import Text.XML.Light qualified as Xml
+import System.FilePath (takeFileName, (</>))
 
 findByRoute ∷ Route → Seq FullPage → Maybe FullPage
 findByRoute route = find (\p → p.input.route == route)
@@ -42,16 +42,7 @@ findByRoute route = find (\p → p.input.route == route)
 genSite ∷ Context → FileGen ()
 genSite ctx = do
   Gen.dir "fonts" do
-    Gen.copy "lmroman-regular.woff2" $
-      ctx.config.lmodernPath </> "lm" </> "lmsans10-regular.woff2"
-    Gen.copy "lmroman-bold.woff2" $
-      ctx.config.lmodernPath </> "lm" </> "lmsans10-bold.woff2"
-    Gen.copy "lmroman-italic.woff2" $
-      ctx.config.lmodernPath </> "lm" </> "lmsans10-oblique.woff2"
-    Gen.copy "lmroman-bolditalic.woff2" $
-      ctx.config.lmodernPath </> "lm" </> "lmsans10-boldoblique.woff2"
-    Gen.copy "lmroman-math.woff2" $
-      ctx.config.lmodernPath </> "lm-math" </> "latinmodern-math.woff2"
+    -- Computer modern fonts
     Gen.copy "cm-regular.otf" $
       ctx.config.cmodernPath </> "cmunss.otf"
     Gen.copy "cm-bold.otf" $
@@ -62,6 +53,23 @@ genSite ctx = do
       ctx.config.cmodernPath </> "cmunso.otf"
     Gen.copy "cm-math.otf" $
       ctx.config.cmodernPath </> "cmunbmo.otf"
+
+  -- pulldown_latex assets
+  Gen.dir "math" do
+    (fonts, stylesheet) ← File.run ctx.config.pulldownLatexAssetPath do
+      File.at "share" do
+        files ← File.at "fonts/woff2" File.ls
+        let fonts = files <&> snd
+        (_, stylesheet) ← File.at "css/styles.css" File.getInfo
+        pure (fonts, stylesheet)
+
+    Gen.copy "styles.css" stylesheet
+    Gen.dir "font" do
+      for_ fonts \font → do
+        Gen.copy (Text.pack $ takeFileName font) font
+
+  Gen.file "sitemap.xml" $ genSitemap ctx
+  Gen.file "rss.xml" $ genRssFeed ctx (echoes ctx)
 
   for_ (findByRoute Home ctx.pages) $ genPage ctx
   Gen.dir "404" $ for_ (findByRoute NotFound ctx.pages) $ genPage ctx
@@ -113,24 +121,20 @@ genPage ctx page = do
           for_ (Seq.reverse pageState.changes) \change → do
             Html.tag "li" do
               Html.content "At commit "
-              Html.tag "code" $ Html.content $ encodeUtf8 change.hash
+              Html.tag "code" $ Html.content change.hash
               Html.content " on "
               goDatetime change.at
               Html.content ":"
               Html.tag "blockquote" $ Html.tag "em" do
-                Html.content $ encodeUtf8 change.message
+                Html.content change.message
 
     Html.tag "p" do
       Html.tag "a" do
-        Html.attr "href" (encodeUtf8 url <> "/")
-        Html.content $ encodeUtf8 @Text "↩ Back to content"
+        Html.attr "href" (url <> "/")
+        Html.content "↩ Back to content"
 
   url = routeToPath page.input.route
-  pageState = pageStateFor page.input.route
-  pageStateFor route =
-    fromMaybe
-      (error $ "No persistent state for route " <> show route)
-      $ HashMap.lookup route ctx.state.pages
+  pageState = pageStateFor page.input.route ctx.state
 
   goBlocks (Djot.Many blocks) = traverse_ goBlock blocks
   goBlock (Djot.Node _ attrs inner) = case inner of
@@ -147,14 +151,13 @@ genPage ctx page = do
               & goMetadata page
               & replaceHtml "{{heading}}" renderTitle
               & replaceHtml "{{content}}" renderNonTitle
-              & encodeUtf8
               & Html.rawContent
       | otherwise → Html.tag "section" do
           Html.attr "aria-labelledby" sectionId
           renderTitle
           renderNonTitle
      where
-      titleId = fmap (\x → encodeUtf8 x.id) page.meta.title
+      titleId = fmap (\x → x.id) page.meta.title
       sectionId =
         fromMaybe (error "Sections must have an ID.") $
           Djot.getAttr "id" attrs
@@ -188,7 +191,7 @@ genPage ctx page = do
             for_ (Djot.getAttr "width" attrs) \w → do
               -- the width is not always an int!
               if
-                | isJust (readMaybe @Int $ Text.unpack $ decodeUtf8 w) →
+                | isJust (readMaybe @Int $ Text.unpack w) →
                     Html.attr "width" w
                 | otherwise → do
                     Html.attr "style" $ "width: " <> w
@@ -202,18 +205,10 @@ genPage ctx page = do
             & replaceHtml
               "{{content}}"
               (goToc [2] page.meta.toc)
-            & encodeUtf8
             & Html.rawContent
       | Djot.hasClass "echo-list" attrs → do
           let pages =
-                ctx.pages
-                  -- remove hidden files
-                  & Seq.filter (\p → not p.meta.config.hidden)
-                  & Seq.filter -- only keep echoes
-                    ( \p → case p.input.route of
-                        Echo _ → True
-                        _ → False
-                    )
+                echoes ctx
                   & Seq.sortOn
                     ( \p → case p.meta.config.createdAt of
                         Just at → (0 ∷ Int, Just at)
@@ -227,7 +222,6 @@ genPage ctx page = do
             for_ pages \page' → do
               template
                 & goMetadata page'
-                & encodeUtf8
                 & Html.rawContent
       | Djot.hasClass "aside" attrs
           || Djot.hasClass "long-aside" attrs
@@ -240,13 +234,13 @@ genPage ctx page = do
 
           let asideId =
                 fromMaybe (error "No ID found on non-simple aside") $
-                  decodeUtf8 @Text <$> Djot.getAttr "id" attrs
+                  Djot.getAttr "id" attrs
           let asideTitle =
                 fromMaybe (error $ "No title found on non-simple aside " <> asideId) $
-                  decodeUtf8 @Text <$> Djot.getAttr "title" attrs
+                  Djot.getAttr "title" attrs
           let asideChar =
                 fromMaybe (error $ "No character found for non-simple aside " <> asideId) $
-                  decodeUtf8 @Text <$> Djot.getAttr "character" attrs
+                  Djot.getAttr "character" attrs
 
           let notSimple = not $ Djot.hasClass "aside" attrs
           template
@@ -254,7 +248,6 @@ genPage ctx page = do
             & endoIf notSimple (Text.replace "{{title}}" asideTitle)
             & endoIf notSimple (Text.replace "{{character}}" asideChar)
             & replaceHtml "{{content}}" (goBlocks blocks)
-            & encodeUtf8
             & Html.rawContent
       | otherwise → Html.tag "div" $ goBlocks blocks
      where
@@ -280,7 +273,7 @@ genPage ctx page = do
         | otherwise = do
             Html.rawContent "<li>"
             Html.tag "a" do
-              Html.attr "href" $ encodeUtf8 $ "#" <> heading.id
+              Html.attr "href" $ "#" <> heading.id
               goInlines heading.contents
 
             let nextLevel = fromMaybe 2 do
@@ -328,7 +321,7 @@ genPage ctx page = do
     Djot.TaskList _ _ → error "Task lists are not supported"
     Djot.ThematicBreak → Html.singleTag "hr" $ pure ()
     Djot.Table _ _ → error "Tables are not currently supported"
-    Djot.RawBlock (Djot.Format "html") s → Html.rawContent s
+    Djot.RawBlock (Djot.Format "html") (decodeUtf8 → s) → Html.rawContent s
     Djot.RawBlock _ _ → pure ()
 
   goListItemBlocks listSpacing (Djot.Many blocks) =
@@ -340,7 +333,7 @@ genPage ctx page = do
 
   goInlines (Djot.Many inlines) = traverse_ goInline inlines
   goInline (Djot.Node pos attrs inner) = case inner of
-    Djot.Str s → Html.content s
+    Djot.Str (decodeUtf8 → s) → Html.content s
     Djot.Emph inlines → Html.tag "em" $ goInlines inlines
     Djot.Strong inlines → Html.tag "strong" $ goInlines inlines
     Djot.Highlight inlines → Html.tag "mark" $ goInlines inlines
@@ -348,21 +341,21 @@ genPage ctx page = do
     Djot.Delete inlines → Html.tag "del" $ goInlines inlines
     Djot.Superscript inlines → Html.tag "sup" $ goInlines inlines
     Djot.Subscript inlines → Html.tag "sub" $ goInlines inlines
-    Djot.Verbatim s → Html.tag "code" $ Html.content s
-    Djot.Symbol sym → Html.content $ ":" <> sym <> ":"
+    Djot.Verbatim (decodeUtf8 → s) → Html.tag "code" $ Html.content s
+    Djot.Symbol (decodeUtf8 → sym) → Html.content $ ":" <> sym <> ":"
     Djot.SoftBreak → Html.content "\n"
     Djot.HardBreak → Html.singleTag "br" $ pure ()
     Djot.NonBreakingSpace → Html.content "&nbsp"
-    Djot.RawInline (Djot.Format "html") s → Html.rawContent s
+    Djot.RawInline (Djot.Format "html") s → Html.rawContent $ decodeUtf8 s
     Djot.RawInline _ _ → pure ()
     Djot.Quoted Djot.SingleQuotes ils → do
-      Html.content $ encodeUtf8 @Text "‘"
+      Html.content "‘"
       goInlines ils
-      Html.content $ encodeUtf8 @Text "’"
+      Html.content "’"
     Djot.Quoted Djot.DoubleQuotes ils → do
-      Html.content $ encodeUtf8 @Text "“"
+      Html.content "“"
       goInlines ils
-      Html.content $ encodeUtf8 @Text "”"
+      Html.content "”"
     Djot.Span inlines
       -- {{{ Date/Datetime
       | Djot.hasClass "datetime" attrs → do
@@ -377,11 +370,11 @@ genPage ctx page = do
           case Time.formatParseM fmt $ Text.unpack t of
             Nothing → error $ "Invalid date `" <> t <> "`"
             Just (date ∷ Time.Day) → Html.tag "time" do
-              Html.attr "datetime" . encodeUtf8 . Text.pack $
+              Html.attr "datetime" . Text.pack $
                 Time.formatShow
                   Time.iso8601Format
                   date
-              Html.content . encodeUtf8 . Text.pack $
+              Html.content . Text.pack $
                 Time.formatTime
                   Time.defaultTimeLocale
                   "%a, %d %b %Y"
@@ -389,7 +382,7 @@ genPage ctx page = do
       -- }}}
       | otherwise → Html.tag "span" $ goInlines inlines
     Djot.Image inlines target → Html.singleTag "img" do
-      Html.attr "alt" $ encodeUtf8 $ Djot.inlinesToText inlines
+      Html.attr "alt" $ Djot.inlinesToText inlines
       Html.attr "src" $ fst $ getReference page.input.djot target
     Djot.EmailLink mail →
       goInline
@@ -406,30 +399,17 @@ genPage ctx page = do
       Html.attr "href" $ fst $ getReference page.input.djot target
       goInlines inlines
     -- Djot.Math _ _ → error "Math not implemented!"
-    Djot.Math display (decodeUtf8 → string) → case TeXMath.readTeX string of
-      Left err →
-        error . fold $
-          [ "Cannot parse LaTeX math: `"
-          , string
-          , "`. An error occurred: "
-          , err
-          ]
-      Right exprs → do
-        let el = TeXMath.writeMathML kind exprs
-        Html.rawContent $ encodeUtf8 $ Text.pack $ Xml.showElement el
-     where
-      kind = case display of
-        Djot.InlineMath → TeXMath.DisplayInline
-        Djot.DisplayMath → TeXMath.DisplayBlock
+    Djot.Math display (decodeUtf8 → string) → do
+      Html.rawContent $ renderMath display string
     Djot.FootnoteReference _ → error "Footnotes not implemented!"
 
   goDatetime ∷ Time.UTCTime → Html.HtmlGen ()
   goDatetime datetime = Html.tag "time" do
-    Html.attr "datetime" . encodeUtf8 . Text.pack $
+    Html.attr "datetime" . Text.pack $
       Time.formatShow
         Time.iso8601Format
         datetime
-    Html.content . encodeUtf8 . Text.pack $
+    Html.content . Text.pack $
       Time.formatTime
         Time.defaultTimeLocale
         "%a, %d %b %Y"
@@ -438,23 +418,23 @@ genPage ctx page = do
   goCode ∷ ByteString → ByteString → Html.HtmlGen ()
   goCode (decodeUtf8 → lang) (decodeUtf8 → content) =
     Html.tag "pre" $ Html.tag "code" do
-      Html.rawContent $ encodeUtf8 $ highlight lang content
+      Html.rawContent $ highlight lang content
 
-  goAnchoredHeading ∷ ByteString → Int → Djot.Inlines → Html.HtmlGen ()
+  goAnchoredHeading ∷ Text → Int → Djot.Inlines → Html.HtmlGen ()
   goAnchoredHeading sectionId level inlines = Html.tag ("h" <> show level) do
     Html.attr "id" sectionId
     Html.tag "a" do
       Html.attr "class" "heading-anchor"
       Html.attr "href" $ "#" <> sectionId
-      Html.content $ encodeUtf8 @Text "◇"
+      Html.content "◇"
     Html.content " "
     goInlines inlines
 
   goMetadata page' =
     replaceHtml "{{title}}" title
-      . replaceHtml "{{text_title}}" (Html.content $ encodeUtf8 textTitle)
+      . replaceHtml "{{text_title}}" (Html.content textTitle)
       . replaceHtml "{{description}}" (goBlocks page'.meta.description)
-      . replaceHtml "{{text_description}}" (Html.content $ encodeUtf8 textDescription)
+      . replaceHtml "{{text_description}}" (Html.content textDescription)
       . replaceHtml "{{posted_on}}" postedOn
       . replaceHtml "{{updated_on}}" (goDatetime pageState'.lastUpdated)
       . Text.replace "{{changelog_url}}" (url' <> "/changelog/")
@@ -472,17 +452,17 @@ genPage ctx page = do
       Nothing → "???"
     textDescription = Djot.blocksToText page'.meta.description
     url' = routeToPath page'.input.route
-    pageState' = pageStateFor page'.input.route
+    pageState' = pageStateFor page'.input.route ctx.state
     postedOn = case page'.meta.config.createdAt of
       Nothing → Html.content "Being conjured "
       Just at → do
         Html.content "Posted on "
         goDatetime at
 
-getReference ∷ Djot.Doc → Djot.Target → (ByteString, Djot.Attr)
-getReference _ (Djot.Direct b) = (b, mempty)
+getReference ∷ Djot.Doc → Djot.Target → (Text, Djot.Attr)
+getReference _ (Djot.Direct b) = (decodeUtf8 b, mempty)
 getReference doc (Djot.Reference label)
-  | Just (u, as) ← Djot.lookupReference label refs = (u, as)
+  | Just (u, as) ← Djot.lookupReference label refs = (decodeUtf8 u, as)
   | otherwise = mempty
  where
   refs =
@@ -490,7 +470,7 @@ getReference doc (Djot.Reference label)
       <> Djot.docAutoReferences doc
 
 replaceHtml ∷ Text → Html.HtmlGen () → (Text → Text)
-replaceHtml k v = Text.replace k $ decodeUtf8 $ Html.genRaw v
+replaceHtml k v = Text.replace k $ Html.genRaw v
 
 showWordCount ∷ FullPage → Text
 showWordCount page

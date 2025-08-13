@@ -1,4 +1,4 @@
-module Nihil.Content.Find
+module Nihil.Page.Find
   ( InputPage (..)
   , findPages
   , findAssets

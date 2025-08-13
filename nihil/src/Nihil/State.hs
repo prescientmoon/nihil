@@ -3,6 +3,7 @@ module Nihil.State
   , PerPageState (..)
   , GitChange (..)
   , conjureState
+  , pageStateFor
   ) where
 
 import Data.HashMap.Strict qualified as HashMap
@@ -12,7 +13,7 @@ import Data.Time (UTCTime)
 import Data.Time qualified as Time
 import Data.Time.Format.ISO8601 qualified as Time
 import Nihil.Config (Config (..))
-import Nihil.Content.Find (InputPage (..))
+import Nihil.Page.Find (InputPage (..))
 import Nihil.Route (Route, pathToRoute, routeToPath)
 import Nihil.Toml qualified as Toml
 import Relude
@@ -140,3 +141,11 @@ genStateFor page = do
   cut =
     second (\t → fromMaybe t $ Text.stripPrefix " " t)
       . Text.breakOn " "
+
+-- | Selects the state for a particular page. Errors out if the state
+-- cannot be found.
+pageStateFor ∷ Route → PersistentState → PerPageState
+pageStateFor route st =
+  fromMaybe
+    (error $ "No persistent state for route " <> show route)
+    $ HashMap.lookup route st.pages
