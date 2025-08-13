@@ -46,7 +46,7 @@ static HIGHLIGHT_NAMES: [&str; 38] = [
 
 fn main() {
 	let args: Vec<String> = std::env::args().collect();
-	if args.len() < 2 {
+	if args.len() != 2 {
 		eprintln!("Usage: moonythm-highlighter <language>");
 		std::process::exit(1);
 	}

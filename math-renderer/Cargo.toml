@@ -1,0 +1,11 @@
+[package]
+name = "moonythm-math-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "moonythm-math-renderer"
+path = "main.rs"
+
+[dependencies]
+pulldown-latex = "0.7.1"
