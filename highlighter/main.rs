@@ -3,6 +3,47 @@ use std::{fmt::Display, io::Read};
 use tree_sitter::Language;
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
+static HIGHLIGHT_NAMES: [&str; 38] = [
+	"attribute",
+	"boolean",
+	"comment",
+	"comment.documentation",
+	"constant",
+	"constant.builtin",
+	"constructor",
+	"function",
+	"function.builtin",
+	"function.declaration",
+	"function.macro",
+	"function.method",
+	"keyword",
+	"label",
+	"markup",
+	"markup.heading",
+	"markup.italic",
+	"markup.link",
+	"markup.link.label",
+	"markup.link.url",
+	"markup.quote",
+	"markup.raw",
+	"markup.raw.block",
+	"number",
+	"operator",
+	"property",
+	"punctuation",
+	"punctuation.bracket",
+	"punctuation.delimiter",
+	"string",
+	"string.special",
+	"tag",
+	"type",
+	"type.djot",
+	"type.builtin",
+	"variable",
+	"variable.builtin",
+	"variable.parameter",
+];
+
 fn main() {
 	let args: Vec<String> = std::env::args().collect();
 	if args.len() < 2 {
@@ -16,94 +57,20 @@ fn main() {
 		.expect("Failed to read from stdin");
 
 	let lang: &str = &args[1];
-	let grammar = match lang {
-		"rust" => Some((
-			"rust",
-			Language::new(tree_sitter_rust::LANGUAGE),
-			tree_sitter_rust::HIGHLIGHTS_QUERY,
-			tree_sitter_rust::INJECTIONS_QUERY,
-			"",
-		)),
-		"djot" => Some((
-			"dj",
-			tree_sitter_djot::language(),
-			tree_sitter_djot::HIGHLIGHTS_QUERY,
-			tree_sitter_djot::INJECTIONS_QUERY,
-			"",
-		)),
-		"html" => Some((
-			"html",
-			Language::new(tree_sitter_html::LANGUAGE),
-			tree_sitter_html::HIGHLIGHTS_QUERY,
-			tree_sitter_html::INJECTIONS_QUERY,
-			"",
-		)),
-		"ts" => Some((
-			"typescript",
-			Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
-			concat!(
-				include_str!(concat!(
-					env!("NVIM_TREESITTER"),
-					"/queries/ecma/highlights.scm"
-				)),
-				"\n",
-				include_str!(concat!(
-					env!("NVIM_TREESITTER"),
-					"/queries/typescript/highlights.scm"
-				))
-			),
-			"",
-			tree_sitter_typescript::LOCALS_QUERY,
-		)),
-		_ => None,
-	};
 
-	if let Some((ft, ts_language, highlights, injections, locals)) = grammar {
+	if let Some(config) = highlighter_config(lang) {
 		let mut highlighter = Highlighter::new();
 
-		let mut config =
-			HighlightConfiguration::new(ts_language, ft, highlights, injections, locals)
-				.expect("Failed to create language config");
+		let highlights = highlighter
+			.highlight(&config, input.as_bytes(), None, |lang| {
+				Box::leak(Box::new(highlighter_config(lang))).as_ref()
+			})
+			.expect("Highlighter failed");
 
-		let highlight_names = [
-			"attribute",
-			"comment",
-			"comment.documentation",
-			"constant",
-			"constant.builtin",
-			"constructor",
-			"function",
-			"function.declaration",
-			"function.builtin",
-			"function.macro",
-			"function.method",
-			"keyword",
-			"label",
-			"operator",
-			"property",
-			"punctuation",
-			"punctuation.bracket",
-			"punctuation.delimiter",
-			"string",
-			"string.special",
-			"tag",
-			"type",
-			"type.builtin",
-			"variable",
-			"variable.builtin",
-			"variable.parameter",
-		];
-
-		let highlight_classes = highlight_names
+		let highlight_classes = HIGHLIGHT_NAMES
 			.iter()
 			.map(|s| s.replace(".", "-"))
 			.collect::<Vec<_>>();
-
-		config.configure(&highlight_names);
-
-		let highlights = highlighter
-			.highlight(&config, input.as_bytes(), None, |_| None)
-			.expect("Highlighter failed");
 
 		for event in highlights {
 			match event {
@@ -122,6 +89,65 @@ fn main() {
 	} else {
 		print!("{}", Escaped(&input));
 	}
+}
+
+fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
+	let grammar = match lang {
+		"rust" | "rs" => Some((
+			"rust",
+			Language::new(tree_sitter_rust::LANGUAGE),
+			tree_sitter_rust::HIGHLIGHTS_QUERY,
+			tree_sitter_rust::INJECTIONS_QUERY,
+			"",
+		)),
+		"djot" | "dj" => Some((
+			"dj",
+			tree_sitter_djot::language(),
+			tree_sitter_djot::HIGHLIGHTS_QUERY,
+			tree_sitter_djot::INJECTIONS_QUERY,
+			"",
+		)),
+		"html" => Some((
+			"html",
+			Language::new(tree_sitter_html::LANGUAGE),
+			tree_sitter_html::HIGHLIGHTS_QUERY,
+			tree_sitter_html::INJECTIONS_QUERY,
+			"",
+		)),
+		"toml" => Some((
+			"toml",
+			Language::new(tree_sitter_toml_ng::LANGUAGE),
+			tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+			"",
+			"",
+		)),
+		"typescript" | "ts" => Some((
+			"typescript",
+			Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
+			concat!(
+				include_str!(concat!(
+					env!("NVIM_TREESITTER"),
+					"/queries/ecma/highlights.scm"
+				)),
+				"\n",
+				include_str!(concat!(
+					env!("NVIM_TREESITTER"),
+					"/queries/typescript/highlights.scm"
+				))
+			),
+			"",
+			tree_sitter_typescript::LOCALS_QUERY,
+		)),
+		_ => None,
+	}?;
+
+	let (ft, ts_language, highlights, injections, locals) = grammar;
+	let mut config = HighlightConfiguration::new(ts_language, ft, highlights, injections, locals)
+		.expect("Failed to create language config");
+
+	config.configure(&HIGHLIGHT_NAMES);
+
+	Some(config)
 }
 
 // {{{ HTMl escaper

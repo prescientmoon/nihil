@@ -14,3 +14,4 @@ tree-sitter-highlight = "0.24.3"
 tree-sitter-djot = { git="https://github.com/treeman/tree-sitter-djot", rev="eb31845d59b9ee8c1b2098e78e9ca72004bd1579" }
 tree-sitter-html = "0.23.2"
 tree-sitter-typescript = "0.23.2"
+tree-sitter-toml-ng = "0.7.0"

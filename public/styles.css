@@ -391,7 +391,9 @@ figure > figcaption > p {
     font-style: italic;
   }
 
-  span.constant-builtin {
+  span.constant-builtin,
+  span.boolean,
+  span.number {
     color: #fe640b;
   }
 
@@ -437,7 +439,8 @@ figure > figcaption > p {
     color: #7c7f93;
   }
 
-  span.string {
+  span.string,
+  span.markup-link-url {
     color: #40a02b;
   }
 
@@ -445,7 +448,9 @@ figure > figcaption > p {
     color: #ea76cb;
   }
 
-  span.tag {
+  span.tag,
+  span.markup-link,
+  span.markup-link-label {
     color: #8839ef;
   }
 
