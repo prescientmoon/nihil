@@ -24,6 +24,7 @@ import Nihil.Gen.Page
   , PageMetadata (..)
   )
 import Nihil.Gen.Text qualified as Djot
+import Nihil.Highlight (highlight)
 import Nihil.Route (Route (..), routeToPath)
 import Nihil.State
   ( GitChange (..)
@@ -435,8 +436,9 @@ genPage ctx page = do
         datetime
 
   goCode ∷ ByteString → ByteString → Html.HtmlGen ()
-  goCode _lang content = Html.tag "pre" $ Html.tag "code" do
-    Html.content content
+  goCode (decodeUtf8 → lang) (decodeUtf8 → content) =
+    Html.tag "pre" $ Html.tag "code" do
+      Html.rawContent $ encodeUtf8 $ highlight lang content
 
   goAnchoredHeading ∷ ByteString → Int → Djot.Inlines → Html.HtmlGen ()
   goAnchoredHeading sectionId level inlines = Html.tag ("h" <> show level) do

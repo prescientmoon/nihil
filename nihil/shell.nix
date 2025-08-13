@@ -5,6 +5,7 @@ pkgs.mkShell {
     ghcid
     fourmolu
     haskell-language-server
+    (pkgs.callPackage ../highlighter { })
   ];
 
   NIHIL_MUTATE = 1;

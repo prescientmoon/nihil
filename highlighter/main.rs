@@ -10,14 +10,12 @@ fn main() {
 		std::process::exit(1);
 	}
 
-	let lang: &str = &args[1];
-
 	let mut input = String::new();
-	println!("got here");
 	std::io::stdin()
 		.read_to_string(&mut input)
 		.expect("Failed to read from stdin");
 
+	let lang: &str = &args[1];
 	let grammar = match lang {
 		"rust" => Some((
 			"rust",
@@ -122,7 +120,7 @@ fn main() {
 			}
 		}
 	} else {
-		print!("{input}");
+		print!("{}", Escaped(&input));
 	}
 }
 

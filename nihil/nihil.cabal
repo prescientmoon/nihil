@@ -41,6 +41,7 @@ executable nihil
         , Nihil.Route
         , Nihil.State
         , Nihil.Djot
+        , Nihil.Highlight
         , Nihil.File.In
         , Nihil.File.Out
         , Nihil.Gen.Text
