@@ -2,6 +2,9 @@ target
 dist
 oldicons
 result
-node_modules
+
+# Used by htmltest
 tmp
-idea.txt # Scratchpad
+
+# Scratchpad
+idea.txt

@@ -8,6 +8,7 @@
   ],
   "rules": {
     "require-sri": "off",
-    "heading-level": "off"
+    "heading-level": "off",
+    "no-inline-style": "off"
   }
 }

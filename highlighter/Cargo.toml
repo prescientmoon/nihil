@@ -1,0 +1,16 @@
+[package]
+name = "moonythm-highliter"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "moonythm-highlighter"
+path = "main.rs"
+
+[dependencies]
+tree-sitter = "0.24.3"
+tree-sitter-rust = "0.23.0"
+tree-sitter-highlight = "0.24.3"
+tree-sitter-djot = { git="https://github.com/treeman/tree-sitter-djot", rev="eb31845d59b9ee8c1b2098e78e9ca72004bd1579" }
+tree-sitter-html = "0.23.2"
+tree-sitter-typescript = "0.23.2"

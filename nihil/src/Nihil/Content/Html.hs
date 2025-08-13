@@ -175,7 +175,7 @@ genPage ctx page = do
       | Djot.hasClass "comment" attrs → pure ()
       | Djot.hasClass "description" attrs → pure ()
       | Djot.hasClass "figure" attrs → Html.tag "figure" $ goBlocks blocks
-      | Djot.hasClass "caption" attrs → Html.tag "caption" $ goBlocks blocks
+      | Djot.hasClass "caption" attrs → Html.tag "figcaption" $ goBlocks blocks
       | Djot.hasClass "image-figure" attrs → Html.tag "figure" do
           Html.singleTag "img" do
             Html.attr "src"
@@ -185,7 +185,12 @@ genPage ctx page = do
               . fromMaybe (error "image-figure must have an alt attibute")
               $ Djot.getAttr "alt" attrs
             for_ (Djot.getAttr "width" attrs) \w → do
-              Html.attr "width" w
+              -- the width is not always an int!
+              if
+                | isJust (readMaybe @Int $ Text.unpack $ decodeUtf8 w) →
+                    Html.attr "width" w
+                | otherwise → do
+                    Html.attr "style" $ "width: " <> w
           Html.tag "figcaption" do
             goBlocks blocks
       | Djot.hasClass "embed-description" attrs → do
@@ -445,9 +450,9 @@ genPage ctx page = do
 
   goMetadata page' =
     replaceHtml "{{title}}" title
-      . Text.replace "{{text_title}}" textTitle
+      . replaceHtml "{{text_title}}" (Html.content $ encodeUtf8 textTitle)
       . replaceHtml "{{description}}" (goBlocks page'.meta.description)
-      . Text.replace "{{text_description}}" textDescription
+      . replaceHtml "{{text_description}}" (Html.content $ encodeUtf8 textDescription)
       . replaceHtml "{{posted_on}}" postedOn
       . replaceHtml "{{updated_on}}" (goDatetime pageState'.lastUpdated)
       . Text.replace "{{changelog_url}}" (url' <> "/changelog/")

@@ -8,6 +8,7 @@ IgnoreAltEmpty: true
 IgnoreHTTPS:
   - "http://localhost:8080"
 IgnoreURLs:
+  - "https://medium.com"
   - "https://www.reddit.com"
   - "https://www.youtube.com"
   - "http://localhost:8080"
