@@ -91,12 +91,12 @@ genPage ctx page = do
       & replaceHtml "{{content}}" mainContent
 
   Gen.dir "changelog" $ Gen.file "index.html" do
-    let desc = goMetadata page "Changelog for \"{{text_title}}\""
+    let desc = goMetadata page "Chronicling the history of \"{{text_title}}\"."
 
     template
       & replaceHtml "{{content}}" changelogContent
-      & Text.replace "{{title}}" "Changelog"
-      & Text.replace "{{description}}" desc
+      & Text.replace "{{text_title}}" "Scroll of alterations"
+      & Text.replace "{{text_description}}" desc
       & Text.replace "{{url}}" (url <> "/changelog/")
  where
   mainContent = goBlocks page.input.djot.docBlocks
