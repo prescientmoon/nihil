@@ -1,6 +1,7 @@
 module Main where
 
 import Data.Sequence qualified as Seq
+import GHC.IO.Encoding (setLocaleEncoding, utf8)
 import Nihil.Config (Config (..), getConfig)
 import Nihil.Content.Html qualified as Html
 import Nihil.Context (Context (..))
@@ -14,6 +15,10 @@ import System.FilePath (takeDirectory, (</>))
 
 main ∷ IO ()
 main = do
+  -- Force UTF-8 for all text I/O
+  -- (otherwise, I get nix sandboxing errors)
+  setLocaleEncoding utf8
+
   cfg ← getConfig
   pages ← findPages cfg
   persistent ← conjureState cfg pages

@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "moonythm": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1755198659,
+        "narHash": "sha256-4MnPZQ70xpedoaffnkyXvhboDlHe+ttqpyqtwu/fCT4=",
+        "ref": "refs/heads/main",
+        "rev": "f103e9008a4d43fe6df134c17a9235b2f0bfa610",
+        "revCount": 48,
+        "type": "git",
+        "url": "ssh://forgejo@ssh.git.moonythm.dev/prescientmoon/moonythm.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://forgejo@ssh.git.moonythm.dev/prescientmoon/moonythm.git"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1755027561,
@@ -18,6 +34,7 @@
     },
     "root": {
       "inputs": {
+        "moonythm": "moonythm",
         "nixpkgs": "nixpkgs"
       }
     }

@@ -17,6 +17,7 @@ import Nihil.Page.Find (InputPage (..))
 import Nihil.Route (Route, pathToRoute, routeToPath)
 import Nihil.Toml qualified as Toml
 import Relude
+import System.FilePath (takeDirectory)
 import System.Process qualified as Process
 import Toml ((.=))
 import Toml qualified as Toml
@@ -98,7 +99,9 @@ genStateFor page = do
   let process =
         Process.proc
           "git"
-          [ "log"
+          [ "-C"
+          , takeDirectory page.path
+          , "log"
           , "--pretty=format:%h %ad %s"
           , "--date=iso-strict"
           , "--follow"

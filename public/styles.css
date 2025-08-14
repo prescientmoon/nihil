@@ -2,6 +2,10 @@ body {
   max-width: 43rem;
   margin: auto;
   padding: 1rem;
+
+  font:
+    16pt/1.6 "Computer Modern",
+    sans-serif;
 }
 
 /* {{{ Fonts */
@@ -38,12 +42,6 @@ body {
   src: url("/fonts/cm-math.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
-}
-
-body {
-  font:
-    16pt/1.6 "Computer Modern",
-    sans-serif;
 }
 /* }}} */
 /* {{{ General element tweaks */
