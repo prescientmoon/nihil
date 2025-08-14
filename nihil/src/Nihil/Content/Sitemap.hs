@@ -22,7 +22,7 @@ genSitemap ctx = Xml.genRaw do
   Xml.tag "urlset" do
     Xml.attr "xmlns" "http://www.sitemaps.org/schemas/sitemap/0.9"
     for_ ctx.pages \page → do
-      unless page.meta.config.sitemap.exclude do
+      unless (page.meta.config.hidden || page.meta.config.sitemap.exclude) do
         let pageState = pageStateFor page.input.route ctx.state
 
         Xml.tag "url" do
