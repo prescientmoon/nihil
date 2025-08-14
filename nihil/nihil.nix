@@ -10,8 +10,6 @@
   relude,
   time,
   tomland,
-  moonythm-highlighter,
-  moonythm-math-renderer,
 }:
 mkDerivation {
   pname = "nihil";
@@ -37,8 +35,6 @@ mkDerivation {
     relude
     time
     tomland
-    moonythm-highlighter
-    moonythm-math-renderer
   ];
 
   license = lib.licenses.agpl3Plus;
