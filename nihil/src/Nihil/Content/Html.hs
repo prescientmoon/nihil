@@ -95,8 +95,8 @@ genPage ctx page = do
 
     template
       & replaceHtml "{{content}}" changelogContent
+      & replaceHtml "{{text_description}}" (Html.content desc)
       & Text.replace "{{text_title}}" "Scroll of alterations"
-      & Text.replace "{{text_description}}" desc
       & Text.replace "{{url}}" (url <> "/changelog/")
  where
   mainContent = goBlocks page.input.djot.docBlocks
