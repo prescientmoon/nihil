@@ -24,7 +24,6 @@
           nihil = import ./nihil/shell.nix { inherit pkgs; };
           math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
           highlighter = import ./highlighter/shell.nix { inherit pkgs; };
-          default = import ./shell.nix { inherit pkgs; };
         };
     };
 }
