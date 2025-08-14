@@ -7,14 +7,18 @@
   };
 
   outputs =
-    { nixpkgs, moonythm, ... }:
+    inputs@{ nixpkgs, ... }:
     {
       packages."x86_64-linux" =
         let
           pkgs = nixpkgs.legacyPackages."x86_64-linux";
         in
         rec {
-          default = pkgs.callPackage ./. { inherit nihil moonythm; };
+          default = moonythm;
+          moonythm = pkgs.callPackage ./. {
+            inherit (inputs) moonythm;
+            inherit nihil;
+          };
           nihil = pkgs.callPackage ./nihil { };
           math-renderer = pkgs.callPackage ./math-renderer { };
           highlighter = pkgs.callPackage ./highlighter { };
@@ -25,7 +29,7 @@
           pkgs = nixpkgs.legacyPackages."x86_64-linux";
         in
         {
-          default = import ./shell.nix { inherit pkgs; };
+          moonythm = import ./shell.nix { inherit pkgs; };
           nihil = import ./nihil/shell.nix { inherit pkgs; };
           math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
           highlighter = import ./highlighter/shell.nix { inherit pkgs; };
