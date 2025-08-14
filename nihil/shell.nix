@@ -12,8 +12,7 @@ pkgs.mkShell {
   NIHIL_MUTATE = 1;
   NIHIL_STATE = "./state.toml";
   NIHIL_BASE_URL = "http://localhost:8080";
-  NIHIL_PUBLIC = "../public";
-  NIHIL_CONTENT = "../content";
+  NIHIL_CONTENT = "../content,../public";
   NIHIL_OUT = "../dist";
   NIHIL_DRAFTS = 1;
   NIHIL_MATH_ASSETS = pkgs.callPackage ../math-renderer/assets.nix { };

@@ -4,6 +4,7 @@ module Nihil.Page.Find
   , findAssets
   ) where
 
+import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Djot qualified as Djot
 import Nihil.Config (Config (..))
@@ -25,8 +26,10 @@ data InputPage
   deriving (Show)
 
 findPages ∷ Config → IO [InputPage]
-findPages config = do
-  File.run config.contentPath do
+findPages config =
+  -- Note: we only look for .dj files in the first path,
+  -- which is a bit weird, but oh well...
+  File.run (Seq.index config.contentPaths 0) do
     index ← getPage "index" Home
     notFound ← getPage "404" NotFound
     echoes ← getPage "echoes" Echoes

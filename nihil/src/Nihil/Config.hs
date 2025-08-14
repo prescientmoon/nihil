@@ -3,6 +3,7 @@ module Nihil.Config
   , getConfig
   ) where
 
+import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Relude
 import System.Directory (canonicalizePath)
@@ -11,8 +12,7 @@ import System.Environment.Blank (getEnvDefault)
 
 data Config = Config
   { baseUrl ∷ Text
-  , contentPath ∷ FilePath
-  , publicPath ∷ FilePath
+  , contentPaths ∷ Seq FilePath
   , outPath ∷ FilePath
   , statePath ∷ FilePath
   , mutateState ∷ Bool
@@ -24,8 +24,12 @@ data Config = Config
 
 getConfig ∷ IO Config
 getConfig = do
-  contentPath ← getEnv "NIHIL_CONTENT" >>= canonicalizePath
-  publicPath ← getEnv "NIHIL_PUBLIC" >>= canonicalizePath
+  contentPaths ←
+    getEnv "NIHIL_CONTENT"
+      <&> Text.pack
+      <&> Text.splitOn ","
+      <&> Seq.fromList
+      >>= traverse (canonicalizePath . Text.unpack)
   outPath ← getEnv "NIHIL_OUT" >>= canonicalizePath
   baseUrl ← getEnv "NIHIL_BASE_URL"
   statePath ← getEnv "NIHIL_STATE"
@@ -36,8 +40,7 @@ getConfig = do
   pure $
     Config
       { baseUrl = Text.pack baseUrl
-      , contentPath = contentPath
-      , publicPath = publicPath
+      , contentPaths = contentPaths
       , outPath = outPath
       , statePath = statePath
       , mutateState = mutateState == "1"

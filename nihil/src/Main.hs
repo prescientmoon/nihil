@@ -32,7 +32,7 @@ main = do
     Gen.dir "web" do
       Html.genSite ctx
 
-  assets ← foldMapM findAssets [cfg.contentPath, cfg.publicPath]
+  assets ← foldMapM findAssets cfg.contentPaths
   for_ assets \(from, to) → do
     createDirectoryIfMissing True (cfg.outPath </> "web" </> takeDirectory to)
     copyFile from (cfg.outPath </> "web" </> to)
