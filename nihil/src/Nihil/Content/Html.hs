@@ -451,7 +451,7 @@ genPage ctx page = do
       Just heading → Djot.inlinesToText heading.contents
       Nothing → "???"
     textDescription = Djot.blocksToText page'.meta.description
-    url' = routeToPath page'.input.route
+    url' = ctx.config.baseUrl <> routeToPath page'.input.route
     pageState' = pageStateFor page'.input.route ctx.state
     postedOn = case page'.meta.config.createdAt of
       Nothing → Html.content "Being conjured "
