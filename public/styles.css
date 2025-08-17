@@ -33,6 +33,18 @@
   font-weight: 400;
   font-style: normal;
 }
+
+@font-face {
+  font-family: "Cascadia Mono";
+  src: url("/fonts/cascadia-code/CascadiaMono.woff2") format("woff2");
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Cascadia Mono";
+  src: url("/fonts/cascadia-code/CascadiaMonoItalic.woff2") format("woff2");
+  font-style: italic;
+}
 /* }}} */
 
 /* Base page styling */
@@ -57,7 +69,11 @@ body {
   }
 }
 /* }}} */
-/* {{{ <code> elements */
+/* {{{ <pre> & <code> elements */
+pre {
+  font-family: "Cascadia Mono", monospace;
+}
+
 pre > code {
   display: block;
   padding: 1rem;
@@ -509,7 +525,7 @@ figure > figcaption > p {
 
   span.comment,
   span.comment-documentation {
-    color: #9ca0b0;
+    color: #6e738d;
     font-style: italic;
   }
 
