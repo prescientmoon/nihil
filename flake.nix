@@ -28,7 +28,8 @@
         let
           pkgs = nixpkgs.legacyPackages."x86_64-linux";
         in
-        {
+        rec {
+          default = moonythm;
           moonythm = import ./shell.nix { inherit pkgs; };
           nihil = import ./nihil/shell.nix { inherit pkgs; };
           math-renderer = import ./math-renderer/shell.nix { inherit pkgs; };
