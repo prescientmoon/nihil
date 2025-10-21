@@ -7,6 +7,7 @@ module Nihil.Page.Meta
   , elabPage
   ) where
 
+import Data.HashMap.Strict qualified as HashMap
 import Data.List qualified as List
 import Data.Sequence (Seq ((:<|)))
 import Data.Sequence qualified as Seq
@@ -109,6 +110,8 @@ data PageMetadata = PageMetadata
   , description ∷ Djot.Blocks
   , toc ∷ Seq Heading
   , wordCount ∷ Int
+  , -- Assigns an unique integer to each footnote ID.
+    footnoteOrder ∷ HashMap Text Int
   }
   deriving (Show, Generic)
 
@@ -185,8 +188,8 @@ elabMeta page =
         <> foldMap
           (\(Djot.Cell _ _ inlines) → goInlines inlines)
           (join cells)
-    Djot.RawBlock (Djot.Format "toml") contents
-      | hasClass "config" attrs → case Toml.decodeExact configCodec (decodeUtf8 contents) of
+    Djot.RawBlock (Djot.Format "toml") (decodeUtf8 → contents)
+      | hasClass "config" attrs → case Toml.decodeExact configCodec contents of
           Right config → mempty{config = config}
           Left errs →
             error $
@@ -214,7 +217,8 @@ elabMeta page =
     Djot.Link inlines _ → goInlines inlines
     Djot.Image inlines _ → goInlines inlines
     Djot.Span inlines → goInlines inlines
-    Djot.FootnoteReference _ → mempty
+    Djot.FootnoteReference (decodeUtf8 → to) →
+      mempty{footnoteOrder = HashMap.singleton to 1}
     Djot.UrlLink _ → mempty
     Djot.EmailLink _ → mempty
     Djot.RawInline _ _ → mempty
@@ -235,6 +239,17 @@ instance Semigroup PageMetadata where
       , description = a.description <> b.description
       , toc = a.toc <> b.toc
       , wordCount = a.wordCount + b.wordCount
+      , footnoteOrder =
+          HashMap.fromList
+            $ flip zip [1 ..]
+            $ sortOn
+              ( \k →
+                  HashMap.lookup k a.footnoteOrder
+                    <|> (+ HashMap.size a.footnoteOrder)
+                    <$> (HashMap.lookup k b.footnoteOrder)
+              )
+            $ List.nub
+              (HashMap.keys a.footnoteOrder <> HashMap.keys b.footnoteOrder)
       }
 
 instance Monoid PageMetadata where
@@ -245,6 +260,7 @@ instance Monoid PageMetadata where
       , description = mempty
       , toc = mempty
       , wordCount = 0
+      , footnoteOrder = mempty
       }
 
 -- }}}

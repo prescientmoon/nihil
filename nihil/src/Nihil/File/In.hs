@@ -19,6 +19,7 @@ newtype FileParser a
 
 data Context
   = Context
+  -- TODO: refactor this to hold a list of paths at every step
   { current ∷ FilePath
   }
 

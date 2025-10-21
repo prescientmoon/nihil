@@ -6,17 +6,11 @@
   makeWrapper,
   cm_unicode,
 }:
-let
-  base = haskell.packages."ghc9101".callPackage ./nihil.nix { };
-in
 symlinkJoin {
   name = "nihil";
-  paths = [ base ];
+  paths = [ (haskell.packages."ghc9101".callPackage ./nihil.nix { }) ];
 
-  buildInputs = [
-    makeWrapper
-  ];
-
+  buildInputs = [ makeWrapper ];
   postBuild = ''
     wrapProgram $out/bin/nihil \
       --prefix PATH : ${

@@ -3,7 +3,7 @@ use std::{fmt::Display, io::Read};
 use tree_sitter::Language;
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
-static HIGHLIGHT_NAMES: [&str; 38] = [
+static HIGHLIGHT_NAMES: [&str; 40] = [
 	"attribute",
 	"boolean",
 	"comment",
@@ -17,6 +17,7 @@ static HIGHLIGHT_NAMES: [&str; 38] = [
 	"function.macro",
 	"function.method",
 	"keyword",
+	"keyword.repeat",
 	"label",
 	"markup",
 	"markup.heading",
@@ -35,6 +36,7 @@ static HIGHLIGHT_NAMES: [&str; 38] = [
 	"punctuation.delimiter",
 	"string",
 	"string.special",
+	"spell",
 	"tag",
 	"type",
 	"type.djot",
@@ -100,6 +102,29 @@ fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
 			tree_sitter_rust::INJECTIONS_QUERY,
 			"",
 		)),
+		"haskell" | "hs" => Some((
+			"haskell",
+			Language::new(tree_sitter_haskell::LANGUAGE),
+			// I love nedless allocations + leaking memory aaaaaaaaaaaa (sorry)
+			// Wish concat! would work with any strings, not just literals...
+			concat!(
+				include_str!(concat!(
+					env!("NVIM_TREESITTER"),
+					"/queries/haskell/highlights.scm"
+				)),
+				r#"
+          [ "∀" ] @keyword.repeat
+        "#
+			),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/haskell/injections.scm"
+			)),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/haskell/locals.scm"
+			)),
+		)),
 		"djot" | "dj" => Some((
 			"dj",
 			tree_sitter_djot::language(),
@@ -137,6 +162,19 @@ fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
 			),
 			"",
 			tree_sitter_typescript::LOCALS_QUERY,
+		)),
+		"typst" | "typ" => Some((
+			"typst",
+			tree_sitter_typst::language(),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/typst/highlights.scm"
+			)),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/typst/injections.scm"
+			)),
+			"",
 		)),
 		_ => None,
 	}?;

@@ -3,6 +3,7 @@
 module Nihil.Content.Html (genSite) where
 
 import Data.FileEmbed (embedStringFile)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Sequence (Seq ((:<|)))
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
@@ -89,17 +90,43 @@ genPage ctx page = do
     template
       & goMetadata page
       & replaceHtml "{{content}}" mainContent
+      & replaceHtml "{{epilogue}}" mainEpilogue
 
   Gen.dir "changelog" $ Gen.file "index.html" do
     let desc = goMetadata page "Chronicling the history of \"{{text_title}}\"."
 
     template
       & replaceHtml "{{content}}" changelogContent
+      & replaceHtml "{{epilogue}}" ""
       & replaceHtml "{{text_description}}" (Html.content desc)
       & Text.replace "{{text_title}}" "Scroll of alterations"
       & Text.replace "{{url}}" (url <> "/changelog/")
  where
   mainContent = goBlocks page.input.djot.docBlocks
+  mainEpilogue
+    | HashMap.null page.meta.footnoteOrder = pure ()
+    | otherwise = do
+        let noteMap = page.input.djot.docFootnotes
+        let orderedKeys = sortOn snd $ HashMap.toList page.meta.footnoteOrder
+        Html.singleTag "hr" $ pure ()
+        Html.tag "section" do
+          Html.attr "role" "doc-endnotes"
+          Html.tag "ol" do
+            for_ orderedKeys \(key, num) → do
+              Html.tag "li" do
+                Html.attr "id" $ "footnote-" <> show num
+                case Djot.lookupNote (encodeUtf8 key) noteMap of
+                  Just blocks → goBlocks blocks
+                  Nothing →
+                    error $ "Footnote definition for " <> key <> " not found!"
+
+                Html.tag "a" do
+                  Html.attr "href" $ "#footnote-reference-" <> show num
+                  Html.attr "role" "doc-backlink"
+                  Html.content "Return to content ↩︎"
+
+              pure ()
+
   changelogContent = Html.tag "main" do
     Html.attr "aria-labelledby" "changelog"
     goAnchoredHeading "changelog" 1
@@ -401,7 +428,17 @@ genPage ctx page = do
     -- Djot.Math _ _ → error "Math not implemented!"
     Djot.Math display (decodeUtf8 → string) → do
       Html.rawContent $ renderMath display string
-    Djot.FootnoteReference _ → error "Footnotes not implemented!"
+    -- TODO: encode `to` as a valid ID?
+    Djot.FootnoteReference (decodeUtf8 → to) → do
+      let num =
+            fromMaybe (error $ "Footnote " <> to <> " not found in order") $
+              HashMap.lookup to page.meta.footnoteOrder
+
+      Html.tag "sup" $ Html.tag "a" do
+        Html.attr "role" "doc-noteref"
+        Html.attr "id" $ "footnote-reference-" <> show num
+        Html.attr "href" $ "#footnote-" <> show num
+        Html.content $ show num
 
   goDatetime ∷ Time.UTCTime → Html.HtmlGen ()
   goDatetime datetime = Html.tag "time" do
@@ -418,6 +455,7 @@ genPage ctx page = do
   goCode ∷ ByteString → ByteString → Html.HtmlGen ()
   goCode (decodeUtf8 → lang) (decodeUtf8 → content) =
     Html.tag "pre" $ Html.tag "code" do
+      Html.attr "data-language" lang
       Html.rawContent $ highlight lang content
 
   goAnchoredHeading ∷ Text → Int → Djot.Inlines → Html.HtmlGen ()

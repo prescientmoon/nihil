@@ -11,12 +11,16 @@ nihil *args:
       NIHIL_DRAFTS=1 \
       nix run .#nihil -- {{ args }}
 
+[doc("Update persistent state, without commiting to git")]
+update-local-state:
+    NIHIL_MUTATE=1 just nihil
+
 [doc("Update persistent state, commiting it to git")]
 update-state:
     #!/usr/bin/env bash
     set -euo pipefail # Fail on errors and whatnot
 
-    NIHIL_MUTATE=1 just nihil
+    just update-local-state
     cd ../moonythm
     git add state.toml
     git commit -m "Update \`state.toml\`"
@@ -26,9 +30,29 @@ update-state:
 current-date:
     date --rfc-3339=seconds | wl-copy
 
-[doc("Serve the build website locally")]
+[group("hot")]
+[doc("Serve the website, automatically reloading on changes")]
+run-hot:
+  #!/usr/bin/env -S parallel --shebang --halt-on-error 2 --line-buffer
+  just watch-content
+  just serve-dev
+
+[private]
+[group("hot")]
+[doc("Serve the built website locally")]
 serve-dev:
     http-server dist/web
+
+[private]
+[group("hot")]
+[doc("Recompile the website when the content has changed")]
+watch-content:
+    watchexec \
+      --quiet \
+      --postpone \
+      --watch public \
+      --watch ../moonythm \
+      just build
 
 [doc("Minify the .xml files")]
 [group("build")]

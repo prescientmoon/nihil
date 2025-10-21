@@ -12,6 +12,9 @@ tree-sitter = "0.24.3"
 tree-sitter-rust = "0.23.0"
 tree-sitter-highlight = "0.24.3"
 tree-sitter-djot = { git="https://github.com/treeman/tree-sitter-djot", rev="eb31845d59b9ee8c1b2098e78e9ca72004bd1579" }
+tree-sitter-typst = { git="https://github.com/starlitcanopy/tree-sitter-typst", rev="c58c04d9bccf6efebee1b8e3dc086b152dc4f2cf" }
 tree-sitter-html = "0.23.2"
 tree-sitter-typescript = "0.23.2"
 tree-sitter-toml-ng = "0.7.0"
+tree-sitter-haskell = "0.23.1"
+

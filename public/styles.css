@@ -122,7 +122,6 @@ h6 {
   .heading-anchor {
     display: inline-block;
     text-decoration: none;
-    /* Note: I need to check whether this only aligns things better with the font I use */
     transform: translateY(-2px);
   }
 }
@@ -152,6 +151,20 @@ a {
   }
 }
 /* }}} */
+/* {{{ <hr> */
+.article-content hr {
+  border: none;
+  margin: 2rem 0.5rem 2.25rem 0.5rem;
+
+  @media (prefers-color-scheme: light) {
+    border-top: 0.1rem solid #9ca0b040;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    border-top: 0.1rem solid #6e738d40;
+  }
+}
+/* }}} */
 
 /* Custom elements */
 /* {{{ Articles */
@@ -176,7 +189,7 @@ a {
 }
 /* }}} */
 /* {{{ Asides */
-/* TODO: remove aside-header altogether */
+/* TODO: perhaps remove aside-header altogether? */
 .aside-header {
   display: inline-flex;
   align-items: center;
@@ -185,7 +198,19 @@ a {
   img {
     height: 1.75rem;
     margin-right: 0.75rem;
+    transform: translateY(-2px);
   }
+}
+
+.aside:not(.aside-long) > .aside-header {
+  h3 {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  /* The default h3 margin feels a bit large here */
+  margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 
 .aside {
@@ -219,6 +244,15 @@ a {
   /* Remove the top margin of the first paragraph under the header */
   &:has(> .aside-header) > :nth-child(2) {
     margin-top: 0;
+  }
+
+  /* Match the margin set by the header */
+  &:has(> .aside-header) > :last-child {
+    margin-bottom: 1rem;
+  }
+
+  &.aside-long:has(> .aside-header) > :last-child {
+    margin-bottom: 2rem;
   }
 }
 
@@ -429,7 +463,8 @@ figure > figcaption > p {
   }
 
   span.comment,
-  span.comment-documentation {
+  span.comment-documentation,
+  code[data-language="haskell"] span.spell {
     color: #9ca0b0;
     font-style: italic;
   }
@@ -457,7 +492,8 @@ figure > figcaption > p {
     color: #179299;
   }
 
-  span.keyword {
+  span.keyword,
+  span.keyword-repeat {
     color: #8839ef;
   }
 
@@ -524,7 +560,8 @@ figure > figcaption > p {
   }
 
   span.comment,
-  span.comment-documentation {
+  span.comment-documentation,
+  code[data-language="haskell"] span.spell {
     color: #6e738d;
     font-style: italic;
   }
@@ -552,7 +589,8 @@ figure > figcaption > p {
     color: #8bd5ca;
   }
 
-  span.keyword {
+  span.keyword,
+  span.keyword-repeat {
     color: #c6a0f6;
   }
 

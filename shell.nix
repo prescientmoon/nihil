@@ -8,5 +8,7 @@ pkgs.mkShell {
     pkgs.libxml2
     pkgs.validator-nu
     pkgs.htmltest
+    pkgs.watchexec
+    pkgs.parallel
   ];
 }

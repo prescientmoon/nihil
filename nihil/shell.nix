@@ -1,13 +1,19 @@
 { pkgs }:
-pkgs.mkShell {
-  packages = with pkgs.haskell.packages."ghc9101"; [
+pkgs.mkShell rec {
+  nativeBuildInputs = with pkgs.haskell.packages."ghc9101"; [
     cabal-install
     ghcid
     fourmolu
     haskell-language-server
+  ];
+
+  buildInputs = [
+    pkgs.zlib
     (pkgs.callPackage ../highlighter { })
     (pkgs.callPackage ../math-renderer { })
   ];
+
+  LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath buildInputs;
 
   NIHIL_MUTATE = 1;
   NIHIL_BASE_URL = "http://localhost:8080";
