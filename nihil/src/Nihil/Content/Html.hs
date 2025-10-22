@@ -140,8 +140,10 @@ genPage ctx page = do
 
     if
       | null pageState.changes → do
-          Html.tag "p" do
-            Html.content "The page manifests in front of your eyes, yet its contents are nowhere to be seen. None can tell the peculiar accident that lead to its complete annihilation. (read: I likely messed up one of my scripts....)"
+          Html.tag "blockquote" $ Html.tag "p" do 
+            Html.tag "em" do
+              Html.content "The page manifests in front of your eyes, yet its contents are nowhere to be seen. None can tell the peculiar accident that lead to its complete annihilation. "
+            Html.content "(read: I likely messed up one of my scripts....)"
       | otherwise → Html.tag "ol" do
           Html.attr "class" "change-list"
           Html.valuelessAttr "reversed"
