@@ -57,6 +57,8 @@ watch-content:
       --quiet \
       --postpone \
       --watch public \
+      --watch nihil/src \
+      --watch nihil/templates \
       --watch ../moonythm \
       just build
 

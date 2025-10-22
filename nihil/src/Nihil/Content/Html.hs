@@ -501,7 +501,7 @@ getReference ∷ Djot.Doc → Djot.Target → (Text, Djot.Attr)
 getReference _ (Djot.Direct b) = (decodeUtf8 b, mempty)
 getReference doc (Djot.Reference label)
   | Just (u, as) ← Djot.lookupReference label refs = (decodeUtf8 u, as)
-  | otherwise = mempty
+  | otherwise = error $ "Link definition for " <> decodeUtf8 label <> " not found."
  where
   refs =
     Djot.docReferences doc
