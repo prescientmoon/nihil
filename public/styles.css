@@ -154,7 +154,7 @@ a {
 /* {{{ <hr> */
 .article-content hr {
   border: none;
-  margin: 2rem 0.5rem 2.25rem 0.5rem;
+  margin: 2rem 0.5rem;
 
   @media (prefers-color-scheme: light) {
     border-top: 0.1rem solid #9ca0b040;
