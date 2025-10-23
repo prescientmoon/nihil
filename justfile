@@ -24,6 +24,7 @@ update-state:
     cd ../moonythm
     git add state.toml
     git commit -m "Update \`state.toml\`"
+    git push
     cd ../nihil
 
 [doc("Bump the moonythm version,, commiting it to git")]
@@ -31,6 +32,7 @@ bump-moonythm:
     nix flake update moonythm
     git add flake.lock
     git commit -m "Bump moonythm"
+    git push
 
 [doc("Copy the current date to clipboard in the required `created_at` format")]
 current-date:
