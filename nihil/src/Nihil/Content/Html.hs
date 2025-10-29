@@ -109,7 +109,7 @@ genPage ctx page = do
         let noteMap = page.input.djot.docFootnotes
         let orderedKeys = sortOn snd $ HashMap.toList page.meta.footnoteOrder
         Html.singleTag "hr" $ pure ()
-        Html.tag "section" do
+        Html.tag "div" do -- Using <section> here make VNU complain
           Html.attr "role" "doc-endnotes"
           Html.tag "ol" do
             for_ orderedKeys \(key, num) → do
