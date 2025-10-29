@@ -303,7 +303,7 @@ genPage ctx page = do
             Html.rawContent "<li>"
             Html.tag "a" do
               Html.attr "href" $ "#" <> heading.id
-              goInlines heading.contents
+              goInlines $ Djot.inlinesWithoutLinks heading.contents
 
             let nextLevel = fromMaybe 2 do
                   asList ← nonEmpty $ toList rest

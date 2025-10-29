@@ -3,6 +3,7 @@ module Nihil.Djot
   , getAttr
   , blocksToText
   , inlinesToText
+  , inlinesWithoutLinks
   ) where
 
 import Data.List qualified as List
@@ -67,7 +68,7 @@ inlinesToText = foldMap go . Djot.unMany
     Djot.Math Djot.InlineMath bs → "$" <> decodeUtf8 bs <> "$"
     Djot.Symbol bs → ":" <> decodeUtf8 bs <> ":"
     Djot.Link ils _url → inlinesToText ils
-    Djot.Image ils _url → inlinesToText ils
+    Djot.Image ils _url → inlinesToText ils -- TODO: is this correct?
     Djot.Span ils → inlinesToText ils
     Djot.UrlLink url → decodeUtf8 url
     Djot.EmailLink email → decodeUtf8 email
@@ -76,3 +77,21 @@ inlinesToText = foldMap go . Djot.unMany
     Djot.SoftBreak → "\n"
     Djot.HardBreak → "\n"
     Djot.NonBreakingSpace → "\160"
+
+-- We pass the contents of certain links through this to prevent nested links.
+inlinesWithoutLinks ∷ Djot.Inlines → Djot.Inlines
+inlinesWithoutLinks = Djot.Many . fmap (fmap go) . Djot.unMany
+ where
+  go = \case
+    Djot.Link ils _ → Djot.Span $ inlinesWithoutLinks ils
+    Djot.Emph ils → Djot.Emph $ inlinesWithoutLinks ils
+    Djot.Strong ils → Djot.Strong $ inlinesWithoutLinks ils
+    Djot.Highlight ils → Djot.Highlight $ inlinesWithoutLinks ils
+    Djot.Insert ils → Djot.Insert $ inlinesWithoutLinks ils
+    Djot.Delete ils → Djot.Delete $ inlinesWithoutLinks ils
+    Djot.Superscript ils → Djot.Superscript $ inlinesWithoutLinks ils
+    Djot.Subscript ils → Djot.Subscript $ inlinesWithoutLinks ils
+    Djot.Quoted q ils → Djot.Quoted q $ inlinesWithoutLinks ils
+    Djot.Image ils url → Djot.Image (inlinesWithoutLinks ils) url
+    Djot.Span ils → Djot.Span  $ inlinesWithoutLinks ils
+    other → other
