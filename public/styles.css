@@ -215,13 +215,13 @@ a {
 
 .aside {
   @media (prefers-color-scheme: light) {
-    background: hsl(281, 100%, 96%);
+    background: hsl(281deg 100% 96%);
     color: black;
     border-color: black;
   }
 
   @media (prefers-color-scheme: dark) {
-    background: hsl(281, 50%, 15%);
+    background: hsl(281deg 50% 15%);
     color: #f8e9ff;
     border-color: #f8e9ff88;
   }
@@ -381,12 +381,12 @@ a {
   border: 1px solid;
 
   @media (prefers-color-scheme: light) {
-    background: hsl(220, 23%, 95%);
+    background: hsl(220deg 23% 95%);
     border-color: black;
   }
 
   @media (prefers-color-scheme: dark) {
-    background: hsl(220, 30%, 15%);
+    background: hsl(220deg 30% 15%);
     border-color: #f8e9ff88;
   }
 
@@ -422,11 +422,11 @@ a {
       width: 2px;
 
       @media (prefers-color-scheme: light) {
-        background: hsla(194, 100%, 16%, 0.2);
+        background: hsl(194deg 100% 16% / 20%);
       }
 
       @media (prefers-color-scheme: dark) {
-        background: hsla(194, 100%, 85%, 0.2);
+        background: hsl(194deg 100% 85% / 20%);
       }
     }
   }
