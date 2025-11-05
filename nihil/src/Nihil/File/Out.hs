@@ -40,6 +40,7 @@ copy ∷ Text → FilePath → FileGen ()
 copy name content = entry name $ Copy content
 
 dir ∷ ∀ a. Text → FileGen a → FileGen a
+dir "" mkContents = mkContents
 dir name mkContents = do
   pre ← get
 

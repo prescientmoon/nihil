@@ -31,12 +31,13 @@ blocksToText = foldMap go . Djot.unMany
     Djot.CodeBlock _ _ → mempty
     Djot.Div blocks
       | hasClass "comment" attrs → mempty
+      | hasClass "page-index" attrs → mempty
+      | hasClass "rss" attrs → mempty
       | hasClass "description" attrs → mempty
       | hasClass "figure" attrs → mempty
       | hasClass "caption" attrs → mempty
       | hasClass "image-figure" attrs → mempty
       | hasClass "embed-description" attrs → mempty
-      | hasClass "echo-list" attrs → mempty
       | hasClass "toc" attrs → mempty
       | otherwise → blocksToText blocks
     Djot.OrderedList _ _ blocks → foldMap blocksToText blocks
@@ -93,5 +94,5 @@ inlinesWithoutLinks = Djot.Many . fmap (fmap go) . Djot.unMany
     Djot.Subscript ils → Djot.Subscript $ inlinesWithoutLinks ils
     Djot.Quoted q ils → Djot.Quoted q $ inlinesWithoutLinks ils
     Djot.Image ils url → Djot.Image (inlinesWithoutLinks ils) url
-    Djot.Span ils → Djot.Span  $ inlinesWithoutLinks ils
+    Djot.Span ils → Djot.Span $ inlinesWithoutLinks ils
     other → other

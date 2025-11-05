@@ -6,11 +6,13 @@ module Nihil.Tree
   , run
   , mapNodes
   , filterNodes
+  , onlyHeads
+  , noChildren
   , nodes
   ) where
 
 import Data.HashMap.Strict qualified as HashMap
-import Data.Sequence ((<|))
+import Data.Sequence ((<|), (|>))
 import Data.Sequence qualified as Seq
 import Nihil.File.In (MonadFileExplorer)
 import Relude
@@ -30,7 +32,11 @@ mapNodes f (Forest hm) = Forest $ go <$> hm
   go (Node n forest) = Node (f n) (mapNodes f forest)
   go (Leaf l) = Leaf l
 
-filterNodes ∷ ∀ node edge leaf. (node → Bool) → Forest node edge leaf → Forest node edge leaf
+filterNodes
+  ∷ ∀ node edge leaf
+   . (node → Bool)
+  → Forest node edge leaf
+  → Forest node edge leaf
 filterNodes f (Forest hm) = Forest $ HashMap.mapMaybe go hm
  where
   go (Node n forest)
@@ -45,6 +51,21 @@ nodes (Forest hm) = do
  where
   flattenNode (Leaf _) = mempty
   flattenNode (Node n cs) = n <| nodes cs
+
+onlyHeads
+  ∷ ∀ node edge leaf
+   . (Hashable edge)
+  ⇒ Forest node edge leaf
+  → Forest node edge leaf
+onlyHeads (Forest hm) = Forest $ noChildren <$> hm
+
+noChildren
+  ∷ ∀ node edge leaf
+   . (Hashable edge)
+  ⇒ Tree node edge leaf
+  → Tree node edge leaf
+noChildren (Leaf l) = Leaf l
+noChildren (Node n _) = Node n mempty
 
 instance (Eq edge) ⇒ Semigroup (Tree node edge leaf) where
   Node n cs <> Node _ cs' = Node n (cs <> cs')
@@ -64,9 +85,10 @@ class
   where
   leaf ∷ edge → leaf → m ()
   node ∷ edge → node → m a → m a
+  ancestors ∷ m (Seq (edge, node))
 
 newtype TreeGenT node edge leaf m a
-  = TreeGenT (StateT (Forest node edge leaf) m a)
+  = TreeGenT (ReaderT (Seq (edge, node)) (StateT (Forest node edge leaf) m) a)
   deriving newtype
     ( Functor
     , Applicative
@@ -78,7 +100,7 @@ newtype TreeGenT node edge leaf m a
     )
 
 instance MonadTrans (TreeGenT node edge leaf) where
-  lift = TreeGenT . lift
+  lift = TreeGenT . lift . lift
 
 instance
   (Monad m, Hashable edge)
@@ -90,14 +112,18 @@ instance
   node e n computation = do
     s ← TreeGenT get
     TreeGenT $ put mempty
-    inner ← computation
+    inner ← local' (|> (e, n)) computation
     forest ← TreeGenT get
     TreeGenT . put $ s <> Forest (HashMap.singleton e $ Node n forest)
     pure inner
+   where
+    local' f (TreeGenT m) = TreeGenT $ local f m
+
+  ancestors = TreeGenT ask
 
 run
   ∷ ∀ m edge node leaf a
    . (Monad m, Hashable edge)
   ⇒ TreeGenT node edge leaf m a
   → m (a, Forest node edge leaf)
-run (TreeGenT inner) = runStateT inner mempty
+run (TreeGenT inner) = runStateT (runReaderT inner mempty) mempty

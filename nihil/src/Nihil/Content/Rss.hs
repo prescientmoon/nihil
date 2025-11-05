@@ -13,28 +13,28 @@ import Nihil.Page.Meta
   , Heading (..)
   , PageConfig (..)
   , PageMetadata (..)
+  , RssFeed (..)
   )
 import Nihil.State (PerPageState (..), pageStateFor)
 import Relude
 import System.FilePath ((</>))
 
-genRssFeed ∷ Context → Seq FullPage → Text
-genRssFeed ctx pages = Xml.genRaw do
+genRssFeed ∷ Context → RssFeed → Text → Seq FullPage → Text
+genRssFeed ctx feed url pages = Xml.genRaw do
   Xml.rawContent "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
   Xml.tag "rss" do
     Xml.attr "version" "2.0"
     Xml.tag "channel" do
       Xml.attr "xmlns:atom" "http://www.w3.org/2005/Atom"
-      Xml.tag "title" "Moonythm"
+      Xml.tag "title" $ Xml.content $ "Moonythm | " <> feed.name
       Xml.tag "link" $ Xml.content ctx.config.baseUrl
-      Xml.tag "description" "This is the RSS feed for my ethereal realm (read: website). Feel free to poke around :3"
+      Xml.tag "description" $ Xml.content $ Djot.blocksToText feed.summary
       Xml.tag "language" "en"
       Xml.tag "webMaster" "hi@moonythm.dev (prescientmoon)"
       Xml.tag "generator" "nihil"
 
       Xml.singleTag "atom:link" do
-        -- TODO: parametrize this in case of multiple feeds
-        Xml.attr "href" $ ctx.config.baseUrl <> "/rss.xml"
+        Xml.attr "href" url
         Xml.attr "rel" "self"
         Xml.attr "type" "application/rss+xml"
 

@@ -40,7 +40,6 @@ executable nihil
     other-modules:
         , Nihil.Toml
         , Nihil.Config
-        , Nihil.Route
         , Nihil.State
         , Nihil.Djot
         , Nihil.File.In

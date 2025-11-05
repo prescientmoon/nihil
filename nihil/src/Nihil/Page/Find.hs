@@ -13,7 +13,7 @@ import Nihil.Tree (TreeGenT)
 import Nihil.Tree qualified as Tree
 import Relude
 import System.Directory (doesFileExist)
-import System.FilePath (stripExtension, takeFileName, (</>))
+import System.FilePath (makeRelative, stripExtension, takeFileName, (</>))
 
 data InputPage
   = InputPage
@@ -36,7 +36,8 @@ findPages ∷ Config → IO InputPageTree
 findPages config = do
   forests ←
     File.run config.contentPaths $
-      snd <$> Tree.run (getPage "" <|> getPages)
+      snd <$> Tree.run do
+        getPage ""
   pure $ fold forests
 
 getPages ∷ PageFindingM ()
@@ -49,16 +50,22 @@ getPages = do
       | Just stripped ← stripExtension "dj" filename →
           getPage stripped
       | otherwise → File.atFile filename do
+          apath ← File.absolutePath
           rpath ← File.relativePath
-          Tree.leaf path rpath
+          lineage ← Tree.ancestors
+          case fmap last . nonEmpty $ toList lineage of
+            Nothing → Tree.leaf rpath apath
+            Just (_, page) → do
+              Tree.leaf (makeRelative page.route rpath) apath
     File.Directory → getPage filename
 
 getPage ∷ String → PageFindingM ()
 getPage at = do
   rpath ← File.relativePath
-  asFile rpath <|> asDir rpath
+  asFile (rpath </> at) <|> asDir (rpath </> at)
  where
-  page path route contentBS next = Tree.node route thePage next
+  page path route contentBS next = do
+    Tree.node at thePage next
    where
     thePage =
       InputPage
@@ -81,7 +88,7 @@ getPage at = do
     if indexExists
       then do
         contentBS ← readFileBS path
-        page path (rpath </> at) contentBS $ getPages
+        page path rpath contentBS getPages
       else getPages
 
   parseDoc path =

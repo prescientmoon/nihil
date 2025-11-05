@@ -13,7 +13,7 @@ import Djot qualified
 import Nihil.Config (Config (..))
 import Nihil.Content.Rss (genRssFeed)
 import Nihil.Content.Sitemap (genSitemap)
-import Nihil.Context (Context (..), FullPageTree, echoes)
+import Nihil.Context (Context (..))
 import Nihil.Djot qualified as Djot
 import Nihil.File.In qualified as File
 import Nihil.File.Out (FileGen)
@@ -24,9 +24,13 @@ import Nihil.Math (renderMath)
 import Nihil.Page.Find (InputPage (..))
 import Nihil.Page.Meta
   ( FullPage (..)
+  , FullPageTree
   , Heading (..)
   , PageConfig (..)
   , PageMetadata (..)
+  , RssFeed (..)
+  , applyPageFilters
+  , getPageFilters
   )
 import Nihil.State
   ( GitChange (..)
@@ -35,7 +39,6 @@ import Nihil.State
   )
 import Nihil.Tree qualified as Tree
 import Relude
-import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeFileName, (</>))
 
 genSite ∷ Context → FileGen ()
@@ -74,7 +77,6 @@ genSite ctx = do
         Gen.copy (Text.pack $ takeFileName font) font
 
   Gen.file "sitemap.xml" $ genSitemap ctx
-  -- Gen.file "rss.xml" $ genRssFeed ctx (Tree.nodes $ echoes ctx)
 
   genForest ctx ctx.pages
 
@@ -82,15 +84,23 @@ genForest ∷ Context → FullPageTree → FileGen ()
 genForest ctx (Tree.Forest cs) = do
   for_ (HashMap.toList cs) \(edge, node) → genTree edge node
  where
-  genTree edge (Tree.Leaf rpath) = do
-    Gen.copy (Text.pack rpath) edge
-  genTree _ (Tree.Node page forest) = do
-    genPage ctx page
-    genForest ctx forest
+  genTree edge (Tree.Leaf path) = do
+    Gen.copy (Text.pack edge) path
+  genTree edge (Tree.Node page forest) = do
+    Gen.dir (Text.pack edge) do
+      genPage ctx page
+      genForest ctx forest
 
 genPage ∷ Context → FullPage → FileGen ()
 genPage ctx page = do
   let template = Text.pack $(embedStringFile "./templates/page.html")
+
+  for_ page.meta.freshFeeds \rss → do
+    Gen.file (Text.pack $ takeFileName rss.at)
+      . genRssFeed ctx rss (fold [ctx.config.baseUrl, "/", Text.pack rss.at])
+      . Tree.nodes
+      $ applyPageFilters rss.filters ctx.pages
+
   Gen.fileBS "index.dj" do
     page.input.contentBS
 
@@ -215,6 +225,7 @@ genPage ctx page = do
     Djot.BlockQuote blocks → Html.tag "blockquote" $ goBlocks blocks
     Djot.Div blocks
       | Djot.hasClass "comment" attrs → pure ()
+      | Djot.hasClass "rss" attrs → pure ()
       | Djot.hasClass "description" attrs → pure ()
       | Djot.hasClass "figure" attrs → Html.tag "figure" $ goBlocks blocks
       | Djot.hasClass "caption" attrs → Html.tag "figcaption" $ goBlocks blocks
@@ -244,9 +255,10 @@ genPage ctx page = do
               "{{content}}"
               (goToc [2] page.meta.toc)
             & Html.rawContent
-      | Djot.hasClass "echo-list" attrs → do
+      | Djot.hasClass "page-index" attrs → do
           let pages =
-                echoes ctx
+                ctx.pages
+                  & applyPageFilters (getPageFilters attrs)
                   & Tree.nodes
                   & Seq.sortOn
                     ( \p → case p.meta.config.createdAt of
@@ -487,6 +499,7 @@ genPage ctx page = do
       . replaceHtml "{{text_description}}" (Html.content textDescription)
       . replaceHtml "{{posted_on}}" postedOn
       . replaceHtml "{{updated_on}}" (goDatetime pageState'.lastUpdated)
+      . replaceHtml "{{meta}}" extraMeta
       . Text.replace "{{changelog_url}}" (url' <> "/changelog/")
       . Text.replace "{{source_url}}" (url' <> "/index.dj")
       . Text.replace "{{url}}" (url' <> "/")
@@ -508,6 +521,13 @@ genPage ctx page = do
       Just at → do
         Html.content "Posted on "
         goDatetime at
+    extraMeta = do
+      for_ page.meta.underFeeds \feed → do
+        Html.singleTag "link" do
+          Html.attr "rel" "alternate"
+          Html.attr "type" "application/rss+xml"
+          Html.attr "title" feed.name
+          Html.attr "href" $ "/" <> Text.pack feed.at
 
 getReference ∷ Djot.Doc → Djot.Target → (Text, Djot.Attr)
 getReference _ (Djot.Direct b) = (decodeUtf8 b, mempty)

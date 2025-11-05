@@ -4,6 +4,12 @@ module Nihil.Page.Meta
   , Heading (..)
   , PageConfig (..)
   , SitemapConfig (..)
+  , FullPageTree
+  , RssFeed (..)
+  , PageFilters (..)
+  , applyPageFilters
+  , getPageFilters
+  , elabForest
   , elabPage
   ) where
 
@@ -14,10 +20,14 @@ import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Djot qualified as Djot
+import Nihil.Config (Config (..))
 import Nihil.Djot (hasClass, inlinesToText)
-import Nihil.Page.Find (InputPage (..))
+import Nihil.Djot qualified as Djot
+import Nihil.Page.Find (InputPage (..), InputPageTree)
 import Nihil.Toml qualified as Toml
+import Nihil.Tree qualified as Tree
 import Relude
+import System.FilePath (joinPath, splitDirectories)
 import Toml ((.=))
 import Toml qualified as Toml
 
@@ -82,7 +92,7 @@ instance Monoid PageConfig where
 configCodec ∷ Toml.TomlCodec PageConfig
 configCodec =
   PageConfig
-    <$> Toml.didefault False (Toml.bool "hidden") .= hidden
+    <$> Toml.didefault False (Toml.bool "hidden") .= (\x → x.hidden)
     <*> Toml.didefault False (Toml.bool "draft") .= draft
     <*> Toml.didefault False (Toml.bool "compact") .= compact
     <*> Toml.dioptional (Toml.utcTime "created_at") .= createdAt
@@ -96,7 +106,28 @@ sitemapCodec = do
     <*> Toml.didefault False (Toml.bool "exclude") .= exclude
 
 -- }}}
+-- {{{ Filters & rss feeds
+-- I might add tag support in the future
+data PageFilters
+  = PageFilters
+  { dir ∷ FilePath
+  -- ^ Selects direct children of a post matching the dir name
+  , hidden ∷ Bool
+  -- ^ Whether to keep hidden elements
+  }
+  deriving (Show, Generic)
+
+data RssFeed = RssFeed
+  { name ∷ Text
+  , at ∷ FilePath
+  , filters ∷ PageFilters
+  , summary ∷ Djot.Blocks
+  }
+  deriving (Show, Generic)
+
+-- }}}
 -- {{{ Metadata
+type FullPageTree = Tree.Forest FullPage FilePath FilePath
 data FullPage
   = FullPage
   { input ∷ InputPage
@@ -109,6 +140,11 @@ data PageMetadata = PageMetadata
   , title ∷ Maybe Heading
   , description ∷ Djot.Blocks
   , toc ∷ Seq Heading
+  , freshFeeds ∷ Seq RssFeed
+  -- ^ The set of feeds declared by this page.
+  , underFeeds ∷ Seq RssFeed
+  -- ^ The set of feeds present while on this page (some declared here, some
+  -- inherited from the page's ancestors).
   , wordCount ∷ Int
   , -- Assigns an unique integer to each footnote ID.
     footnoteOrder ∷ HashMap Text Int
@@ -125,6 +161,31 @@ data Heading = Heading
 -- }}}
 
 -- Page elaboration
+-- {{{ Trees
+elabForest ∷ Config → InputPageTree → FullPageTree
+elabForest cfg pages =
+  pages
+    & Tree.mapNodes elabPage
+    & Tree.filterNodes
+      (\p → cfg.includeDrafts || not p.meta.config.draft)
+    & inheritForestFeeds mempty
+ where
+  inheritForestFeeds feeds (Tree.Forest hm) = do
+    Tree.Forest $ inheritTreeFeeds feeds <$> hm
+  inheritTreeFeeds _ (Tree.Leaf l) = Tree.Leaf l
+  inheritTreeFeeds feeds (Tree.Node page forest) =
+    Tree.Node page' $ inheritForestFeeds feeds' forest
+   where
+    page' =
+      page
+        { meta =
+            page.meta
+              { underFeeds = feeds'
+              }
+        }
+    feeds' = feeds <> page.meta.freshFeeds
+
+-- }}}
 -- {{{ Page
 elabPage ∷ InputPage → FullPage
 elabPage page =
@@ -169,10 +230,26 @@ elabMeta page =
     Djot.CodeBlock _ _ → mempty
     Djot.Div blocks
       | hasClass "comment" attrs → mempty
+      | hasClass "page-index" attrs → mempty
       | hasClass "description" attrs →
           goBlocks blocks
             <> mempty
               { description = blocks
+              }
+      | hasClass "rss" attrs → do
+          let filename = fromMaybe "rss" $ Djot.getAttr "at" attrs
+          goBlocks blocks
+            <> mempty
+              { freshFeeds =
+                  pure $
+                    RssFeed
+                      { name =
+                          fromMaybe (error "No RSS feed name provided") $
+                            Djot.getAttr "name" attrs
+                      , at = page.route <> "/" <> Text.unpack filename <> ".xml"
+                      , filters = getPageFilters attrs
+                      , summary = blocks
+                      }
               }
       | otherwise → goBlocks blocks
     Djot.OrderedList _ _ blocks → foldMap goBlocks blocks
@@ -238,6 +315,8 @@ instance Semigroup PageMetadata where
       , title = a.title <|> b.title
       , description = a.description <> b.description
       , toc = a.toc <> b.toc
+      , freshFeeds = a.freshFeeds <> b.freshFeeds
+      , underFeeds = a.underFeeds <> b.underFeeds
       , wordCount = a.wordCount + b.wordCount
       , footnoteOrder =
           HashMap.fromList
@@ -259,8 +338,37 @@ instance Monoid PageMetadata where
       , title = Nothing
       , description = mempty
       , toc = mempty
+      , freshFeeds = mempty
+      , underFeeds = mempty
       , wordCount = 0
       , footnoteOrder = mempty
       }
+
+-- }}}
+-- {{{ Page filters
+getPageFilters ∷ Djot.Attr → PageFilters
+getPageFilters attrs = PageFilters{dir = dir, hidden = hasClass "hidden" attrs}
+ where
+  dir =
+    Text.unpack
+      . fromMaybe (error "Missing directory name in rss filter")
+      $ Djot.getAttr "dir" attrs
+
+applyPageFilters ∷ PageFilters → FullPageTree → FullPageTree
+applyPageFilters (PageFilters{dir, hidden}) forest =
+  Tree.filterNodes (\p → hidden || not p.meta.config.hidden) forest
+    & getSubtreeAt dir
+    & Tree.onlyHeads
+
+getSubtreeAt ∷ FilePath → FullPageTree → FullPageTree
+getSubtreeAt (splitDirectories → path) (Tree.Forest forest) = do
+  HashMap.foldMapWithKey go forest
+ where
+  go _ (Tree.Leaf _) = mempty
+  go (splitDirectories → edge) (Tree.Node _ cs)
+    | Just [] ← List.stripPrefix path edge = cs
+    | Just (joinPath → path') ← List.stripPrefix edge path =
+        getSubtreeAt path' cs
+    | otherwise = mempty
 
 -- }}}
