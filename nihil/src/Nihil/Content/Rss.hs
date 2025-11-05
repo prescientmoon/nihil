@@ -14,9 +14,9 @@ import Nihil.Page.Meta
   , PageConfig (..)
   , PageMetadata (..)
   )
-import Nihil.Route (routeToPath)
 import Nihil.State (PerPageState (..), pageStateFor)
 import Relude
+import System.FilePath ((</>))
 
 genRssFeed ∷ Context → Seq FullPage → Text
 genRssFeed ctx pages = Xml.genRaw do
@@ -59,11 +59,11 @@ genRssFeed ctx pages = Xml.genRaw do
         for_ page.meta.config.createdAt \createdAt → do
           Xml.tag "pubDate" $ goDatetime createdAt
 
-        let link = ctx.config.baseUrl <> routeToPath page.input.route
-        Xml.tag "link" $ Xml.content link
+        let link = Text.unpack ctx.config.baseUrl </> page.input.route
+        Xml.tag "link" . Xml.content $ Text.pack link
         Xml.tag "guid" do
           Xml.attr "isPermaLink" "true"
-          Xml.content link
+          Xml.content $ Text.pack link
  where
   goDatetime =
     Xml.content

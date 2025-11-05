@@ -40,7 +40,7 @@ current-date:
 
 [group("hot")]
 [doc("Serve the website, automatically reloading on changes")]
-run-hot:
+run-hot: build
   #!/usr/bin/env -S parallel --shebang --halt-on-error 2 --line-buffer
   just watch-content
   just serve-dev

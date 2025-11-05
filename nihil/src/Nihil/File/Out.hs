@@ -14,7 +14,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.Text qualified as Text
 import Relude
 import System.Directory (copyFile, createDirectoryIfMissing)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 data FileEntry
   = File ByteString
@@ -65,8 +65,9 @@ gen base (FileGen act) = do
       go (path </> Text.unpack k) v
 
   go ∷ FilePath → FileEntry → m ()
-  go to (Copy from) = do
-    liftIO $ copyFile from to
+  go to (Copy from) = liftIO do
+    createDirectoryIfMissing True $ takeDirectory to
+    copyFile from to
   go to (File contents) = do
     liftIO $ writeFileBS to contents
   go to (Directory contents) = do

@@ -13,7 +13,7 @@ import Djot qualified
 import Nihil.Config (Config (..))
 import Nihil.Content.Rss (genRssFeed)
 import Nihil.Content.Sitemap (genSitemap)
-import Nihil.Context (Context (..), echoes)
+import Nihil.Context (Context (..), FullPageTree, echoes)
 import Nihil.Djot qualified as Djot
 import Nihil.File.In qualified as File
 import Nihil.File.Out (FileGen)
@@ -28,17 +28,15 @@ import Nihil.Page.Meta
   , PageConfig (..)
   , PageMetadata (..)
   )
-import Nihil.Route (Route (..), routeToPath)
 import Nihil.State
   ( GitChange (..)
   , PerPageState (..)
   , pageStateFor
   )
+import Nihil.Tree qualified as Tree
 import Relude
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeFileName, (</>))
-
-findByRoute ∷ Route → Seq FullPage → Maybe FullPage
-findByRoute route = find (\p → p.input.route == route)
 
 genSite ∷ Context → FileGen ()
 genSite ctx = do
@@ -57,12 +55,18 @@ genSite ctx = do
 
   -- pulldown_latex assets
   Gen.dir "math" do
-    (fonts, stylesheet) ← File.run ctx.config.pulldownLatexAssetPath do
-      File.at "share" do
-        files ← File.at "fonts/woff2" File.ls
+    multiple ← File.run (pure ctx.config.pulldownLatexAssetPath) do
+      File.atDirectory "share" do
+        files ← File.atDirectory "fonts/woff2" $ File.collect File.ls
         let fonts = files <&> snd
-        (_, stylesheet) ← File.at "css/styles.css" File.getInfo
+        stylesheet ← File.atFile "css/styles.css" File.absolutePath
         pure (fonts, stylesheet)
+
+    let (fonts, stylesheet) =
+          head
+            . fromMaybe (error "font finder diverged / couldn't find the files")
+            . nonEmpty
+            $ toList multiple
 
     Gen.copy "styles.css" stylesheet
     Gen.dir "font" do
@@ -70,15 +74,19 @@ genSite ctx = do
         Gen.copy (Text.pack $ takeFileName font) font
 
   Gen.file "sitemap.xml" $ genSitemap ctx
-  Gen.file "rss.xml" $ genRssFeed ctx (echoes ctx)
+  -- Gen.file "rss.xml" $ genRssFeed ctx (Tree.nodes $ echoes ctx)
 
-  for_ (findByRoute Home ctx.pages) $ genPage ctx
-  Gen.dir "404" $ for_ (findByRoute NotFound ctx.pages) $ genPage ctx
-  Gen.dir "echoes" do
-    for_ (findByRoute Echoes ctx.pages) $ genPage ctx
-    for_ ctx.pages \page → case page.input.route of
-      Echo name → Gen.dir name $ genPage ctx page
-      _ → pure ()
+  genForest ctx ctx.pages
+
+genForest ∷ Context → FullPageTree → FileGen ()
+genForest ctx (Tree.Forest cs) = do
+  for_ (HashMap.toList cs) \(edge, node) → genTree edge node
+ where
+  genTree edge (Tree.Leaf rpath) = do
+    Gen.copy (Text.pack rpath) edge
+  genTree _ (Tree.Node page forest) = do
+    genPage ctx page
+    genForest ctx forest
 
 genPage ∷ Context → FullPage → FileGen ()
 genPage ctx page = do
@@ -109,7 +117,8 @@ genPage ctx page = do
         let noteMap = page.input.djot.docFootnotes
         let orderedKeys = sortOn snd $ HashMap.toList page.meta.footnoteOrder
         Html.singleTag "hr" $ pure ()
-        Html.tag "div" do -- Using <section> here make VNU complain
+        Html.tag "div" do
+          -- Using <section> here make VNU complain
           Html.attr "role" "doc-endnotes"
           Html.tag "ol" do
             for_ orderedKeys \(key, num) → do
@@ -140,7 +149,7 @@ genPage ctx page = do
 
     if
       | null pageState.changes → do
-          Html.tag "blockquote" $ Html.tag "p" do 
+          Html.tag "blockquote" $ Html.tag "p" do
             Html.tag "em" do
               Html.content "The page manifests in front of your eyes, yet its contents are nowhere to be seen. None can tell the peculiar accident that lead to its complete annihilation. "
             Html.content "(read: I likely messed up one of my scripts....)"
@@ -162,7 +171,7 @@ genPage ctx page = do
         Html.attr "href" (url <> "/")
         Html.content "↩ Back to content"
 
-  url = routeToPath page.input.route
+  url = Text.pack $ "/" <> page.input.route
   pageState = pageStateFor page.input.route ctx.state
 
   goBlocks (Djot.Many blocks) = traverse_ goBlock blocks
@@ -238,6 +247,7 @@ genPage ctx page = do
       | Djot.hasClass "echo-list" attrs → do
           let pages =
                 echoes ctx
+                  & Tree.nodes
                   & Seq.sortOn
                     ( \p → case p.meta.config.createdAt of
                         Just at → (0 ∷ Int, Just at)
@@ -491,7 +501,7 @@ genPage ctx page = do
       Just heading → Djot.inlinesToText heading.contents
       Nothing → "???"
     textDescription = Djot.blocksToText page'.meta.description
-    url' = ctx.config.baseUrl <> routeToPath page'.input.route
+    url' = Text.pack $ Text.unpack ctx.config.baseUrl </> page'.input.route
     pageState' = pageStateFor page'.input.route ctx.state
     postedOn = case page'.meta.config.createdAt of
       Nothing → Html.content "Being conjured "

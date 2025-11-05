@@ -12,22 +12,23 @@ import Nihil.Page.Meta
   , PageMetadata (..)
   , SitemapConfig (..)
   )
-import Nihil.Route (routeToPath)
 import Nihil.State (PerPageState (..), pageStateFor)
+import Nihil.Tree qualified as Tree
 import Relude
+import System.FilePath ((</>))
 
 genSitemap ∷ Context → Text
 genSitemap ctx = Xml.genRaw do
   Xml.rawContent "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
   Xml.tag "urlset" do
     Xml.attr "xmlns" "http://www.sitemaps.org/schemas/sitemap/0.9"
-    for_ ctx.pages \page → do
+    for_ (Tree.nodes ctx.pages) \page → do
       unless (page.meta.config.hidden || page.meta.config.sitemap.exclude) do
         let pageState = pageStateFor page.input.route ctx.state
 
         Xml.tag "url" do
-          Xml.tag "loc" . Xml.content $
-            ctx.config.baseUrl <> routeToPath page.input.route
+          Xml.tag "loc" . Xml.content . Text.pack $
+            Text.unpack ctx.config.baseUrl </> page.input.route
 
           Xml.tag "lastmod" . Xml.content . Text.pack . fold $
             [ Time.formatShow

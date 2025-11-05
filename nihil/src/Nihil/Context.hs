@@ -1,28 +1,25 @@
-module Nihil.Context (Context (..), echoes) where
+module Nihil.Context (Context (..), FullPageTree, echoes) where
 
-import Data.Sequence qualified as Seq
 import Nihil.Config (Config)
 import Nihil.Page.Find (InputPage (..))
 import Nihil.Page.Meta (FullPage (..), PageConfig (..), PageMetadata (..))
-import Nihil.Route (Route (Echo))
 import Nihil.State (PersistentState)
+import Nihil.Tree qualified as Tree
 import Relude
 
+type FullPageTree = Tree.Forest FullPage FilePath FilePath
 data Context = Context
-  { pages ∷ Seq FullPage
+  { pages ∷ FullPageTree
   , state ∷ PersistentState
   , config ∷ Config
   }
   deriving (Generic, Show)
 
 -- | Selects only the (non-hidden) echoes in the page list.
-echoes ∷ Context → Seq FullPage
+echoes ∷ Context → FullPageTree
 echoes ctx =
   ctx.pages
     -- remove hidden files
-    & Seq.filter (\p → not p.meta.config.hidden)
-    & Seq.filter -- only keep echoes
-      ( \p → case p.input.route of
-          Echo _ → True
-          _ → False
-      )
+    & Tree.filterNodes (\p → not p.meta.config.hidden)
+    & Tree.filterNodes -- only keep echoes
+      (\p → isPrefixOf "echoes/" p.input.route)

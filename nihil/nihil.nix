@@ -10,6 +10,7 @@
   relude,
   time,
   tomland,
+  list-t,
 }:
 mkDerivation {
   pname = "nihil";
@@ -35,6 +36,7 @@ mkDerivation {
     relude
     time
     tomland
+    list-t
   ];
 
   license = lib.licenses.agpl3Plus;

@@ -13,9 +13,9 @@ import Data.Time (UTCTime)
 import Data.Time qualified as Time
 import Data.Time.Format.ISO8601 qualified as Time
 import Nihil.Config (Config (..))
-import Nihil.Page.Find (InputPage (..))
-import Nihil.Route (Route, pathToRoute, routeToPath)
+import Nihil.Page.Find (InputPage (..), InputPageTree)
 import Nihil.Toml qualified as Toml
+import Nihil.Tree qualified as Tree
 import Relude
 import System.FilePath (takeDirectory)
 import System.Process qualified as Process
@@ -24,7 +24,7 @@ import Toml qualified as Toml
 
 data PersistentState
   = PersistentState
-  { pages ∷ HashMap Route PerPageState
+  { pages ∷ HashMap FilePath PerPageState
   }
   deriving (Show, Generic)
 
@@ -56,10 +56,10 @@ instance Semigroup PerPageState where
       , changes = a.changes <> b.changes
       }
 
-perPageState ∷ Toml.TomlCodec (Route, PerPageState)
+perPageState ∷ Toml.TomlCodec (FilePath, PerPageState)
 perPageState = do
   (\route lastUpdated changes → (route, PerPageState lastUpdated changes))
-    <$> Toml.dimap routeToPath pathToRoute (Toml.text "route") .= fst
+    <$> Toml.string "route" .= fst
     <*> Toml.utcTime "lastUpdated" .= lastUpdated . snd
     <*> Toml.seq' gitChangeCodec "changes" .= changes . snd
 
@@ -79,14 +79,14 @@ gitChangeCodec = do
     <*> Toml.text "message" .= message
 
 ---------- Reading the state
-conjureState ∷ Config → [InputPage] → IO PersistentState
+conjureState ∷ Config → InputPageTree → IO PersistentState
 conjureState cfg pages
   -- Gen state, and write it to the given path
   | cfg.mutateState = do
-      pageStates ← forM pages \page → do
+      pageStates ← forM (Tree.nodes pages) \page → do
         st ← genStateFor page
         pure (page.route, st)
-      let res = PersistentState{pages = HashMap.fromList pageStates}
+      let res = PersistentState{pages = HashMap.fromList . toList $ pageStates}
 
       void $ Toml.encodeToFile persistentState cfg.statePath res
       pure res
@@ -147,7 +147,7 @@ genStateFor page = do
 
 -- | Selects the state for a particular page. Errors out if the state
 -- cannot be found.
-pageStateFor ∷ Route → PersistentState → PerPageState
+pageStateFor ∷ FilePath → PersistentState → PerPageState
 pageStateFor route st =
   fromMaybe
     (error $ "No persistent state for route " <> show route)

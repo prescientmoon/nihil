@@ -1,23 +1,25 @@
 module Nihil.Page.Find
   ( InputPage (..)
+  , InputPageTree
   , findPages
-  , findAssets
   ) where
 
-import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Djot qualified as Djot
 import Nihil.Config (Config (..))
+import Nihil.File.In (FileParserT)
 import Nihil.File.In qualified as File
-import Nihil.Route (Route (..))
+import Nihil.Tree (TreeGenT)
+import Nihil.Tree qualified as Tree
 import Relude
-import System.FilePath (makeRelative, takeBaseName, takeExtension, (</>))
+import System.Directory (doesFileExist)
+import System.FilePath (stripExtension, takeFileName, (</>))
 
 data InputPage
   = InputPage
   { path ∷ FilePath
   -- ^ Path to main .djot file
-  , route ∷ Route
+  , route ∷ FilePath
   -- ^ Where are we planning to place this?
   , content ∷ Text
   , contentBS ∷ ByteString
@@ -25,56 +27,63 @@ data InputPage
   }
   deriving (Show)
 
-findPages ∷ Config → IO [InputPage]
-findPages config =
-  -- Note: we only look for .dj files in the first path,
-  -- which is a bit weird, but oh well...
-  File.run (Seq.index config.contentPaths 0) do
-    index ← getPage "index" Home
-    notFound ← getPage "404" NotFound
-    echoes ← getPage "echoes" Echoes
-    echoPages ← File.at "echoes" do
-      entries ← File.ls
-      foldMap toList <$> forM entries \case
-        (_, path)
-          | echoes.path /= path → do
-              let base = takeBaseName path
-              Just <$> getPage base (Echo $ Text.pack base)
-          | otherwise → pure Nothing
+type InputPageTree = Tree.Forest InputPage FilePath FilePath
 
-    pure $ [index, notFound, echoes] <> echoPages
+--------- Page finding
+type PageFindingM = TreeGenT InputPage FilePath FilePath (FileParserT IO)
 
-getPage ∷ String → Route → File.FileParser InputPage
-getPage at route = do
-  file ← File.at (at <> ".dj") $ File.getInfo
-  dir ← File.at at $ File.getInfo
+findPages ∷ Config → IO InputPageTree
+findPages config = do
+  forests ←
+    File.run config.contentPaths $
+      snd <$> Tree.run (getPage "" <|> getPages)
+  pure $ fold forests
 
-  case (file, dir) of
-    ((File.File, path), _) → do
-      contentBS ← readFileBS path
-      let content = decodeUtf8 contentBS
-      pure $
-        InputPage
-          { path = path
-          , route = route
-          , content = content
-          , contentBS = contentBS
-          , djot = parseDoc path contentBS
-          }
-    (_, (File.Directory, base)) → do
-      let path = base </> "index.dj"
-      contentBS ← readFileBS path
-      let content = decodeUtf8 contentBS
-      pure $
-        InputPage
-          { path = path
-          , route = route
-          , content = content
-          , contentBS = contentBS
-          , djot = parseDoc path contentBS
-          }
-    _ → error $ "Cannot find file for route `" <> show route <> "`."
+getPages ∷ PageFindingM ()
+getPages = do
+  (kind, path) ← File.ls
+  let filename = takeFileName path
+  case kind of
+    File.File
+      | filename == "index.dj" → pure ()
+      | Just stripped ← stripExtension "dj" filename →
+          getPage stripped
+      | otherwise → File.atFile filename do
+          rpath ← File.relativePath
+          Tree.leaf path rpath
+    File.Directory → getPage filename
+
+getPage ∷ String → PageFindingM ()
+getPage at = do
+  rpath ← File.relativePath
+  asFile rpath <|> asDir rpath
  where
+  page path route contentBS next = Tree.node route thePage next
+   where
+    thePage =
+      InputPage
+        { path = path
+        , route = route
+        , content = decodeUtf8 contentBS
+        , contentBS = contentBS
+        , djot = parseDoc path contentBS
+        }
+
+  asFile rpath = File.atFile (at <> ".dj") do
+    path ← File.absolutePath
+    contentBS ← liftIO $ readFileBS path
+    page path rpath contentBS $ pure ()
+
+  asDir rpath = File.atDirectory at do
+    base ← File.absolutePath
+    let path = base </> "index.dj"
+    indexExists ← liftIO $ doesFileExist path
+    if indexExists
+      then do
+        contentBS ← readFileBS path
+        page path (rpath </> at) contentBS $ getPages
+      else getPages
+
   parseDoc path =
     either (handleParseError path) id
       . Djot.parseDoc (Djot.ParseOptions{sourcePositions = Djot.NoSourcePos})
@@ -86,14 +95,3 @@ getPage at route = do
       , "`: "
       , err
       ]
-
--- | Returns a list of assets, relative to the content dir.
-findAssets ∷ FilePath → IO [(FilePath, FilePath)]
-findAssets base = do
-  File.run base do
-    files ← File.tree
-    foldMap toList <$> forM files \case
-      (_, path)
-        | takeExtension path == ".dj" → pure Nothing
-        | otherwise → do
-            pure $ Just $ (path, makeRelative base path)

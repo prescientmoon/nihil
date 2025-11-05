@@ -34,6 +34,8 @@ executable nihil
         , ViewPatterns
         , MultiWayIf
         , ImportQualifiedPost
+        , FunctionalDependencies
+        , UndecidableInstances
 
     other-modules:
         , Nihil.Toml
@@ -43,6 +45,7 @@ executable nihil
         , Nihil.Djot
         , Nihil.File.In
         , Nihil.File.Out
+        , Nihil.Tree
         , Nihil.Gen.Xml
         , Nihil.Highlight
         , Nihil.Math
@@ -63,6 +66,7 @@ executable nihil
         , tomland     ^>=1.3.3.3
         , file-embed  ^>=0.0.16.0
         , process     ^>=1.6.19.0
+        , list-t      ^>=1.0.5.0
 
     mixins:
         base hiding (Prelude),
