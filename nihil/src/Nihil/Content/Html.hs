@@ -117,6 +117,7 @@ genPage ctx page = do
       & replaceHtml "{{content}}" changelogContent
       & replaceHtml "{{epilogue}}" ""
       & replaceHtml "{{text_description}}" (Html.content desc)
+      . replaceHtml "{{meta}}" extraMeta
       & Text.replace "{{text_title}}" "Scroll of alterations"
       & Text.replace "{{url}}" (url <> "/changelog/")
  where
@@ -178,10 +179,10 @@ genPage ctx page = do
 
     Html.tag "p" do
       Html.tag "a" do
-        Html.attr "href" (url <> "/")
+        Html.attr "href" $ url <> "/"
         Html.content "↩ Back to content"
 
-  url = Text.pack $ "/" <> page.input.route
+  url = Text.pack $ Text.unpack ctx.config.baseUrl </> page.input.route
   pageState = pageStateFor page.input.route ctx.state
 
   goBlocks (Djot.Many blocks) = traverse_ goBlock blocks
@@ -521,13 +522,14 @@ genPage ctx page = do
       Just at → do
         Html.content "Posted on "
         goDatetime at
-    extraMeta = do
+
+  extraMeta = do
       for_ page.meta.underFeeds \feed → do
         Html.singleTag "link" do
           Html.attr "rel" "alternate"
           Html.attr "type" "application/rss+xml"
           Html.attr "title" feed.name
-          Html.attr "href" $ "/" <> Text.pack feed.at
+          Html.attr "href" $ Text.pack feed.at
 
 getReference ∷ Djot.Doc → Djot.Target → (Text, Djot.Attr)
 getReference _ (Djot.Direct b) = (decodeUtf8 b, mempty)
