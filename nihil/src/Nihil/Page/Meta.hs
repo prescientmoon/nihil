@@ -92,7 +92,7 @@ instance Monoid PageConfig where
 configCodec ∷ Toml.TomlCodec PageConfig
 configCodec =
   PageConfig
-    <$> Toml.didefault False (Toml.bool "hidden") .= (\x → x.hidden)
+    <$> Toml.didefault False (Toml.bool "hidden") .= (.hidden)
     <*> Toml.didefault False (Toml.bool "draft") .= draft
     <*> Toml.didefault False (Toml.bool "compact") .= compact
     <*> Toml.dioptional (Toml.utcTime "created_at") .= createdAt
