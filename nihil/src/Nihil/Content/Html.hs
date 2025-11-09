@@ -176,6 +176,10 @@ genPage ctx page = do
               Html.content ":"
               Html.tag "blockquote" $ Html.tag "em" do
                 Html.content change.message
+                when (change.body /= "") do
+                  Html.singleTag "br" $ pure ()
+                  Html.singleTag "br" $ pure ()
+                  Html.content change.body
 
     Html.tag "p" do
       Html.tag "a" do
@@ -524,12 +528,12 @@ genPage ctx page = do
         goDatetime at
 
   extraMeta = do
-      for_ page.meta.underFeeds \feed → do
-        Html.singleTag "link" do
-          Html.attr "rel" "alternate"
-          Html.attr "type" "application/rss+xml"
-          Html.attr "title" feed.name
-          Html.attr "href" $ Text.pack feed.at
+    for_ page.meta.underFeeds \feed → do
+      Html.singleTag "link" do
+        Html.attr "rel" "alternate"
+        Html.attr "type" "application/rss+xml"
+        Html.attr "title" feed.name
+        Html.attr "href" $ Text.pack feed.at
 
 getReference ∷ Djot.Doc → Djot.Target → (Text, Djot.Attr)
 getReference _ (Djot.Direct b) = (decodeUtf8 b, mempty)

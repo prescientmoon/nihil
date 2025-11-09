@@ -68,6 +68,7 @@ data GitChange
   { hash ∷ Text
   , at ∷ UTCTime
   , message ∷ Text
+  , body ∷ Text
   }
   deriving (Show, Generic)
 
@@ -77,6 +78,7 @@ gitChangeCodec = do
     <$> Toml.text "hash" .= hash
     <*> Toml.utcTime "at" .= at
     <*> Toml.text "message" .= message
+    <*> Toml.text "body" .= body
 
 ---------- Reading the state
 conjureState ∷ Config → InputPageTree → IO PersistentState
@@ -102,7 +104,7 @@ genStateFor page = do
           [ "-C"
           , takeDirectory page.path
           , "log"
-          , "--pretty=format:%h %ad %s"
+          , "--pretty=format:%h %ad %s[[[BODY]]]%b[[[END]]]"
           , "--date=iso-strict"
           , "--follow"
           , "--"
@@ -113,14 +115,30 @@ genStateFor page = do
   changes ←
     output
       & Text.pack
-      & Text.lines
+      & Text.splitOn "[[[END]]]"
       & Seq.fromList
-      & traverse \(cut → (hash, cut → (rawDate, message))) → do
-        let err = error $ "Cannot parse date returned by git: " <> rawDate
+      & Seq.filter (/= "")
+      & traverse \(cut → (hash, cut → (rawDate, fullMessage))) → do
+        let err = error $ "Cannot parse date returned by git: " <> show (hash, rawDate, fullMessage)
+        let parts = Text.splitOn "[[[BODY]]]" fullMessage
+        let (message, rawBody) = case parts of
+              [] → error "No git commit message found"
+              m : [] → (m, "")
+              m : b : [] → (m, b)
+              _ → error "Too many message separators encountered"
+
+        let body =
+              rawBody
+                & Text.lines
+                & filter (not . Text.isPrefixOf "Signed-off-by:")
+                & Text.unlines
+                & Text.strip
+
         pure $
           GitChange
             { hash = hash
             , message = message
+            , body = body
             , at =
                 Time.zonedTimeToUTC
                   . fromMaybe err
