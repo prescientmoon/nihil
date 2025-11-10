@@ -160,7 +160,7 @@ genStateFor page = do
  where
   -- Cut some text into the chunk before the first space, and the rest.
   cut =
-    second (\t → fromMaybe t $ Text.stripPrefix " " t)
+    bimap Text.strip Text.strip
       . Text.breakOn " "
 
 -- | Selects the state for a particular page. Errors out if the state
