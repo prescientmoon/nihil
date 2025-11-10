@@ -196,6 +196,7 @@ genPage ctx page = do
           Html.attr "aria-labelledby" sectionId
           renderTitle
           renderNonTitle
+          Html.rawContent "{{epilogue}}"
       | Just sectionId == titleId && not page.meta.config.compact →
           Html.tag "main" $ Html.tag "article" do
             Html.attr "aria-labelledby" sectionId
