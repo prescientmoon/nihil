@@ -37,6 +37,7 @@ name = "moonythm-highliter"
 version = "0.1.0"
 dependencies = [
  "tree-sitter",
+ "tree-sitter-agda",
  "tree-sitter-djot",
  "tree-sitter-haskell",
  "tree-sitter-highlight",
@@ -147,6 +148,16 @@ dependencies = [
  "regex",
  "regex-syntax",
  "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-agda"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79170741bc75a42d93a69f7e2d39bece006bea602af30650f7f323645094d693"
+dependencies = [
+ "cc",
  "tree-sitter-language",
 ]
 

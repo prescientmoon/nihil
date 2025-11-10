@@ -176,6 +176,19 @@ fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
 			)),
 			"",
 		)),
+		"agda" => Some((
+			"agda",
+			Language::new(tree_sitter_agda::LANGUAGE),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/agda/highlights.scm"
+			)),
+			include_str!(concat!(
+				env!("NVIM_TREESITTER"),
+				"/queries/agda/injections.scm"
+			)),
+			"",
+		)),
 		_ => None,
 	}?;
 

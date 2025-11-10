@@ -107,6 +107,7 @@ blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
   margin-left: 0;
+  text-align: left; /* Otherwise there's issues with blockquotes inside figures */
 }
 
 ul,
@@ -465,7 +466,8 @@ figure > figcaption > p {
 
   span.comment,
   span.comment-documentation,
-  code[data-language="haskell"] span.spell {
+  code[data-language="haskell"] span.spell,
+  code[data-language="agda"] span.spell {
     color: #9ca0b0;
     font-style: italic;
   }
