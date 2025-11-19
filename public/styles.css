@@ -110,9 +110,18 @@ blockquote {
   text-align: left; /* Otherwise there's issues with blockquotes inside figures */
 }
 
-ul,
 ol {
   padding-left: 1.5rem;
+}
+
+ul {
+  padding-left: 1rem;
+
+  li {
+    list-style-type: "⬦";
+    padding-left: 0.5rem;
+    list-style-position: outside;
+  }
 }
 
 h1,
@@ -258,22 +267,40 @@ a {
   }
 }
 
-/* {{{ Override marker */
-.aside > summary {
-  &::marker {
-    display: none;
+/* {{{ Summary & details */
+.aside,
+.toc {
+  summary {
+    list-style: none;
   }
 
-  &::before {
+  summary::marker,
+  summary::webkit-details-marker {
+    display: none;
+    content: "";
+  }
+
+  summary::before {
+    display: inline-block;
     content: "▶";
     font-size: 0.75rem;
-    padding: 0 0.75rem 0 0.25rem;
-    box-sizing: border-box;
+    margin: 0 0.75rem 0 0.25rem;
+    transform-origin: 45% 55%;
+    transition: transform 0.1s;
+    cursor: pointer;
   }
 }
 
+.toc > summary::before {
+  transform: translateY(-4px);
+}
+
+.toc[open] > summary::before {
+  transform: translateY(-4.5px) rotate(90deg);
+}
+
 .aside[open] > summary::before {
-  content: "▼";
+  transform: translateY(-1.5px) rotate(90deg);
 }
 /* }}} */
 /* }}} */
