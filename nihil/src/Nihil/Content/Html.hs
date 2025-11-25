@@ -273,11 +273,16 @@ genPage ctx page = do
                     )
                   & Seq.reverse
 
+          let headingElem = case Djot.getAttr "level" attrs of
+                Just level → "h" <> level
+                Nothing → "h2"
+
           let template = Text.pack $(embedStringFile "./templates/post-summary.html")
           Html.tag "ol" do
             Html.attr "class" "article-list"
             for_ pages \page' → do
               template
+                & Text.replace "{{heading_elem}}" headingElem
                 & goMetadata page'
                 & Html.rawContent
       | Djot.hasClass "aside" attrs
