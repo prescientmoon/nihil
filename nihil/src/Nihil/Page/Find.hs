@@ -52,8 +52,7 @@ getPages = do
       | otherwise → File.atFile filename do
           apath ← File.absolutePath
           rpath ← File.relativePath
-          lineage ← Tree.ancestors
-          case fmap last . nonEmpty $ toList lineage of
+          Tree.parent >>= \case
             Nothing → Tree.leaf rpath apath
             Just (_, page) → do
               Tree.leaf (makeRelative page.route rpath) apath
@@ -62,10 +61,16 @@ getPages = do
 getPage ∷ String → PageFindingM ()
 getPage at = do
   rpath ← File.relativePath
-  asFile (rpath </> at) <|> asDir (rpath </> at)
+  let route = rpath </> at
+  edge ←
+    Tree.parent <&> \case
+      Nothing → ""
+      Just (_, parent) → makeRelative parent.route (rpath </> at)
+
+  asFile edge route <|> asDir edge route
  where
-  page path route contentBS next = do
-    Tree.node at thePage next
+  page path edge route contentBS next = do
+    Tree.node edge thePage next
    where
     thePage =
       InputPage
@@ -76,19 +81,19 @@ getPage at = do
         , djot = parseDoc path contentBS
         }
 
-  asFile rpath = File.atFile (at <> ".dj") do
+  asFile edge route = File.atFile (at <> ".dj") do
     path ← File.absolutePath
     contentBS ← liftIO $ readFileBS path
-    page path rpath contentBS $ pure ()
+    page path edge route contentBS $ pure ()
 
-  asDir rpath = File.atDirectory at do
+  asDir edge route = File.atDirectory at do
     base ← File.absolutePath
     let path = base </> "index.dj"
     indexExists ← liftIO $ doesFileExist path
     if indexExists
       then do
         contentBS ← readFileBS path
-        page path rpath contentBS getPages
+        page path edge route contentBS getPages
       else getPages
 
   parseDoc path =

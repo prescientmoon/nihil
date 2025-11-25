@@ -9,6 +9,7 @@ module Nihil.Tree
   , onlyHeads
   , noChildren
   , nodes
+  , parent
   ) where
 
 import Data.HashMap.Strict qualified as HashMap
@@ -86,6 +87,11 @@ class
   leaf ∷ edge → leaf → m ()
   node ∷ edge → node → m a → m a
   ancestors ∷ m (Seq (edge, node))
+
+parent ∷ ∀ node edge leaf m. (MonadTreeGen node edge leaf m) ⇒ m (Maybe (edge, node))
+parent = do
+  lineage ← ancestors
+  pure $ fmap last . nonEmpty $ toList lineage
 
 newtype TreeGenT node edge leaf m a
   = TreeGenT (ReaderT (Seq (edge, node)) (StateT (Forest node edge leaf) m) a)
