@@ -1,6 +1,6 @@
 { pkgs }:
 pkgs.mkShell rec {
-  nativeBuildInputs = with pkgs.haskell.packages."ghc9101"; [
+  nativeBuildInputs = with pkgs.haskell.packages."ghc9102"; [
     cabal-install
     ghcid
     fourmolu

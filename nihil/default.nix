@@ -8,7 +8,7 @@
 }:
 symlinkJoin {
   name = "nihil";
-  paths = [ (haskell.packages."ghc9101".callPackage ./nihil.nix { }) ];
+  paths = [ (haskell.packages."ghc9102".callPackage ./nihil.nix { }) ];
 
   buildInputs = [ makeWrapper ];
   postBuild = ''
