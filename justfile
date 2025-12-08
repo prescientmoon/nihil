@@ -9,7 +9,7 @@ nihil *args:
       NIHIL_CONTENT="../moonythm/content,../moonythm/public,./public" \
       NIHIL_OUT="./dist" \
       NIHIL_DRAFTS=1 \
-      nix run .#nihil -- {{ args }}
+      nihil {{ args }}
 
 [doc("Update persistent state, without commiting to git")]
 update-local-state:

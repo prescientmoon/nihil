@@ -1,4 +1,7 @@
 { pkgs }:
+let
+  nihil = pkgs.callPackage ./nihil { };
+in
 pkgs.mkShell {
   packages = [
     pkgs.http-server
@@ -10,5 +13,6 @@ pkgs.mkShell {
     pkgs.htmltest
     pkgs.watchexec
     pkgs.parallel
+    nihil
   ];
 }
