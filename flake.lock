@@ -3,11 +3,11 @@
     "moonythm": {
       "flake": false,
       "locked": {
-        "lastModified": 1764897235,
-        "narHash": "sha256-LMXYiMgWS0rqVvNsbW7feek5b9/2SsOHLLGxi75SS2g=",
+        "lastModified": 1765171309,
+        "narHash": "sha256-Ki4Iq0pRufbfiJBv/J1XhK+CFQ8x36oGslH4Ctm/ehc=",
         "ref": "refs/heads/main",
-        "rev": "10d267a21dc471915871658c48dfa3bbf3210935",
-        "revCount": 110,
+        "rev": "0135cb84de8b2b832fc813ebbf00fe89794bd797",
+        "revCount": 112,
         "type": "git",
         "url": "ssh://forgejo@ssh.git.moonythm.dev/prescientmoon/moonythm.git"
       },
