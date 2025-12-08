@@ -2,13 +2,13 @@
   lib,
   callPackage,
   symlinkJoin,
-  haskell,
+  haskellPackages,
   makeWrapper,
   cm_unicode,
 }:
 symlinkJoin {
   name = "nihil";
-  paths = [ (haskell.packages."ghc9102".callPackage ./nihil.nix { }) ];
+  paths = [ (haskellPackages.callPackage ./nihil.nix { }) ];
 
   buildInputs = [ makeWrapper ];
   postBuild = ''
