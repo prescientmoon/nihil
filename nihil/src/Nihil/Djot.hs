@@ -8,7 +8,7 @@ module Nihil.Djot
 
 import Data.List qualified as List
 import Data.Text qualified as Text
-import Djot qualified as Djot
+import Djot qualified
 import Relude
 
 hasClass ∷ Text → Djot.Attr → Bool
@@ -95,4 +95,5 @@ inlinesWithoutLinks = Djot.Many . fmap (fmap go) . Djot.unMany
     Djot.Quoted q ils → Djot.Quoted q $ inlinesWithoutLinks ils
     Djot.Image ils url → Djot.Image (inlinesWithoutLinks ils) url
     Djot.Span ils → Djot.Span $ inlinesWithoutLinks ils
+    Djot.FootnoteReference _ → Djot.Span $ Djot.Many mempty
     other → other
