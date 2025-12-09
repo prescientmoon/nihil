@@ -1,19 +1,19 @@
+let
+  sources = import ./npins;
+in
 {
-  lib,
-  nihil,
-  runCommand,
-  moonythm,
+  pkgs ? import sources.nixpkgs { },
 }:
-runCommand "moonythm"
-  {
-    NIHIL_BASE_URL = "https://moonythm.dev";
-    NIHIL_STATE = "${moonythm.outPath}/state.toml";
-    NIHIL_CONTENT = lib.concatStringsSep "," [
-      "${moonythm.outPath}/content/"
-      "${moonythm.outPath}/public/"
-      "${./public}"
-    ];
-  }
-  ''
-    NIHIL_OUT="$out" ${nihil}/bin/nihil
-  ''
+pkgs.lib.fix (self: {
+  nihil-math-renderer = pkgs.callPackage ./nihil-math-renderer { };
+  nihil-math-assets = pkgs.callPackage ./nihil-math-renderer/assets.nix { };
+  nihil-highlighter = pkgs.callPackage ./nihil-highlighter { };
+  nihil = pkgs.callPackage ./nihil {
+    inherit (self) nihil-math-renderer nihil-highlighter nihil-math-assets;
+  };
+
+  moonythm = pkgs.callPackage ./moonythm {
+    inherit (sources) moonythm;
+    inherit (self) nihil;
+  };
+})

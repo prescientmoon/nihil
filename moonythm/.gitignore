@@ -1,0 +1,12 @@
+target
+dist
+oldicons
+result
+
+# Used by htmltest
+tmp
+
+# Scratchpad
+idea.txt
+
+!.envrc

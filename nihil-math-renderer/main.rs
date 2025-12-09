@@ -3,7 +3,7 @@ use std::io::Read;
 fn main() {
 	let args: Vec<String> = std::env::args().collect();
 	if args.len() != 2 {
-		eprintln!("Usage: moonythm-math-renderer <inline|block>");
+		eprintln!("Usage: nihil-math-renderer <inline|block>");
 		std::process::exit(1);
 	}
 

@@ -5,8 +5,8 @@
 [private]
 nihil *args:
     NIHIL_BASE_URL=http://localhost:8080 \
-      NIHIL_STATE="../moonythm/state.toml" \
-      NIHIL_CONTENT="../moonythm/content,../moonythm/public,./public" \
+      NIHIL_STATE="../../moonythm/state.toml" \
+      NIHIL_CONTENT="../../moonythm/content,../../moonythm/public,./src" \
       NIHIL_OUT="./dist" \
       NIHIL_DRAFTS=1 \
       nihil {{ args }}
@@ -21,16 +21,16 @@ update-state:
     set -euo pipefail # Fail on errors and whatnot
 
     just update-local-state
-    cd ../moonythm
+    cd ../../moonythm
     git add state.toml
     git commit -m "Update \`state.toml\`"
     git push
-    cd ../nihil
+    cd ../nihil/moonythm
 
-[doc("Bump the moonythm version,, commiting it to git")]
+[doc("Bump the moonythm version, commiting it to git")]
 bump-moonythm:
-    nix flake update moonythm
-    git add flake.lock
+    npins update moonythm
+    git add ../npins
     git commit -m "Bump moonythm"
     git push
 
@@ -58,10 +58,8 @@ watch-content:
     watchexec \
       --quiet \
       --postpone \
-      --watch public \
-      --watch nihil/src \
-      --watch nihil/templates \
-      --watch ../moonythm \
+      --watch src \
+      --watch ../../moonythm \
       just build
 
 [doc("Minify the .xml files")]

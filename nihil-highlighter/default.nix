@@ -4,7 +4,7 @@
   vimPlugins,
 }:
 rustPlatform.buildRustPackage {
-  pname = "moonythm-highlighter";
+  pname = "nihil-highlighter";
   version = "unstable-2025-08-13";
   src = lib.fileset.toSource {
     root = ./.;
@@ -27,7 +27,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Treesitter based syntax highlighter for https://moonythm.dev.";
-    mainProgram = "moonythm-highlighter";
+    mainProgram = "nihil-highlighter";
     platforms = [ "x86_64-linux" ];
   };
 }

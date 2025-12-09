@@ -1,18 +1,10 @@
-{ pkgs }:
 let
-  nihil = pkgs.callPackage ./nihil { };
+  sources = import ./npins;
+  pkgs = import sources.nixpkgs { };
 in
 pkgs.mkShell {
   packages = [
-    pkgs.http-server
-    pkgs.nodejs
+    pkgs.npins
     pkgs.just
-    pkgs.terser
-    pkgs.libxml2
-    pkgs.validator-nu
-    pkgs.htmltest
-    pkgs.watchexec
-    pkgs.parallel
-    nihil
   ];
 }

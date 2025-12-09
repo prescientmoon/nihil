@@ -3,7 +3,7 @@
   rustPlatform,
 }:
 rustPlatform.buildRustPackage {
-  pname = "moonythm-math-renderer";
+  pname = "nihil-math-renderer";
   version = "unstable-2025-08-13";
   src = lib.fileset.toSource {
     root = ./.;
@@ -18,7 +18,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "LaTeX renderer for https://moonythm.dev.";
-    mainProgram = "moonythm-math-renderer";
+    mainProgram = "nihil-math-renderer";
     platforms = [ "x86_64-linux" ];
   };
 }

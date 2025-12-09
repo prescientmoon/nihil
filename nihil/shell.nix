@@ -1,4 +1,7 @@
-{ pkgs }:
+let
+  sources = import ../npins;
+  pkgs = import sources.nixpkgs { };
+in
 pkgs.mkShell rec {
   nativeBuildInputs = with pkgs.haskellPackages; [
     cabal-install

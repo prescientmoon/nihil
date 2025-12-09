@@ -9,7 +9,7 @@ highlightIO ∷ Text → Text → IO Text
 highlightIO lang content = do
   let process =
         Process.proc
-          "moonythm-highlighter"
+          "nihil-highlighter"
           [Text.unpack lang]
 
   output ← Process.readCreateProcess process $ Text.unpack content

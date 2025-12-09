@@ -1,10 +1,10 @@
 [package]
-name = "moonythm-highliter"
+name = "nihil-highliter"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "moonythm-highlighter"
+name = "nihil-highlighter"
 path = "main.rs"
 
 [dependencies]

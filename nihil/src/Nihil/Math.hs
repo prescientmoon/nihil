@@ -10,7 +10,7 @@ renderMathIO ∷ Text → Text → IO Text
 renderMathIO kind content = do
   let process =
         Process.proc
-          "moonythm-math-renderer"
+          "nihil-math-renderer"
           [Text.unpack kind]
 
   output ← Process.readCreateProcess process $ Text.unpack content

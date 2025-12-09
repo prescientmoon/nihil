@@ -1,10 +1,12 @@
 {
   lib,
-  callPackage,
   symlinkJoin,
   haskellPackages,
   makeWrapper,
   cm_unicode,
+  nihil-highlighter,
+  nihil-math-renderer,
+  nihil-math-assets,
 }:
 symlinkJoin {
   name = "nihil";
@@ -15,11 +17,11 @@ symlinkJoin {
     wrapProgram $out/bin/nihil \
       --prefix PATH : ${
         lib.makeBinPath [
-          (callPackage ../highlighter { })
-          (callPackage ../math-renderer { })
+          nihil-highlighter
+          nihil-math-renderer
         ]
       } \
-      --set NIHIL_MATH_ASSETS "${callPackage ../math-renderer/assets.nix { }}" \
+      --set NIHIL_MATH_ASSETS "${nihil-math-assets}" \
       --set NIHIL_CMODERN "${cm_unicode}/share/fonts/opentype/"
   '';
 }
