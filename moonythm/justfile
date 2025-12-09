@@ -29,10 +29,15 @@ update-state:
 
 [doc("Bump the moonythm version, commiting it to git")]
 bump-moonythm:
+    #!/usr/bin/env bash
+    set -euo pipefail # Fail on errors and whatnot
+
+    cd ..
     npins update moonythm
-    git add ../npins
+    git add npins
     git commit -m "Bump moonythm"
     git push
+    cd moonythm
 
 [doc("Copy the current date to clipboard in the required `created_at` format")]
 current-date:
