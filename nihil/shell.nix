@@ -25,5 +25,4 @@ pkgs.mkShell rec {
   NIHIL_OUT = "../dist";
   NIHIL_DRAFTS = 1;
   NIHIL_MATH_ASSETS = pkgs.callPackage ../math-renderer/assets.nix { };
-  NIHIL_CMODERN = "${pkgs.cm_unicode}/share/fonts/opentype/";
 }

@@ -3,7 +3,6 @@
   symlinkJoin,
   haskellPackages,
   makeWrapper,
-  cm_unicode,
   nihil-highlighter,
   nihil-math-renderer,
   nihil-math-assets,
@@ -21,7 +20,6 @@ symlinkJoin {
           nihil-math-renderer
         ]
       } \
-      --set NIHIL_MATH_ASSETS "${nihil-math-assets}" \
-      --set NIHIL_CMODERN "${cm_unicode}/share/fonts/opentype/"
+      --set NIHIL_MATH_ASSETS "${nihil-math-assets}"
   '';
 }

@@ -43,19 +43,6 @@ import System.FilePath (takeFileName, (</>))
 
 genSite ∷ Context → FileGen ()
 genSite ctx = do
-  Gen.dir "fonts" do
-    -- Computer modern fonts
-    Gen.copy "cm-regular.otf" $
-      ctx.config.cmodernPath </> "cmunss.otf"
-    Gen.copy "cm-bold.otf" $
-      ctx.config.cmodernPath </> "cmunsx.otf"
-    Gen.copy "cm-italic.otf" $
-      ctx.config.cmodernPath </> "cmunsi.otf"
-    Gen.copy "cm-bolditalic.otf" $
-      ctx.config.cmodernPath </> "cmunso.otf"
-    Gen.copy "cm-math.otf" $
-      ctx.config.cmodernPath </> "cmunbmo.otf"
-
   -- pulldown_latex assets
   Gen.dir "math" do
     multiple ← File.run (pure ctx.config.pulldownLatexAssetPath) do
