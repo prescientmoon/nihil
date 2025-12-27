@@ -504,7 +504,7 @@ table {
   overflow-x: auto;
   white-space: nowrap;
   border-collapse: collapse;
-  margin: 0 auto;
+  margin: 1rem auto 2rem auto;
 }
 
 table tr:first-child {
