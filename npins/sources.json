@@ -8,9 +8,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "0bbd19a24fcbf035ba9882bc514f50ac9fb51d6b",
+      "revision": "5ee1d98b08c56951508d52d66e5e2930e0ddae01",
       "url": null,
-      "hash": "13hm98b1hk4paksgkzi25948s4l1zx60b6syin62bvrs5h12s6rw"
+      "hash": "1zwh1mg5mjjfwhljdjaxxrxr8plm7pzm3rrnb8n62a9gjzrsvg50"
     },
     "nixpkgs": {
       "type": "Channel",
