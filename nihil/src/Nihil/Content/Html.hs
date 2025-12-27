@@ -1,3 +1,4 @@
+{-# Allow refact:Avoid lambda #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Nihil.Content.Html (genSite) where
@@ -159,7 +160,7 @@ genPage ctx page = do
               Html.content "At commit "
               Html.tag "code" $ Html.content change.hash
               Html.content " on "
-              goDatetime change.at
+              goDatetime False change.at
               Html.content ":"
               Html.tag "blockquote" $ Html.tag "em" do
                 Html.content change.message
@@ -369,7 +370,21 @@ genPage ctx page = do
         Html.tag "dd" $ goListItemBlocks listSpacing def
     Djot.TaskList _ _ → error "Task lists are not supported"
     Djot.ThematicBreak → Html.singleTag "hr" $ pure ()
-    Djot.Table _ _ → error "Tables are not currently supported"
+    Djot.Table mbCaption rows → Html.tag "table" do 
+      for_ mbCaption \(Djot.Caption caption) -> Html.tag "caption" do 
+        goBlocks caption
+      for_ rows \row -> Html.tag "tr" do 
+        for_ row \(Djot.Cell ty align inlines) -> do 
+          let cellTag = case ty of  
+                Djot.HeadCell -> "th"
+                Djot.BodyCell -> "td"
+          Html.tag cellTag do 
+            case align of 
+              Djot.AlignDefault -> pure ()
+              Djot.AlignLeft -> Html.attr "class" "align-left"
+              Djot.AlignRight -> Html.attr "class" "align-right"
+              Djot.AlignCenter -> Html.attr "class" "align-center"
+            goInlines inlines
     Djot.RawBlock (Djot.Format "html") (decodeUtf8 → s) → Html.rawContent s
     Djot.RawBlock _ _ → pure ()
 
@@ -391,9 +406,9 @@ genPage ctx page = do
     Djot.Superscript inlines → Html.tag "sup" $ goInlines inlines
     Djot.Subscript inlines → Html.tag "sub" $ goInlines inlines
     Djot.Verbatim (decodeUtf8 → s) → Html.tag "code" $ Html.content s
-    Djot.Symbol (decodeUtf8 → sym) → Html.singleTag "img" do 
+    Djot.Symbol (decodeUtf8 → sym) → Html.singleTag "img" do
       Html.attr "class" "icon"
-      -- Decorative image. 
+      -- Decorative image.
       -- See: https://www.w3.org/WAI/tutorials/images/decorative/
       Html.attr "alt" ""
       Html.attr "src" $ "/icons/" <> sym <> ".webp"
@@ -417,23 +432,20 @@ genPage ctx page = do
           let fmt = Time.iso8601Format
           case Time.formatParseM fmt $ Text.unpack t of
             Nothing → error $ "Invalid datetime `" <> t <> "`"
-            Just (datetime ∷ Time.ZonedTime) → goDatetime $ 
-              Time.zonedTimeToUTC datetime
+            Just (datetime ∷ Time.ZonedTime) →
+              goDatetime (Djot.hasClass "compact" attrs) $
+                Time.zonedTimeToUTC datetime
       | Djot.hasClass "date" attrs → do
           let t = Djot.inlinesToText inlines
-          let fmt = Time.calendarFormat Time.ExtendedFormat
-          case Time.formatParseM fmt $ Text.unpack t of
-            Nothing → error $ "Invalid date `" <> t <> "`"
-            Just (date ∷ Time.Day) → Html.tag "time" do
-              Html.attr "datetime" . Text.pack $
-                Time.formatShow
-                  Time.iso8601Format
-                  date
-              Html.content . Text.pack $
-                Time.formatTime
-                  Time.defaultTimeLocale
-                  "%a, %d %b %Y"
-                  date
+          let compact = Djot.hasClass "compact" attrs
+          let dateFmt = Time.calendarFormat Time.ExtendedFormat
+          case Time.formatParseM dateFmt $ Text.unpack t of
+            Nothing → do 
+              let timeFmt = Time.iso8601Format
+              case Time.formatParseM timeFmt $ Text.unpack t of
+                Nothing → error $ "Invalid date `" <> t <> "`"
+                Just (time ∷ Time.ZonedTime) → goDate compact time
+            Just (date ∷ Time.Day) → goDate compact date
       -- }}}
       | otherwise → Html.tag "span" $ goInlines inlines
     Djot.Image inlines target → Html.singleTag "img" do
@@ -468,16 +480,39 @@ genPage ctx page = do
         Html.attr "href" $ "#footnote-" <> show num
         Html.content $ show num
 
-  goDatetime ∷ Time.UTCTime → Html.HtmlGen ()
-  goDatetime datetime = Html.tag "time" do
+  goDate 
+    :: forall t. Time.FormatTime t 
+    => Time.ISO8601 t 
+    => Bool 
+    -> t 
+    -> Html.HtmlGen ()
+  goDate compact date = Html.tag "time" do
+    Html.attr "datetime" . Text.pack $
+      Time.formatShow
+        Time.iso8601Format
+        date
+    Html.content $ Text.pack do
+      let format
+            | compact = "%d/%m/%y"
+            | otherwise = "%a, %d %b %Y"
+      Time.formatTime
+        Time.defaultTimeLocale
+        format
+        date
+
+  goDatetime ∷ Bool -> Time.UTCTime → Html.HtmlGen ()
+  goDatetime compact datetime = Html.tag "time" do
     Html.attr "datetime" . Text.pack $
       Time.formatShow
         Time.iso8601Format
         datetime
-    Html.content . Text.pack $
+    Html.content $ Text.pack do
+      let format
+            | compact = "%d/%m/%y %R"
+            | otherwise = "%a, %d %b %Y at %R"
       Time.formatTime
         Time.defaultTimeLocale
-        "%a, %d %b %Y at %R"
+        format
         datetime
 
   goCode ∷ ByteString → ByteString → Html.HtmlGen ()
@@ -502,7 +537,7 @@ genPage ctx page = do
       . replaceHtml "{{description}}" (goBlocks page'.meta.description)
       . replaceHtml "{{text_description}}" (Html.content textDescription)
       . replaceHtml "{{posted_on}}" postedOn
-      . replaceHtml "{{updated_on}}" (goDatetime pageState'.lastUpdated)
+      . replaceHtml "{{updated_on}}" (goDatetime False pageState'.lastUpdated)
       . replaceHtml "{{meta}}" extraMeta
       . Text.replace "{{changelog_url}}" (url' <> "/changelog/")
       . Text.replace "{{source_url}}" (url' <> "/index.dj")
@@ -524,7 +559,7 @@ genPage ctx page = do
       Nothing → Html.content "Being conjured "
       Just at → do
         Html.content "Posted on "
-        goDatetime at
+        goDatetime False at
 
   extraMeta = do
     for_ page.meta.underFeeds \feed → do

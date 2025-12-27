@@ -11,7 +11,7 @@ extra-doc-files:    CHANGELOG.md
 build-type:         Simple
 
 common warnings
-    ghc-options: -Wall
+    ghc-options: -Wall -Wno-unrecognised-pragmas
 
 executable nihil
     import:           warnings

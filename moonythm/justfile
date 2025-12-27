@@ -63,7 +63,7 @@ watch-content:
     watchexec \
       --quiet \
       --postpone \
-      --watch src \
+      --watch ./src \
       --watch ../../moonythm \
       just build
 

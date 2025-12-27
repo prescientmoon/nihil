@@ -44,9 +44,14 @@ blocksToText = foldMap go . Djot.unMany
     Djot.BulletList _ blocks → foldMap blocksToText blocks
     Djot.ThematicBreak → "\n"
     Djot.RawBlock _ _ → mempty
-    Djot.DefinitionList _ _ → mempty -- I don't wanna bother aaaa
+    Djot.DefinitionList _ _ → error "Definition lists are not implemented"
     Djot.TaskList _ _ → error "Task lists are not implemented"
-    Djot.Table _ _ → error "Tables are not implemented"
+    Djot.Table mbCaption rows → fold 
+      [ flip foldMap mbCaption \(Djot.Caption caption) -> blocksToText caption
+      , flip foldMap rows \cols -> do 
+          flip foldMap cols \(Djot.Cell _ _ inlines) -> do 
+            inlinesToText inlines
+      ]
 
 inlinesToText ∷ Djot.Inlines → Text
 inlinesToText = foldMap go . Djot.unMany
