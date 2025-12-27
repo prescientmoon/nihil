@@ -391,7 +391,12 @@ genPage ctx page = do
     Djot.Superscript inlines → Html.tag "sup" $ goInlines inlines
     Djot.Subscript inlines → Html.tag "sub" $ goInlines inlines
     Djot.Verbatim (decodeUtf8 → s) → Html.tag "code" $ Html.content s
-    Djot.Symbol (decodeUtf8 → sym) → Html.content $ ":" <> sym <> ":"
+    Djot.Symbol (decodeUtf8 → sym) → Html.singleTag "img" do 
+      Html.attr "class" "icon"
+      -- Decorative image. 
+      -- See: https://www.w3.org/WAI/tutorials/images/decorative/
+      Html.attr "alt" ""
+      Html.attr "src" $ "/icons/" <> sym <> ".webp"
     Djot.SoftBreak → Html.content "\n"
     Djot.HardBreak → Html.singleTag "br" $ pure ()
     Djot.NonBreakingSpace → Html.content "&nbsp"
@@ -412,7 +417,8 @@ genPage ctx page = do
           let fmt = Time.iso8601Format
           case Time.formatParseM fmt $ Text.unpack t of
             Nothing → error $ "Invalid datetime `" <> t <> "`"
-            Just (datetime ∷ Time.UTCTime) → goDatetime datetime
+            Just (datetime ∷ Time.ZonedTime) → goDatetime $ 
+              Time.zonedTimeToUTC datetime
       | Djot.hasClass "date" attrs → do
           let t = Djot.inlinesToText inlines
           let fmt = Time.calendarFormat Time.ExtendedFormat
@@ -471,7 +477,7 @@ genPage ctx page = do
     Html.content . Text.pack $
       Time.formatTime
         Time.defaultTimeLocale
-        "%a, %d %b %Y"
+        "%a, %d %b %Y at %R"
         datetime
 
   goCode ∷ ByteString → ByteString → Html.HtmlGen ()

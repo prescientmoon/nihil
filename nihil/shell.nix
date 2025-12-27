@@ -12,8 +12,8 @@ pkgs.mkShell rec {
 
   buildInputs = [
     pkgs.zlib
-    (pkgs.callPackage ../highlighter { })
-    (pkgs.callPackage ../math-renderer { })
+    (pkgs.callPackage ../nihil-highlighter { })
+    (pkgs.callPackage ../nihil-math-renderer { })
   ];
 
   LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath buildInputs;
@@ -24,5 +24,5 @@ pkgs.mkShell rec {
   NIHIL_CONTENT = "../../moonythm/content,../../moonythm/public,../public";
   NIHIL_OUT = "../dist";
   NIHIL_DRAFTS = 1;
-  NIHIL_MATH_ASSETS = pkgs.callPackage ../math-renderer/assets.nix { };
+  NIHIL_MATH_ASSETS = pkgs.callPackage ../nihil-math-renderer/assets.nix { };
 }

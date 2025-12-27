@@ -485,6 +485,18 @@ figure > figcaption > p {
   margin-top: 0.25rem;
 }
 /* }}} */
+/* {{{ Icons */
+span.icon {
+  height: 100%;
+  text-align: center;
+}
+
+img.icon {
+  height: 1em;
+  width: 1em;
+  vertical-align: -0.125em;
+}
+/* }}} */
 
 /* Syntax highlighting */
 /* {{{ Light theme */
