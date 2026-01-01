@@ -64,33 +64,37 @@ Block_Markup :: struct {
 
 Inline_Markup :: struct {
 	kind:    enum {
+		None = 0,
+		Space,
 		Text,
 		Emph,
 		Strong,
 		Strikethrough,
 		Mono,
+		Quote,
 		Datetime,
 		Date,
 		Link,
 		Fn,
-		Quote,
 		Icon,
 		Ellipsis,
 		LaTeX,
+		Many,
 	},
 	using _: struct #raw_union {
 		// text, fn, icon, LaTeX
-		raw:   string,
+		raw:   string `raw_union_tag:"kind=Text,Space,Fn,Icon,LaTeX"`,
 		// emph, strong, strikethrough, mono, quote
-		inner: ^Inline_Markup,
+		inner: ^Inline_Markup `raw_union_tag:"kind=Emph,Strong,Strikethrough,Mono,Quote"`,
 		// date, datetime
 		time:  struct {
 			compact: bool,
 			time:    time.Time,
-		},
+		} `raw_union_tag:"kind=Date,Datetime"`,
 		link:  struct {
 			id:    string,
 			label: ^Inline_Markup,
-		},
+		} `raw_union_tag:"kind=Link"`,
+		many:  Exparr(Inline_Markup, 3) `raw_union_tag:"kind=Many"`,
 	},
 }

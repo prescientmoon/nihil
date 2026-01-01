@@ -1,0 +1,26 @@
+This\... is an \*{awesome} sentence! (or \_{is it}?)
+
+\`{monospace \~{strikethrough}}
+
+\--{This is a comment, and will get ignored :3}
+
+\-- Block comment!
+  ...continues over here
+    \-- Comments can be nested!
+ ...also here
+No longer a comment!
+
+slkdfjsldkjf
+
+We can also have math \${like this}, icons (\icon{example}) and even links like 
+this one
+  \link \label Custom label!
+    hi there
+   
+
+\date 2025-12-20
+\date \compact 
+  2025-12-20
+\date 2025-12-20
+\date 2025-12-25
+\date \compact 2025-12-27T19:01:00+01:00

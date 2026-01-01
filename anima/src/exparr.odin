@@ -28,6 +28,7 @@ Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 	len:       uint,
 }
 
+@(private = "file")
 exprarr_destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, local_ix: uint) {
 	total_bits :: uint(8 * size_of(uint))
 	ghost_chunk :: 1 << FCE
@@ -42,6 +43,11 @@ exparr_get :: proc(exparr: ^Exparr($V, $FCE), #any_int ix: uint) -> ^V {
 	assert(ix < exparr.len)
 	chunk, local_ix := exprarr_destructure_ix(FCE, ix)
 	return &exparr.chunks[chunk][local_ix]
+}
+
+exparr_last :: proc(exparr: ^Exparr($V, $FCE)) -> ^V {
+	assert(exparr.len > 0)
+	return exparr_get(exparr, exparr.len - 1)
 }
 
 exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {

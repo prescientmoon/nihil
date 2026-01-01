@@ -1,7 +1,11 @@
 package anima
 
 import "core:fmt"
+
 main :: proc() {
+	init_formatters()
+	defer deinit_formatters()
+
 	exparr: Exparr(uint, 3)
 	exparr.allocator = context.temp_allocator
 
@@ -13,11 +17,24 @@ main :: proc() {
 	exparr_pop(&exparr)
 	exparr_pop(&exparr)
 
-	sum: uint = 0
-	for i in 0 ..< exparr.len {
-		sum += exparr_get(&exparr, i)^
+
+	lexer, lexer_ok := mk_lexer(#load("./example.anima"))
+	assert(lexer_ok)
+	for tok in tokenize(&lexer) {
+		fmt.println(tok)
+		if tok.kind == .Eof do break
 	}
 
-	fmt.println(sum)
-	fmt.println(len(exparr.chunks))
+	parser, ok := mk_parser(#load("./example.anima"))
+	assert(ok)
+
+	inlines, inlines_ok := parse_inlines(&parser)
+	fmt.println(inlines)
+	if !inlines_ok {
+		if parser.lexer.error != {} {
+			fmt.println(parser.lexer.error)
+		} else if parser.error != {} {
+			fmt.println(parser.error)
+		}
+	}
 }

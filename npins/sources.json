@@ -17,6 +17,18 @@
       "name": "nixpkgs-unstable",
       "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.05pre906997.a672be65651c/nixexprs.tar.xz",
       "hash": "1vjmw739x11bmllig28i11rs5rbs1b8483426f2940kyxjp8myfw"
+    },
+    "odin": {
+      "type": "Git",
+      "repository": {
+        "type": "Git",
+        "url": "git+ssh://forgejo@ssh.git.moonythm.dev/starlitcanopy/odin.git"
+      },
+      "branch": "master",
+      "submodules": false,
+      "revision": "5c8dbc4196e458a8e1cea378c891e891ddfa97f1",
+      "url": null,
+      "hash": "1ypwlr27z3wcy0y0j4p456blkih5j9383r4m2q46hds1w34f7ap0"
     }
   },
   "version": 5
