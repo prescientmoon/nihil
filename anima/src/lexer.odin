@@ -220,13 +220,16 @@ tokenize :: proc(lexer: ^Lexer) -> (tok: Token, ok: bool) {
 		curr := lexer.pos.index
 		for lexer.curr == '\t' || lexer.curr == ' ' do advance_rune(lexer) or_return
 		tok.content = lexer.source[curr:lexer.pos.index]
-	case '\\':
-		tok.kind = .Apparition
-		advance_rune(lexer) or_return
-		tok.content = consume_word_chars(lexer) or_return
 	case:
-		tok.kind = .Word
-		tok.content = consume_word_chars(lexer) or_return
+		if next_rune_is_text_char(lexer^) > 0 {
+			tok.kind = .Word
+			tok.content = consume_word_chars(lexer) or_return
+		} else {
+			assert(lexer.curr == '\\')
+			tok.kind = .Apparition
+			advance_rune(lexer) or_return
+			tok.content = consume_word_chars(lexer) or_return
+		}
 	}
 
 	return tok, true

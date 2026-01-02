@@ -4,19 +4,22 @@ import "core:time"
 
 Block_Markup :: struct {
 	kind:    enum {
-		Paragraph,
-		Heading,
+		None = 0,
+		Paragraph, // done
+		Heading, // done
 		Table,
+		Image, // done
 		Figure,
-		Toc,
+		Toc, // done
 		Codeblock,
 		UList,
 		OList,
-		Aside,
-		Embed_Description,
-		Blockquote,
+		Aside, // done
+		Embed_Description, // done
+		Blockquote, // done
 		Page_Index,
-		Thematic_Break,
+		Thematic_Break, // done
+		Many, // done
 		// We keep link defs around in the source, since they might get included in
 		// the output for low-end formats like gemini
 		Linkdef,
@@ -24,41 +27,42 @@ Block_Markup :: struct {
 		Fndef,
 	},
 	using _: struct #raw_union {
-		paragraph:  ^Inline_Markup,
-		heading:    ^Heading,
+		paragraph:  ^Inline_Markup `raw_union_tag:"kind=Paragraph"`,
+		heading:    ^Heading `raw_union_tag:"kind=Heading"`,
 		table:      struct {
 			caption: ^Inline_Markup,
 			head:    Exparr(^Inline_Markup, 3),
 			rows:    Exparr(Exparr(^Inline_Markup, 3), 3),
-		},
+		} `raw_union_tag:"kind=Table"`,
 		image:      struct {
 			alt: ^Inline_Markup,
 			src: string,
-		},
+		} `raw_union_tag:"kind=Image"`,
 		figure:     struct {
 			caption: ^Inline_Markup,
 			content: ^Block_Markup,
-		},
-		linkdef:    ^Linkdef,
-		fndef:      ^Fndef,
+		} `raw_union_tag:"kind=Figure"`,
+		linkdef:    ^Linkdef `raw_union_tag:"kind=Linkdef"`,
+		fndef:      ^Fndef `raw_union_tag:"kind=Fndef"`,
 		codeblock:  struct {
 			lang:    string,
 			content: string,
-		},
+		} `raw_union_tag:"kind=Codeblock"`,
 		list:       struct {
 			items: Exparr(Block_Markup, 3),
-		},
+		} `raw_union_tag:"kind=UList,OList"`,
 		aside:      struct {
 			id:        string,
 			character: string,
 			title:     ^Inline_Markup,
 			content:   ^Block_Markup,
 			collapse:  bool,
-		},
-		blockquote: ^Block_Markup,
+		} `raw_union_tag:"kind=Aside"`,
+		blockquote: ^Block_Markup `raw_union_tag:"kind=Blockquote"`,
 		page_index: struct {
 			filters: Page_Filters,
-		},
+		} `raw_union_tag:"kind=Page_Index"`,
+		many:       Exparr(Block_Markup, 3) `raw_union_tag:"kind=Many"`,
 	},
 }
 

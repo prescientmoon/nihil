@@ -1,26 +1,116 @@
-This\... is an \*{awesome} sentence! (or \_{is it}?)
+Anima is prescientmoon's custom markup language (you're reading an .anima file
+right now!). 
 
-\`{monospace \~{strikethrough}}
+Paragraphs constitute the simplest building block of the language. The sentences
+in a paragraph are free to span across multiple source-lines, as long as there
+is no empty line between them.
 
-\--{This is a comment, and will get ignored :3}
+To demonstrate the above, this sentence exists in a new paragraph!
 
-\-- Block comment!
-  ...continues over here
-    \-- Comments can be nested!
- ...also here
-No longer a comment!
+Anima elements (known as apparitions) are denoted by a backslash, followed by 
+their name. For example, one can use \... to insert the unicode triple ellipsis 
+symbol into the document.
 
-slkdfjsldkjf
+Many apparitions require an argument. Said argument can be provided between 
+curly brackets, or as any number of lines indented to the right of the 
+apparition itself.
 
-We can also have math \${like this}, icons (\icon{example}) and even links like 
-this one
-  \link \label Custom label!
-    hi there
-   
+For example, one can bolden text using the \*{strong apparition}. Similarily, 
+one can make text italic using the \_{emph apparition}, cross text out using the
+\~{strikethrough apparition}, display text in monospace using the \~{mono 
+apparition}, quote text (using unicode quote symbols!) using the \"{quote
+apparition}, and render inline LaTeX using the math apparition (example:
+\${x^2 + y = 0}).
 
-\date 2025-12-20
-\date \compact 
-  2025-12-20
-\date 2025-12-20
-\date 2025-12-25
-\date \compact 2025-12-27T19:01:00+01:00
+Date and date-times can be displayed using the \_{date} and \_{datetime} 
+apparitions respectively. For example, I was born on \date{2003-08-06}. If 
+output space is limited, one can use the \_{compact} apparition inside the 
+aforementioned elements in order to use their compact form, i.e. 
+\date{2003-08-06 \compact}.
+
+There's a few more inline apparitions we'll take about a bit later. Before move 
+on, note that any text can be commented out by being included in the comment 
+apparition, denoted by two dashes.
+
+\-- This text will get removed from the output!
+
+Comments can be nested, and naturally span multiple lines based on their 
+indentation.
+
+\-- This comment spans multiple lines.
+  We're still inside the same comment \-- But this is a nested one!
+  This will be the end of the long comment :)
+
+\# Block elements
+
+The page itself consists of a series of \_{block elements}. You're already 
+familiar with paragraphs, which get automatically inserted by the compiler as
+line breaks are encountered. 
+
+One can introduce headings using the \\# apparition (notice that we've escaped
+the apparition name by using a double backslash!). The level of the heading
+can be increasing by increasing the number of # symbols after the name. Note 
+that we've elided the curly brackets in the heading above (since the indentation
+of the text itself was enough for the compiler to go off of).
+
+\## This is a smaller heading!
+
+Anima will automatically assign IDs to headings based on their textual content.
+Since pointing linkns to individual headings is a pretty common occurrence, one
+might often need to manually specify an ID for said heading. This can be 
+accompilshed by using the \_{\\id apparition} inside the heading
+
+\### This is an even smaller heading! \id very-small-heading
+
+For the sake of clarity, this is how one would write the above using explicit
+curly brackets:
+
+\###{This is an even smaller heading! \id{very-small-heading-2}}
+
+Anima can generate a table-of-contents out of the headings of the page by using
+the toc apparition:
+
+\toc
+
+Thematic breaks can be inserted by using the --- apparition:
+
+\---
+
+Block-quotes can be written out by using the > apparition:
+
+\> This paragraph will be displayed as a quote! Of course, this element is free
+   to span over multiple lines (just like all the others).
+  
+Images can be included by making use of the img and src apparitions, like this:
+
+\img \src https://upload.wikimedia.org/wikipedia/en/f/f7/RickRoll.png
+  Any text inside the img apparition's argument that is not inside the
+  src apparition will be included in the image element's alt-description.
+
+Asides are quite the customizable element. At their most basic, they look like
+this:
+
+\aside \title This is an aside
+  Hello there!
+
+One can illustrate such an aside with a character icon:
+
+\aside \character lagrange
+  \title And in that light, I find deliverance
+  Hello there, I'm Lagrange :3
+
+Long asides can be made collapsable like this:
+
+\aside \collapse \character lagrange 
+  \title And in that light, I find deliverance
+  Hello there, I'm Lagrange :3 (imagine there was a lot of text here)
+
+Last but not least, one can attach a custom ID to the aside's heading:
+
+\aside 
+  \collapse 
+  \character lagrange 
+  \id lagrange-heading
+  \title And in that light, I find deliverance
+
+  Hello there, I'm Lagrange :3 (imagine there was a lot of text here)
