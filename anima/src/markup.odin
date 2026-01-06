@@ -2,24 +2,39 @@ package anima
 
 import "core:time"
 
+Table :: struct {
+	caption: ^Inline_Markup,
+	head:    ^Table_Row,
+	rows:    Exparr(Table_Row, 3),
+}
+
+Table_Row :: struct {
+	cells: Exparr(Table_Cell, 3),
+}
+
+Table_Cell :: struct {
+	content: ^Inline_Markup,
+	bg:      string, // TODO: make this more strongly checked?
+}
+
 Block_Markup :: struct {
 	kind:    enum {
 		None = 0,
-		Paragraph, // done
-		Heading, // done
+		Paragraph,
+		Heading,
 		Table,
-		Image, // done
+		Image,
 		Figure,
-		Toc, // done
+		Table_Of_Contents,
 		Codeblock,
-		UList,
-		OList,
-		Aside, // done
-		Embed_Description, // done
-		Blockquote, // done
+		IList,
+		BList,
+		Aside,
+		Embed_Description,
+		Blockquote,
 		Page_Index,
-		Thematic_Break, // done
-		Many, // done
+		Thematic_Break,
+		Many,
 		// We keep link defs around in the source, since they might get included in
 		// the output for low-end formats like gemini
 		Linkdef,
@@ -29,14 +44,10 @@ Block_Markup :: struct {
 	using _: struct #raw_union {
 		paragraph:  ^Inline_Markup `raw_union_tag:"kind=Paragraph"`,
 		heading:    ^Heading `raw_union_tag:"kind=Heading"`,
-		table:      struct {
-			caption: ^Inline_Markup,
-			head:    Exparr(^Inline_Markup, 3),
-			rows:    Exparr(Exparr(^Inline_Markup, 3), 3),
-		} `raw_union_tag:"kind=Table"`,
+		table:      Table `raw_union_tag:"kind=Table"`,
 		image:      struct {
-			alt: ^Inline_Markup,
-			src: string,
+			alt:    ^Inline_Markup,
+			source: string,
 		} `raw_union_tag:"kind=Image"`,
 		figure:     struct {
 			caption: ^Inline_Markup,
@@ -45,12 +56,17 @@ Block_Markup :: struct {
 		linkdef:    ^Linkdef `raw_union_tag:"kind=Linkdef"`,
 		fndef:      ^Fndef `raw_union_tag:"kind=Fndef"`,
 		codeblock:  struct {
-			lang:    string,
-			content: string,
+			lang:   string,
+			source: string,
 		} `raw_union_tag:"kind=Codeblock"`,
-		list:       struct {
-			items: Exparr(Block_Markup, 3),
-		} `raw_union_tag:"kind=UList,OList"`,
+		blist:      struct {
+			items:   Exparr(Block_Markup, 3),
+			ordered: bool,
+		} `raw_union_tag:"kind=BList"`,
+		ilist:      struct {
+			items:   Exparr(Inline_Markup, 3),
+			ordered: bool,
+		} `raw_union_tag:"kind=IList"`,
 		aside:      struct {
 			id:        string,
 			character: string,

@@ -114,3 +114,84 @@ Last but not least, one can attach a custom ID to the aside's heading:
   \title And in that light, I find deliverance
 
   Hello there, I'm Lagrange :3 (imagine there was a lot of text here)
+
+Figures can be used to add a caption to any existing element:
+
+\figure \caption This is a random image from wikipedia
+  \img \src https://upload.wikimedia.org/wikipedia/en/f/f7/RickRoll.png
+    Any text inside the img apparition's argument that is not inside the
+    src apparition will be included in the image element's alt-description.
+
+Oh yeah, tables are also a thing:
+
+\table \caption Tables are pretty neat!
+  \head \cell{\$ X} \cell{\$ Y} \cell{\$ X ∧ Y}
+  \row  \cell{\$ 0} \cell{\$ 0} \cell{\$ 0}
+  \row  \cell{\$ 0} \cell{\$ 1} \cell{\$ 0}
+  \row  \cell{\$ 1} \cell{\$ 0} \cell{\$ 0}
+  \row  \cell{\$ 1} \cell{\$ 1} \cell{\bg{red} \$ 1}
+
+\-- \tier-list \id games-tier-list
+\--   \tier  \id{beyond} Beyond 
+\--     \img \id{arcaea}   \src{arcaea.png}   Arcaea
+\--     \img \id{factorio} \src{factorio.png} Factorio
+
+Anima supports two kind of lists: inline lists and block lists. The two differ
+in the kind of content they contain. Both kinds of list are unordered by
+default. The following exmaple highlights how one can use inline lists, although
+block lists work in pretty much the same way (by using the blist 
+apparition instead)
+
+\ilist
+  \item first
+  \item second
+
+Lists can be ordered with a single apparition:
+
+\ilist \ordered
+  \item first
+  \item second
+
+Links must be defined before or after being used. For example, the definition 
+below allows us to use \link{rickroll-wiki-page}:
+
+\linkdef \id rickroll-wiki-page
+  https://upload.wikimedia.org/wikipedia/en/f/f7/RickRoll.png
+
+By default, the ID of the link will be used as its label. One can override said
+label using the label apparition, like so: 
+  \link{rickroll-wiki-page \label Rickroll (Wikipedia Page)}
+
+A default label can be included in the link's definition:
+
+\linkdef \id rickroll-wiki-page-labeled
+  \label Rickroll (Wikipedia Page)
+  https://upload.wikimedia.org/wikipedia/en/f/f7/RickRoll.png
+
+Footnotes\fn{example-footnote} work in a similar manner (although they do not 
+have labels):
+
+\fndef \id example-footnote
+  This is a footnote!
+
+Codeblocks must reference external files:
+
+\code \lang typescript \src example.ts
+
+Page lists can be generated using the page-index apparition. There's currently
+two ways of filtering pages:
+
+\blist \ordered
+  \item By only keeping the direct descendants of a path:
+    \page-index \children posts/archive
+  \item By only keeping the (possibly indirect) descendants of a path:
+    \page-index \descendants posts/archive
+
+Hidden pages are, by default, not included in the generated list. To include
+them, use the hidden apparition:
+
+\page-index \hidden \children posts/archive
+
+The page's changelog can be written anywhere by using the "change" apparition:
+
+\change \at 2003-08-06

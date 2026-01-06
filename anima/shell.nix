@@ -10,6 +10,7 @@ pkgs.mkShell rec {
     pkgs.just
     pkgs.ols
     pkgs.seer
+    pkgs.valgrind
   ];
 
   buildInputs = [

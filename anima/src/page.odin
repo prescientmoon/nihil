@@ -25,22 +25,21 @@ Linkdef :: struct {
 
 Page_Config :: struct {
 	hidden:             bool,
-	draf:               bool,
+	draft:              bool,
 	compact:            bool,
-	created_at:         time.Time,
 	sitemap_priority:   f32, // 0: non-existent
 	sitemap_changefreq: string,
 }
 
 Page_Filters :: struct {
 	// The directory of which to include the direct children of
-	directly_under: Relative_Path,
+	children:    Relative_Path,
 
 	// The directory of which to include the (possibly indirect) children of
-	under:          Relative_Path,
+	descendants: Relative_Path,
 
 	// Whether to include hidden pages
-	hidden:         bool,
+	hidden:      bool,
 }
 
 // Defines a RSS feed that's going to be a part of the webstie. Such definitions
@@ -49,7 +48,7 @@ Page_Filters :: struct {
 // action at a distance", I'm the only user of anima, so it's not something I
 // have to lose sleep over.
 Rss_Feed :: struct {
-	name:       string,
+	id:         string,
 	summary:    Block_Markup,
 
 	// The location to place the RSS feed at in the output directory

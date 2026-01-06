@@ -17,12 +17,12 @@ main :: proc() {
 	exparr_pop(&exparr)
 	exparr_pop(&exparr)
 
-	lexer, lexer_ok := mk_lexer(#load("./example.anima"))
-	assert(lexer_ok)
-	for tok in tokenize(&lexer) {
-		fmt.println(tok)
-		if tok.kind == .Eof do break
-	}
+	// lexer, lexer_ok := mk_lexer(#load("./example.anima"))
+	// assert(lexer_ok)
+	// for tok in tokenize(&lexer) {
+	// 	fmt.println(tok)
+	// 	if tok.kind == .Eof do break
+	// }
 
 	parser, ok := mk_parser(#load("./example.anima"))
 	assert(ok)

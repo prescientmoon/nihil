@@ -27,6 +27,7 @@ Parser :: struct {
 		tok: Token,
 		msg: string,
 	},
+	page:      Page,
 }
 
 mk_parser :: proc(source: string, allocator := context.allocator) -> (parser: Parser, ok: bool) {
@@ -37,6 +38,12 @@ mk_parser :: proc(source: string, allocator := context.allocator) -> (parser: Pa
 		lexer = lexer,
 		stack = {allocator = allocator},
 	}
+
+	parser.page.toc.allocator = parser.allocator
+	parser.page.footnotes.allocator = parser.allocator
+	parser.page.links.allocator = parser.allocator
+	parser.page.feeds.allocator = parser.allocator
+	parser.page.changelog.allocator = parser.allocator
 
 	queue.init(&parser.tokens, allocator = context.allocator)
 
@@ -280,14 +287,20 @@ inline_parser_run :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (consumed: boo
 	case .None, .LCurly, .RCurly, .Eof:
 		return false, true
 	case .Apparition:
+		found: bool
 		for id in INLINE_APPARITIONS {
 			name := APPARITIONS[id].name
 			if tok.content == name {
 				advance_token(parser)
 				parsed := parse_apparition(parser, id, tok) or_return
 				res = parsed.im
+				found = true
 				break
 			}
+		}
+
+		if !found {
+			return false, true
 		}
 	}
 
@@ -327,7 +340,11 @@ block_parser_run :: proc(parser: ^Parser, bp: ^Block_Parser) -> (consumed: bool,
 			if tok.content == name {
 				advance_token(parser)
 				parsed := parse_apparition(parser, id, tok) or_return
-				exparr_push(&bp.elements, parsed.bm)
+
+				// We gracefully allow .None elements since certain parsers (i.e. the
+				// metadata ones) do not produce any actual elements.
+				if parsed.bm.kind != .None do exparr_push(&bp.elements, parsed.bm)
+
 				return true, true
 			}
 		}
@@ -386,10 +403,14 @@ parse_blocks :: proc(parser: ^Parser) -> (res: Block_Markup, ok: bool) {
 // {{{ Apparition types
 // A parsing result whose type is not tracked
 Parsing_Result :: struct #raw_union {
-	im:     Inline_Markup,
-	bm:     Block_Markup,
-	string: string,
-	bool:   bool,
+	im:         Inline_Markup,
+	bm:         Block_Markup,
+	string:     string,
+	bool:       bool,
+	many:       Exparr(Parsing_Result),
+	table_cell: Table_Cell,
+	table_row:  Table_Row,
+	timestamp:  time.Time,
 }
 
 // The type of underlying environment some apparition's body takes place in
@@ -398,11 +419,17 @@ Apparition_Ambience :: enum {
 	Block,
 	Inline,
 	String,
+	Timestamp,
 }
 
 Apparition_Id :: enum {
 	// Reusable
 	String_Id,
+	String_Bg,
+	String_Source,
+	Inline_Caption,
+	Inline_Label,
+	Bool_Hidden,
 
 	// Inline
 	Ellipsis,
@@ -417,11 +444,10 @@ Apparition_Id :: enum {
 	LaTeX,
 	Icon,
 	Fn,
-	Link_Label,
 	Link,
 
 	// Block
-	Toc,
+	Table_Of_Contents,
 	Embed_Description,
 	H1,
 	H2,
@@ -431,29 +457,56 @@ Apparition_Id :: enum {
 	H6,
 	Thematic_Break,
 	Blockquote,
-	Img,
-	Img_Src,
+	Image,
 	Aside,
 	Aside_Character,
 	Aside_Title,
 	Aside_Collapse,
+	Figure,
+	Table,
+	Table_Head,
+	Table_Row,
+	Table_Cell,
+	Inline_List, // inline list
+	Block_List, // block list
+	List_Inline_Item,
+	List_Block_Item,
+	List_Ordered,
+	Linkdef,
+	Fndef,
+	Codeblock,
+	Codeblock_Lang,
+	Page_Index,
+	Page_Filters_Children,
+	Page_Filters_Descendants,
+
+	// Meta
+	Change,
+	Change_At,
+	// Page_Config,
+	// Page_Config_Draft,
+	// Page_Config_Compact,
+	// Page_Config_Sitemap_Priority,
+	// Page_Config_Sitemap_Changefreq,
 }
 
 // Fat-struct containing everything an apparition is given when constructing
 // its result from its children
 Apparition_Making_Kit :: struct {
+	page:     ^Page,
 	parser:   ^Parser,
 	head:     Token,
-	children: [Apparition_Id]Parsing_Result,
+	children: [Apparition_Id]Parsing_Result, // 0 or 1 times
 	ambience: Parsing_Result,
 	res:      Parsing_Result,
 }
 
 Apparition :: struct {
-	name:     string,
-	based_on: Apparition_Ambience,
-	children: bit_set[Apparition_Id],
-	make:     proc(kit: ^Apparition_Making_Kit),
+	name:              string,
+	based_on:          Apparition_Ambience,
+	children:          bit_set[Apparition_Id],
+	repeated_children: bit_set[Apparition_Id],
+	make:              proc(kit: ^Apparition_Making_Kit),
 }
 
 // A partially-run parser whose type is not tracked
@@ -466,37 +519,64 @@ Ambient_Parser :: struct #raw_union {
 // {{{ Apparition tables
 @(rodata)
 APPARITIONS: [Apparition_Id]Apparition = {
-	.String_Id         = ap_string_id,
-	.Ellipsis          = ap_ellipsis,
-	.Date_Compact      = ap_date_compact,
-	.Datetime          = ap_datetime,
-	.Date              = ap_date,
-	.Emph              = ap_emph,
-	.Strong            = ap_strong,
-	.Strikethrough     = ap_strikethrough,
-	.Mono              = ap_mono,
-	.Quote             = ap_quote,
-	.LaTeX             = ap_latex,
-	.Icon              = ap_icon,
-	.Fn                = ap_fn,
-	.Link_Label        = ap_link_label,
-	.Link              = ap_link,
-	.H1                = ap_h1,
-	.H2                = ap_h2,
-	.H3                = ap_h3,
-	.H4                = ap_h4,
-	.H5                = ap_h5,
-	.H6                = ap_h6,
-	.Toc               = ap_toc,
-	.Embed_Description = ap_embed_description,
-	.Thematic_Break    = ap_thematic_break,
-	.Blockquote        = ap_blockquote,
-	.Img_Src           = ap_img_src,
-	.Img               = ap_img,
-	.Aside_Title       = ap_aside_title,
-	.Aside_Collapse    = ap_aside_collapse,
-	.Aside_Character   = ap_aside_character,
-	.Aside             = ap_aside,
+	.String_Id                = ap_string_id,
+	.String_Bg                = ap_string_bg,
+	.String_Source            = ap_string_source,
+	.Inline_Caption           = ap_inline_caption,
+	.Inline_Label             = ap_inline_label,
+	.Bool_Hidden              = ap_bool_hidden,
+	.Ellipsis                 = ap_ellipsis,
+	.Date_Compact             = ap_date_compact,
+	.Datetime                 = ap_datetime,
+	.Date                     = ap_date,
+	.Emph                     = ap_emph,
+	.Strong                   = ap_strong,
+	.Strikethrough            = ap_strikethrough,
+	.Mono                     = ap_mono,
+	.Quote                    = ap_quote,
+	.LaTeX                    = ap_latex,
+	.Icon                     = ap_icon,
+	.Fn                       = ap_fn,
+	.Link                     = ap_link,
+	.H1                       = ap_h1,
+	.H2                       = ap_h2,
+	.H3                       = ap_h3,
+	.H4                       = ap_h4,
+	.H5                       = ap_h5,
+	.H6                       = ap_h6,
+	.Table_Of_Contents        = ap_table_of_contents,
+	.Embed_Description        = ap_embed_description,
+	.Thematic_Break           = ap_thematic_break,
+	.Blockquote               = ap_blockquote,
+	.Image                    = ap_image,
+	.Aside_Title              = ap_aside_title,
+	.Aside_Collapse           = ap_aside_collapse,
+	.Aside_Character          = ap_aside_character,
+	.Aside                    = ap_aside,
+	.Figure                   = ap_figure,
+	.Table                    = ap_table,
+	.Table_Head               = ap_table_head,
+	.Table_Row                = ap_table_row,
+	.Table_Cell               = ap_table_cell,
+	.Inline_List              = ap_inline_list,
+	.Block_List               = ap_block_list,
+	.List_Inline_Item         = ap_list_inline_item,
+	.List_Block_Item          = ap_list_block_item,
+	.List_Ordered             = ap_list_ordered,
+	.Linkdef                  = ap_linkdef,
+	.Fndef                    = ap_fndef,
+	.Codeblock                = ap_codeblock,
+	.Codeblock_Lang           = ap_codeblock_lang,
+	.Page_Index               = ap_page_index,
+	.Page_Filters_Children    = ap_page_filter_children,
+	.Page_Filters_Descendants = ap_page_filter_descendants,
+	.Change                   = ap_change,
+	.Change_At                = ap_change_at,
+	// .Page_Config                    = ap_page_config,
+	// .Page_Config_Draft              = ap_page_config_draft,
+	// .Page_Config_Compact            = ap_page_config_compact,
+	// .Page_Config_Sitemap_Priority   = ap_page_config_sitemap_priority,
+	// .Page_Config_Sitemap_Changefreq = ap_page_config_sitemap_changefreq,
 }
 
 @(rodata)
@@ -517,7 +597,7 @@ INLINE_APPARITIONS: bit_set[Apparition_Id] = {
 
 @(rodata)
 BLOCK_APPARITIONS: bit_set[Apparition_Id] = {
-	.Toc,
+	.Table_Of_Contents,
 	.Embed_Description,
 	.H1,
 	.H2,
@@ -527,14 +607,33 @@ BLOCK_APPARITIONS: bit_set[Apparition_Id] = {
 	.H6,
 	.Thematic_Break,
 	.Blockquote,
-	.Img,
+	.Image,
 	.Aside,
+	.Figure,
+	.Table,
+	.Inline_List,
+	.Block_List,
+	.Linkdef,
+	.Fndef,
+	.Codeblock,
+	.Page_Index,
+	.Change,
+	// .Page_Config,
 }
 // }}}
 // {{{ Reusable apparitions
-ap_string_id :: Apparition {
-	name     = "id",
-	based_on = .String,
+ap_string_id: Apparition : {name = "id", based_on = .String}
+ap_string_bg: Apparition : {name = "bg", based_on = .String}
+ap_string_source: Apparition : {name = "src", based_on = .String}
+
+ap_inline_caption: Apparition : {name = "caption", based_on = .Inline}
+ap_inline_label: Apparition : {name = "label", based_on = .Inline}
+
+ap_bool_hidden :: Apparition {
+	name = "hidden",
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bool = true
+	},
 }
 // }}}
 // {{{ Inline apparitions
@@ -610,18 +709,14 @@ ap_fn :: Apparition {
 	},
 }
 
-ap_link_label :: Apparition {
-	name     = "label",
-	based_on = .Inline,
-}
-
 ap_link :: Apparition {
 	name = "link",
 	based_on = .String,
+	children = {.Inline_Label},
 	make = proc(kit: ^Apparition_Making_Kit) {
 		kit.res.im.kind = .Link
 		kit.res.im.link.id = kit.ambience.string
-		kit.res.im.link.label = new_clone(kit.children[.Link_Label].im)
+		kit.res.im.link.label = new_clone(kit.children[.Inline_Label].im)
 	},
 }
 
@@ -644,22 +739,7 @@ ap_make_date :: proc(kit: ^Apparition_Making_Kit) {
 		kit.res.im.time.compact = true
 	}
 
-	as_string := kit.ambience.string
-	datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
-	if datetime_consumed > 0 {
-		kit.res.im.time.time = datetime
-	} else {
-		// Try to tack an empty timestamp at the end
-		as_date_string := fmt.aprintf("%vT00:00:00+00:00", as_string)
-		date, date_consumed := time.iso8601_to_time_utc(as_date_string)
-
-		if date_consumed > 0 {
-			kit.res.im.time.time = date
-		} else {
-			msg := fmt.aprintf("Invalid date(time): '%v'", as_string)
-			kit.parser.error = {kit.head, msg}
-		}
-	}
+	kit.res.im.time.time = kit.ambience.timestamp
 }
 
 ap_date :: Apparition {
@@ -683,22 +763,24 @@ ap_datetime :: Apparition {
 }
 // }}}
 // {{{ Block apparitions
-ap_img_src: Apparition : {name = "src", based_on = .String}
-ap_img: Apparition : {
+ap_image: Apparition : {
 	name = "img",
 	based_on = .Inline,
-	children = {.Img_Src},
+	children = {.String_Source},
 	make = proc(kit: ^Apparition_Making_Kit) {
 		kit.res.bm.kind = .Image
 		kit.res.bm.image.alt = new_clone(kit.ambience.im)
-		kit.res.bm.image.src = kit.children[.Img_Src].string
+		kit.res.bm.image.source = kit.children[.String_Source].string
+		if kit.res.bm.image.source == {} {
+			kit.parser.error = {kit.head, "Image has no source"}
+		}
 	},
 }
 
-ap_toc :: Apparition {
+ap_table_of_contents :: Apparition {
 	name = "toc",
 	make = proc(kit: ^Apparition_Making_Kit) {
-		kit.res.bm.kind = .Toc
+		kit.res.bm.kind = .Table_Of_Contents
 	},
 }
 
@@ -808,6 +890,238 @@ ap_aside :: Apparition {
 		kit.res.bm.aside.collapse = kit.children[.Aside_Collapse].bool
 	},
 }
+
+ap_figure :: Apparition {
+	name = "figure",
+	based_on = .Block,
+	children = {.Inline_Caption},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Figure
+		kit.res.bm.figure.caption = new_clone(kit.children[.Inline_Caption].im)
+		kit.res.bm.figure.content = new_clone(kit.ambience.bm)
+		if kit.res.bm.figure.caption.kind == .None {
+			kit.parser.error = {kit.head, "Figure has no caption"}
+		}
+	},
+}
+
+ap_make_table_row :: proc(kit: ^Apparition_Making_Kit) {
+	kit.res.table_row.cells.allocator = kit.parser.allocator
+	cells := &kit.children[.Table_Cell].many
+	for i in 0 ..< cells.len {
+		cell := exparr_get(cells, i)
+		exparr_push(&kit.res.table_row.cells, cell.table_cell)
+	}
+}
+
+ap_table_cell :: Apparition {
+	name = "cell",
+	based_on = .Inline,
+	children = {.String_Bg},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.table_cell.bg = kit.children[.String_Bg].string
+		kit.res.table_cell.content = new_clone(kit.ambience.im)
+	},
+}
+
+ap_table_head :: Apparition {
+	name = "head",
+	based_on = .Void,
+	repeated_children = {.Table_Cell},
+	make = proc(kit: ^Apparition_Making_Kit) {ap_make_table_row(kit)},
+}
+
+ap_table_row :: Apparition {
+	name = "row",
+	based_on = .Void,
+	repeated_children = {.Table_Cell},
+	make = proc(kit: ^Apparition_Making_Kit) {ap_make_table_row(kit)},
+}
+
+ap_table :: Apparition {
+	name = "table",
+	based_on = .Void,
+	children = {.Table_Head, .Inline_Caption},
+	repeated_children = {.Table_Row},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Table
+		kit.res.bm.table.caption = new_clone(kit.children[.Inline_Caption].im)
+		kit.res.bm.table.head = new_clone(kit.children[.Table_Head].table_row)
+		kit.res.bm.table.rows.allocator = kit.parser.allocator
+
+		rows := &kit.children[.Table_Row].many
+		for i in 0 ..< rows.len {
+			row := exparr_get(rows, i)
+			exparr_push(&kit.res.bm.table.rows, row.table_row)
+		}
+	},
+}
+
+ap_list_inline_item :: Apparition {
+	name     = "item",
+	based_on = .Inline,
+}
+
+ap_list_block_item :: Apparition {
+	name     = "item",
+	based_on = .Block,
+}
+
+ap_list_ordered :: Apparition {
+	name = "ordered",
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bool = true
+	},
+}
+
+ap_block_list :: Apparition {
+	name = "blist",
+	children = {.List_Ordered},
+	repeated_children = {.List_Block_Item},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .BList
+		kit.res.bm.blist.ordered = kit.children[.List_Ordered].bool
+		kit.res.bm.blist.items.allocator = kit.parser.allocator
+
+		items := &kit.children[.List_Block_Item].many
+		for i in 0 ..< items.len {
+			item := exparr_get(items, i)
+			exparr_push(&kit.res.bm.blist.items, item.bm)
+		}
+	},
+}
+
+ap_inline_list :: Apparition {
+	name = "ilist",
+	children = {.List_Ordered},
+	repeated_children = {.List_Inline_Item},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .IList
+		kit.res.bm.ilist.ordered = kit.children[.List_Ordered].bool
+		kit.res.bm.ilist.items.allocator = kit.parser.allocator
+
+		items := &kit.children[.List_Inline_Item].many
+		for i in 0 ..< items.len {
+			item := exparr_get(items, i)
+			exparr_push(&kit.res.bm.ilist.items, item.im)
+		}
+	},
+}
+
+ap_linkdef :: Apparition {
+	name = "linkdef",
+	based_on = .String,
+	children = {.String_Id, .Inline_Label},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Linkdef
+
+		linkdef := Linkdef {
+			target = kit.ambience.string,
+			label  = kit.children[.Inline_Label].im,
+			id     = kit.children[.String_Id].string,
+		}
+
+		kit.res.bm.linkdef = new_clone(linkdef)
+		if linkdef.id == {} {
+			kit.parser.error = {kit.head, "Linkdef has no ID"}
+		} else if linkdef.target == {} {
+			kit.parser.error = {kit.head, "Linkdef has no target"}
+		}
+	},
+}
+
+ap_fndef :: Apparition {
+	name = "fndef",
+	based_on = .Block,
+	children = {.String_Id},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Fndef
+
+		fndef := Fndef {
+			id       = kit.children[.String_Id].string,
+			contents = kit.ambience.bm,
+		}
+
+		kit.res.bm.fndef = new_clone(fndef)
+
+		if fndef.id == {} {
+			kit.parser.error = {kit.head, "Fndef has no ID"}
+		}
+	},
+}
+
+ap_codeblock_lang :: Apparition {
+	name     = "lang",
+	based_on = .String,
+}
+
+ap_codeblock :: Apparition {
+	name = "code",
+	children = {.String_Source, .Codeblock_Lang},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Codeblock
+		kit.res.bm.codeblock.source = kit.children[.String_Source].string
+		kit.res.bm.codeblock.lang = kit.children[.Codeblock_Lang].string
+
+		if kit.res.bm.codeblock.source == {} {
+			kit.parser.error = {kit.head, "Codeblock has no source"}
+		} else if kit.res.bm.codeblock.lang == {} {
+			kit.parser.error = {kit.head, "Codeblock has no language"}
+		}
+	},
+}
+
+ap_page_filter_children :: Apparition {
+	name     = "children",
+	based_on = .String,
+}
+
+ap_page_filter_descendants :: Apparition {
+	name     = "descendants",
+	based_on = .String,
+}
+
+ap_page_index :: Apparition {
+	name = "page-index",
+	children = {.Page_Filters_Descendants, .Page_Filters_Children, .Bool_Hidden},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		kit.res.bm.kind = .Page_Index
+		filters := &kit.res.bm.page_index.filters
+		filters.children = auto_cast kit.children[.Page_Filters_Children].string
+		filters.descendants = auto_cast kit.children[.Page_Filters_Descendants].string
+		filters.hidden = kit.children[.Bool_Hidden].bool
+
+		if filters.descendants != {} && filters.children != {} {
+			kit.parser.error = {kit.head, "Conflicting page filters given"}
+		}
+	},
+}
+// }}}
+// {{{ Meta apparitions
+ap_change_at :: Apparition {
+	name     = "at",
+	based_on = .Timestamp,
+}
+
+ap_change :: Apparition {
+	name = "change",
+	based_on = .Block,
+	children = {.Change_At},
+	make = proc(kit: ^Apparition_Making_Kit) {
+		change := Change {
+			at   = kit.children[.Change_At].timestamp,
+			body = kit.ambience.bm,
+		}
+
+		exparr_push(&kit.parser.page.changelog, change)
+
+		if change.body.kind == .None {
+			kit.parser.error = {kit.head, "Change has no description"}
+		} else if change.at == {} {
+			kit.parser.error = {kit.head, "Change has no timestamp"}
+		}
+	},
+}
 // }}}
 // {{{ Parse a single apparition
 parse_apparition :: proc(
@@ -820,13 +1134,14 @@ parse_apparition :: proc(
 ) {
 	apparition := APPARITIONS[id]
 	ambient: Ambient_Parser
+	assert((apparition.children & apparition.repeated_children) == {})
 
 	#partial switch apparition.based_on {
 	case .Inline:
 		ambient.ip = inline_parser_mk(parser)
 	case .Block:
 		ambient.bp = block_parser_mk(parser)
-	case .String:
+	case .String, .Timestamp:
 		ambient.sp = string_parser_mk(parser)
 	case .Void:
 	case:
@@ -838,7 +1153,9 @@ parse_apparition :: proc(
 		head   = head,
 	}
 
-	if apparition.children != {} || apparition.based_on != .Void {
+	if apparition.children != {} ||
+	   apparition.repeated_children != {} ||
+	   apparition.based_on != .Void {
 		apparition_arg_begin(parser, head) or_return
 		outer: for {
 			tok := get_token(parser) or_return
@@ -864,6 +1181,19 @@ parse_apparition :: proc(
 						}
 					}
 				}
+
+				for cid in apparition.repeated_children {
+					name := APPARITIONS[cid].name
+					if tok.content == name {
+						kit.children[cid].many.allocator = parser.allocator
+						advance_token(parser)
+						exparr_push(
+							&kit.children[cid].many,
+							parse_apparition(parser, cid, tok) or_return,
+						)
+						continue outer
+					}
+				}
 			}
 
 			progress: bool
@@ -872,12 +1202,17 @@ parse_apparition :: proc(
 				progress = inline_parser_run(parser, &ambient.ip) or_return
 			case .Block:
 				progress = block_parser_run(parser, &ambient.bp) or_return
-			case .String:
+			case .String, .Timestamp:
 				progress = string_parser_run(parser, &ambient.sp) or_return
 			case .Void:
 				if tok.kind == .Newline || tok.kind == .Space {
 					advance_token(parser)
 					progress = true
+				}
+
+				if tok.kind == .Word {
+					parser.error = {tok, "Words are not allowed in this context"}
+					return {}, false
 				}
 			}
 
@@ -894,6 +1229,33 @@ parse_apparition :: proc(
 		underlying.bm = block_parser_end(parser, &ambient.bp)
 	case .String:
 		underlying.string = string_parser_end(parser, &ambient.sp)
+	case .Timestamp:
+		as_string := string_parser_end(parser, &ambient.sp)
+		datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
+
+		if datetime_consumed > 0 {
+			underlying.timestamp = datetime
+		} else {
+			// Try to tack an empty timestamp at the end
+			as_date_string := fmt.aprintf(
+				"%vT00:00:00+00:00",
+				as_string,
+				allocator = parser.allocator,
+			)
+			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
+
+			if date_consumed > 0 {
+				underlying.timestamp = date
+			} else {
+				msg := fmt.aprintf(
+					"Invalid date(time): '%v'",
+					as_string,
+					allocator = parser.allocator,
+				)
+				kit.parser.error = {kit.head, msg}
+				return underlying, false
+			}
+		}
 	}
 
 	kit.ambience = underlying
