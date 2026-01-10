@@ -131,10 +131,10 @@ Oh yeah, tables are also a thing:
   \row  \cell{\$ 1} \cell{\$ 0} \cell{\$ 0}
   \row  \cell{\$ 1} \cell{\$ 1} \cell{\bg{red} \$ 1}
 
-\-- \tier-list \id games-tier-list
-\--   \tier  \id{beyond} Beyond 
-\--     \img \id{arcaea}   \src{arcaea.png}   Arcaea
-\--     \img \id{factorio} \src{factorio.png} Factorio
+\-- \tier-list \id #games-tier-list
+\--   \tier  \to{#beyond}                      Beyond 
+\--     \img \to{#arcaea}   \src{arcaea.png}   Arcaea
+\--     \img \to{#factorio} \src{factorio.png} Factorio
 
 Anima supports two kind of lists: inline lists and block lists. The two differ
 in the kind of content they contain. Both kinds of list are unordered by

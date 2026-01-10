@@ -39,18 +39,19 @@ exprarr_destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, l
 	return chunk, local_ix
 }
 
-exparr_get :: proc(exparr: ^Exparr($V, $FCE), #any_int ix: uint) -> ^V {
+exparr_get :: proc(exparr: Exparr($V, $FCE), #any_int ix: uint) -> ^V {
 	assert(ix < exparr.len)
 	chunk, local_ix := exprarr_destructure_ix(FCE, ix)
 	return &exparr.chunks[chunk][local_ix]
 }
 
-exparr_last :: proc(exparr: ^Exparr($V, $FCE)) -> ^V {
+exparr_last :: proc(exparr: Exparr($V, $FCE)) -> ^V {
 	assert(exparr.len > 0)
 	return exparr_get(exparr, exparr.len - 1)
 }
 
 exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
+	assert(exparr.allocator != {})
 	chunk, lix := exprarr_destructure_ix(FCE, exparr.len)
 
 	// Grow
@@ -73,7 +74,7 @@ exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
 
 exparr_pop :: proc(exparr: ^Exparr($V, $FCE)) -> V {
 	assert(exparr.len > 0)
-	v := exparr_get(exparr, exparr.len - 1)
+	v := exparr_get(exparr^, exparr.len - 1)
 	exparr.len -= 1
 	return v^
 }

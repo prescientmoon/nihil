@@ -57,7 +57,7 @@ advance_token :: proc(parser: ^Parser) {
 }
 
 get_token :: proc(parser: ^Parser, skip_ws := false) -> (tok: Token, ok: bool) {
-	stack_elem := exparr_last(&parser.stack)
+	stack_elem := exparr_last(parser.stack)
 	for {
 		tok := get_indented_token(parser) or_return
 		if skip_ws && (tok.kind == .Newline || tok.kind == .Space) {
@@ -66,7 +66,7 @@ get_token :: proc(parser: ^Parser, skip_ws := false) -> (tok: Token, ok: bool) {
 			advance_token(parser)
 
 			apparition_arg_begin(parser, tok) or_return
-			stack_elem := exparr_last(&parser.stack)
+			stack_elem := exparr_last(parser.stack)
 			for {
 				tok := get_token(parser, skip_ws = true) or_return
 				if tok.kind == .None ||
@@ -110,7 +110,7 @@ get_indented_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
 	// Sanity check
 	assert(queue.len(parser.tokens) > 0)
 
-	indentation := exparr_last(&parser.stack).indentation
+	indentation := exparr_last(parser.stack).indentation
 	itok := queue.get_ptr(&parser.tokens, 0)
 
 	if itok.indentation <= indentation {
@@ -135,53 +135,6 @@ expect_token :: proc(
 	return tok, found, true
 }
 // }}}
-// {{{ Apparitions
-apparition_arg_begin :: proc(parser: ^Parser, apparition: Token) -> (ok: bool) {
-	assert(apparition.kind == .Apparition)
-
-	tok := get_token(parser, skip_ws = true) or_return
-
-	if tok.kind == .LCurly {
-		elem := Parser_Stack_Elem {
-			curly       = true,
-			indentation = 0,
-		}
-
-		advance_token(parser)
-		exparr_push(&parser.stack, elem)
-	} else {
-		elem := Parser_Stack_Elem {
-			curly       = false,
-			indentation = apparition.from.col,
-		}
-
-		exparr_push(&parser.stack, elem)
-	}
-
-	return true
-}
-
-apparition_arg_end :: proc(parser: ^Parser) -> (ok: bool) {
-	elem := exparr_pop(&parser.stack)
-
-	if elem.curly {
-		tok := get_token(parser, skip_ws = true) or_return
-
-		if tok.kind != .RCurly {
-			parser.error = {
-				tok = tok,
-				msg = "Expected '}'",
-			}
-
-			return false
-		}
-
-		advance_token(parser)
-	}
-
-	return true
-}
-// }}}
 // {{{ Strings
 String_Parser :: struct {
 	size:     uint,
@@ -194,7 +147,7 @@ string_parser_mk :: proc(parser: ^Parser) -> String_Parser {
 
 string_parser_end :: proc(parser: ^Parser, sp: ^String_Parser) -> string {
 	// Remove spirious trailing spaces
-	if sp.segments.len > 0 && exparr_last(&sp.segments).kind == .Space {
+	if sp.segments.len > 0 && exparr_last(sp.segments).kind == .Space {
 		exparr_pop(&sp.segments)
 	}
 
@@ -206,7 +159,7 @@ string_parser_end :: proc(parser: ^Parser, sp: ^String_Parser) -> string {
 	builder.buf.allocator = runtime.panic_allocator()
 
 	for i in 0 ..< sp.segments.len {
-		tok := exparr_get(&sp.segments, i)
+		tok := exparr_get(sp.segments, i)
 		strings.write_string(&builder, tok.content)
 	}
 
@@ -223,7 +176,7 @@ string_parser_run :: proc(parser: ^Parser, sp: ^String_Parser) -> (consumed: boo
 	case .Space, .Newline:
 		advance_token(parser)
 
-		if sp.segments.len == 0 || exparr_last(&sp.segments).kind == .Space {
+		if sp.segments.len == 0 || exparr_last(sp.segments).kind == .Space {
 			return true, true
 		}
 
@@ -254,12 +207,12 @@ inline_parser_mk :: proc(parser: ^Parser) -> (res: Inline_Parser) {
 
 inline_parser_end :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (res: Inline_Markup) {
 	// Remove spirious trailing spaces
-	if ip.elements.len > 0 && exparr_last(&ip.elements).kind == .Space {
+	if ip.elements.len > 0 && exparr_last(ip.elements).kind == .Space {
 		exparr_pop(&ip.elements)
 	}
 
 	if ip.elements.len == 1 {
-		res = exparr_last(&ip.elements)^
+		res = exparr_last(ip.elements)^
 	} else {
 		res = {
 			kind = .Many,
@@ -277,7 +230,7 @@ inline_parser_run :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (consumed: boo
 	case .Space, .Newline:
 		advance_token(parser)
 		res.kind = .Space
-		if ip.elements.len == 0 || exparr_last(&ip.elements).kind == .Space {
+		if ip.elements.len == 0 || exparr_last(ip.elements).kind == .Space {
 			return true, true
 		}
 	case .Word:
@@ -320,7 +273,7 @@ block_parser_mk :: proc(parser: ^Parser) -> (res: Block_Parser) {
 
 block_parser_end :: proc(parser: ^Parser, bp: ^Block_Parser) -> (res: Block_Markup) {
 	if bp.elements.len == 1 {
-		res = exparr_last(&bp.elements)^
+		res = exparr_last(bp.elements)^
 	} else {
 		res = {
 			kind = .Many,
@@ -419,7 +372,7 @@ Apparition_Ambience :: enum {
 	Block,
 	Inline,
 	String,
-	Timestamp,
+	Timestamp, // Used by date/datetime
 }
 
 Apparition_Id :: enum {
@@ -501,15 +454,25 @@ Apparition_Making_Kit :: struct {
 	res:      Parsing_Result,
 }
 
+// An apparition always comes bundled with an argument, unless the ambience is
+// set to Void, and no (repeated) children are given (such an example is the
+// \... ellipsis apparition)
 Apparition :: struct {
 	name:              string,
+	// Determines what parser is going to handle the tokens not corresponding to
+	// any of the children
 	based_on:          Apparition_Ambience,
+	// Apparitions that are allowed to appear at most once in the body. If their
+	// presence is required, check this in the "make" procedure below
 	children:          bit_set[Apparition_Id],
+	// Like "children", except they can appear any number of times
 	repeated_children: bit_set[Apparition_Id],
+	// A procedure that collects the parsing results from the children/ambiance
+	// and bundles it into the final structure
 	make:              proc(kit: ^Apparition_Making_Kit),
 }
 
-// A partially-run parser whose type is not tracked
+// A partially-run parser whose type is not tracked by the compiler
 Ambient_Parser :: struct #raw_union {
 	sp: String_Parser,
 	ip: Inline_Parser,
@@ -621,6 +584,202 @@ BLOCK_APPARITIONS: bit_set[Apparition_Id] = {
 	// .Page_Config,
 }
 // }}}
+// {{{ Parse a single apparition
+parse_apparition :: proc(
+	parser: ^Parser,
+	id: Apparition_Id,
+	head: Token,
+) -> (
+	res: Parsing_Result,
+	ok: bool,
+) {
+	apparition := APPARITIONS[id]
+	ambient: Ambient_Parser
+	assert((apparition.children & apparition.repeated_children) == {})
+
+	#partial switch apparition.based_on {
+	case .Inline:
+		ambient.ip = inline_parser_mk(parser)
+	case .Block:
+		ambient.bp = block_parser_mk(parser)
+	case .String, .Timestamp:
+		ambient.sp = string_parser_mk(parser)
+	case .Void:
+	case:
+		panic("Invalid apparition based_on field")
+	}
+
+	kit: Apparition_Making_Kit = {
+		parser = parser,
+		head   = head,
+	}
+
+	if apparition.children != {} ||
+	   apparition.repeated_children != {} ||
+	   apparition.based_on != .Void {
+		apparition_arg_begin(parser, head) or_return
+		outer: for {
+			tok := get_token(parser) or_return
+			if tok.kind == .Apparition {
+				for cid in apparition.children {
+					name := APPARITIONS[cid].name
+					if tok.content == name {
+						if mem.check_zero(mem.ptr_to_bytes(&kit.children[cid])) {
+							advance_token(parser)
+							kit.children[cid] = parse_apparition(parser, cid, tok) or_return
+							continue outer
+						} else {
+							parser.error = {
+								tok,
+								fmt.aprintf(
+									"Duplicate apparition: '\\%v'",
+									name,
+									allocator = parser.allocator,
+								),
+							}
+
+							return {}, false
+						}
+					}
+				}
+
+				for cid in apparition.repeated_children {
+					name := APPARITIONS[cid].name
+					if tok.content == name {
+						kit.children[cid].many.allocator = parser.allocator
+						advance_token(parser)
+						exparr_push(
+							&kit.children[cid].many,
+							parse_apparition(parser, cid, tok) or_return,
+						)
+						continue outer
+					}
+				}
+			}
+
+			progress: bool
+			#partial switch apparition.based_on {
+			case .Inline:
+				progress = inline_parser_run(parser, &ambient.ip) or_return
+			case .Block:
+				progress = block_parser_run(parser, &ambient.bp) or_return
+			case .String, .Timestamp:
+				progress = string_parser_run(parser, &ambient.sp) or_return
+			case .Void:
+				if tok.kind == .Newline || tok.kind == .Space {
+					advance_token(parser)
+					progress = true
+				}
+
+				if tok.kind == .Word {
+					parser.error = {tok, "Words are not allowed in this context"}
+					return {}, false
+				}
+			}
+
+			if !progress do break
+		}
+		apparition_arg_end(parser) or_return
+	}
+
+	underlying: Parsing_Result
+	#partial switch apparition.based_on {
+	case .Inline:
+		underlying.im = inline_parser_end(parser, &ambient.ip)
+	case .Block:
+		underlying.bm = block_parser_end(parser, &ambient.bp)
+	case .String:
+		underlying.string = string_parser_end(parser, &ambient.sp)
+	case .Timestamp:
+		as_string := string_parser_end(parser, &ambient.sp)
+		datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
+
+		if datetime_consumed > 0 {
+			underlying.timestamp = datetime
+		} else {
+			// Try to tack an empty timestamp at the end
+			as_date_string := fmt.aprintf(
+				"%vT00:00:00+00:00",
+				as_string,
+				allocator = parser.allocator,
+			)
+			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
+
+			if date_consumed > 0 {
+				underlying.timestamp = date
+			} else {
+				msg := fmt.aprintf(
+					"Invalid date(time): '%v'",
+					as_string,
+					allocator = parser.allocator,
+				)
+				kit.parser.error = {kit.head, msg}
+				return underlying, false
+			}
+		}
+	}
+
+	kit.ambience = underlying
+
+	if apparition.make == nil {
+		assert(apparition.children == {})
+		return underlying, true
+	} else {
+		context.allocator = parser.allocator
+		apparition.make(&kit)
+		if parser.error != {} do return kit.res, false
+		return kit.res, true
+	}
+}
+// }}}
+// {{{ Apparition arguments
+apparition_arg_begin :: proc(parser: ^Parser, apparition: Token) -> (ok: bool) {
+	assert(apparition.kind == .Apparition)
+
+	tok := get_token(parser, skip_ws = true) or_return
+
+	if tok.kind == .LCurly {
+		elem := Parser_Stack_Elem {
+			curly       = true,
+			indentation = 0,
+		}
+
+		advance_token(parser)
+		exparr_push(&parser.stack, elem)
+	} else {
+		elem := Parser_Stack_Elem {
+			curly       = false,
+			indentation = apparition.from.col,
+		}
+
+		exparr_push(&parser.stack, elem)
+	}
+
+	return true
+}
+
+apparition_arg_end :: proc(parser: ^Parser) -> (ok: bool) {
+	elem := exparr_pop(&parser.stack)
+
+	if elem.curly {
+		tok := get_token(parser, skip_ws = true) or_return
+
+		if tok.kind != .RCurly {
+			parser.error = {
+				tok = tok,
+				msg = "Expected '}'",
+			}
+
+			return false
+		}
+
+		advance_token(parser)
+	}
+
+	return true
+}
+// }}}
+
 // {{{ Reusable apparitions
 ap_string_id: Apparition : {name = "id", based_on = .String}
 ap_string_bg: Apparition : {name = "bg", based_on = .String}
@@ -907,7 +1066,7 @@ ap_figure :: Apparition {
 
 ap_make_table_row :: proc(kit: ^Apparition_Making_Kit) {
 	kit.res.table_row.cells.allocator = kit.parser.allocator
-	cells := &kit.children[.Table_Cell].many
+	cells := kit.children[.Table_Cell].many
 	for i in 0 ..< cells.len {
 		cell := exparr_get(cells, i)
 		exparr_push(&kit.res.table_row.cells, cell.table_cell)
@@ -949,7 +1108,7 @@ ap_table :: Apparition {
 		kit.res.bm.table.head = new_clone(kit.children[.Table_Head].table_row)
 		kit.res.bm.table.rows.allocator = kit.parser.allocator
 
-		rows := &kit.children[.Table_Row].many
+		rows := kit.children[.Table_Row].many
 		for i in 0 ..< rows.len {
 			row := exparr_get(rows, i)
 			exparr_push(&kit.res.bm.table.rows, row.table_row)
@@ -983,7 +1142,7 @@ ap_block_list :: Apparition {
 		kit.res.bm.blist.ordered = kit.children[.List_Ordered].bool
 		kit.res.bm.blist.items.allocator = kit.parser.allocator
 
-		items := &kit.children[.List_Block_Item].many
+		items := kit.children[.List_Block_Item].many
 		for i in 0 ..< items.len {
 			item := exparr_get(items, i)
 			exparr_push(&kit.res.bm.blist.items, item.bm)
@@ -1000,7 +1159,7 @@ ap_inline_list :: Apparition {
 		kit.res.bm.ilist.ordered = kit.children[.List_Ordered].bool
 		kit.res.bm.ilist.items.allocator = kit.parser.allocator
 
-		items := &kit.children[.List_Inline_Item].many
+		items := kit.children[.List_Inline_Item].many
 		for i in 0 ..< items.len {
 			item := exparr_get(items, i)
 			exparr_push(&kit.res.bm.ilist.items, item.im)
@@ -1121,153 +1280,5 @@ ap_change :: Apparition {
 			kit.parser.error = {kit.head, "Change has no timestamp"}
 		}
 	},
-}
-// }}}
-// {{{ Parse a single apparition
-parse_apparition :: proc(
-	parser: ^Parser,
-	id: Apparition_Id,
-	head: Token,
-) -> (
-	res: Parsing_Result,
-	ok: bool,
-) {
-	apparition := APPARITIONS[id]
-	ambient: Ambient_Parser
-	assert((apparition.children & apparition.repeated_children) == {})
-
-	#partial switch apparition.based_on {
-	case .Inline:
-		ambient.ip = inline_parser_mk(parser)
-	case .Block:
-		ambient.bp = block_parser_mk(parser)
-	case .String, .Timestamp:
-		ambient.sp = string_parser_mk(parser)
-	case .Void:
-	case:
-		panic("Invalid apparition based_on field")
-	}
-
-	kit: Apparition_Making_Kit = {
-		parser = parser,
-		head   = head,
-	}
-
-	if apparition.children != {} ||
-	   apparition.repeated_children != {} ||
-	   apparition.based_on != .Void {
-		apparition_arg_begin(parser, head) or_return
-		outer: for {
-			tok := get_token(parser) or_return
-			if tok.kind == .Apparition {
-				for cid in apparition.children {
-					name := APPARITIONS[cid].name
-					if tok.content == name {
-						if mem.check_zero(mem.ptr_to_bytes(&kit.children[cid])) {
-							advance_token(parser)
-							kit.children[cid] = parse_apparition(parser, cid, tok) or_return
-							continue outer
-						} else {
-							parser.error = {
-								tok,
-								fmt.aprintf(
-									"Duplicate apparition: '\\%v'",
-									name,
-									allocator = parser.allocator,
-								),
-							}
-
-							return {}, false
-						}
-					}
-				}
-
-				for cid in apparition.repeated_children {
-					name := APPARITIONS[cid].name
-					if tok.content == name {
-						kit.children[cid].many.allocator = parser.allocator
-						advance_token(parser)
-						exparr_push(
-							&kit.children[cid].many,
-							parse_apparition(parser, cid, tok) or_return,
-						)
-						continue outer
-					}
-				}
-			}
-
-			progress: bool
-			#partial switch apparition.based_on {
-			case .Inline:
-				progress = inline_parser_run(parser, &ambient.ip) or_return
-			case .Block:
-				progress = block_parser_run(parser, &ambient.bp) or_return
-			case .String, .Timestamp:
-				progress = string_parser_run(parser, &ambient.sp) or_return
-			case .Void:
-				if tok.kind == .Newline || tok.kind == .Space {
-					advance_token(parser)
-					progress = true
-				}
-
-				if tok.kind == .Word {
-					parser.error = {tok, "Words are not allowed in this context"}
-					return {}, false
-				}
-			}
-
-			if !progress do break
-		}
-		apparition_arg_end(parser) or_return
-	}
-
-	underlying: Parsing_Result
-	#partial switch apparition.based_on {
-	case .Inline:
-		underlying.im = inline_parser_end(parser, &ambient.ip)
-	case .Block:
-		underlying.bm = block_parser_end(parser, &ambient.bp)
-	case .String:
-		underlying.string = string_parser_end(parser, &ambient.sp)
-	case .Timestamp:
-		as_string := string_parser_end(parser, &ambient.sp)
-		datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
-
-		if datetime_consumed > 0 {
-			underlying.timestamp = datetime
-		} else {
-			// Try to tack an empty timestamp at the end
-			as_date_string := fmt.aprintf(
-				"%vT00:00:00+00:00",
-				as_string,
-				allocator = parser.allocator,
-			)
-			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
-
-			if date_consumed > 0 {
-				underlying.timestamp = date
-			} else {
-				msg := fmt.aprintf(
-					"Invalid date(time): '%v'",
-					as_string,
-					allocator = parser.allocator,
-				)
-				kit.parser.error = {kit.head, msg}
-				return underlying, false
-			}
-		}
-	}
-
-	kit.ambience = underlying
-
-	if apparition.make == nil {
-		assert(apparition.children == {})
-		return underlying, true
-	} else {
-		context.allocator = parser.allocator
-		apparition.make(&kit)
-		if parser.error != {} do return kit.res, false
-		return kit.res, true
-	}
 }
 // }}}

@@ -3,9 +3,6 @@ package anima
 import "core:fmt"
 
 main :: proc() {
-	init_formatters()
-	defer deinit_formatters()
-
 	exparr: Exparr(uint, 3)
 	exparr.allocator = context.temp_allocator
 
@@ -34,7 +31,11 @@ main :: proc() {
 			parser.error = {tok, "I'm confused by this token"}
 		}
 	}
-	fmt.println(blocks)
+
+	mps := mps_init()
+	mps_block_markup(&mps, blocks)
+	fmt.println(mps_to_string(mps))
+
 	if parser.lexer.error != {} {
 		fmt.println(parser.lexer.error)
 	} else if parser.error != {} {
