@@ -5,44 +5,34 @@ Chain_Link :: struct($V: typeid) {
 	next: V,
 }
 
-Tree_Node :: struct($Node, $Edge, $Leaf: typeid) {
-	siblings: Chain_Link(^Tree_Node(Node, Edge, Leaf)),
-	parent:   ^Tree_Node(Node, Edge, Leaf),
-	edge:     Edge, // The edge from the parent to the node
-	kind:     enum {
-		Node,
-		Leaf,
-	},
-	using _:  struct #raw_union {
-		node: struct {
-			data:     Node,
-			// "closes" the circular chain of siblings. That is, the "next" value will
-			// point to the first child, and the "prev" value will point to the last
-			// one.
-			children: Chain_Link(^Tree_Node(Node, Edge, Leaf)),
-		},
-		leaf: Leaf,
-	},
+Tree_Node :: struct($Node: typeid) {
+	siblings: Chain_Link(^Tree_Node(Node)),
+	parent:   ^Tree_Node(Node),
+	data:     Node,
+	// "closes" the circular chain of siblings. That is, the "next" value will
+	// point to the first child, and the "prev" value will point to the last
+	// one.
+	children: Chain_Link(^Tree_Node(Node)),
 }
 
-Tree :: struct($Node, $Edge, $Leaf: typeid) {
-	nodes: Exprarr(Tree_Node(Node, Edge, Leaf)),
-	roots: Chain_Link(^Tree_Node(Node, Edge, Leaf)),
+Tree :: struct($Node: typeid) {
+	nodes: Exparr(Tree_Node(Node)),
+	roots: Chain_Link(^Tree_Node(Node)),
 }
 
-Tree_Builder :: struct($Node, $Edge, $Leaf: typeid) {
-	tree:   ^Tree(Node, Edge, Leaf),
-	parent: ^Tree_Node(Node, Edge, Leaf),
+Tree_Builder :: struct($Node: typeid) {
+	tree:   ^Tree(Node),
+	parent: ^Tree_Node(Node),
 }
 
-tb_insert :: proc(builder: ^Tree_Builder($N, $E, $L), edge: E) -> ^Tree_Node(N, E, L) {
-	node: Tree_Node(N, E, L) = {
+@(private = "file")
+tb_insert :: proc(builder: ^Tree_Builder($N)) -> ^Tree_Node(N) {
+	node: Tree_Node(N) = {
 		parent = builder.parent,
-		edge   = edge,
 	}
 
 	node_ptr := exparr_push(&builder.tree.nodes, node)
-	chain_link := builder.parent == nil ? &builder.tree.roots : &builder.parent.node.children
+	chain_link := builder.parent == nil ? &builder.tree.roots : &builder.parent.children
 
 	if chain_link.next == nil {
 		chain_link.next = node_ptr
@@ -55,19 +45,24 @@ tb_insert :: proc(builder: ^Tree_Builder($N, $E, $L), edge: E) -> ^Tree_Node(N, 
 	return node_ptr
 }
 
-tb_leaf :: proc(builder: ^Tree_Builder($N, $E, $L), edge: E, leaf: L) {
-	node_ptr := tb_insert(builder, edge)
-	node_ptr.kind = .Leaf
-	node_ptr.leaf = leaf
+tb_leaf :: proc(builder: ^Tree_Builder($N), data: N) -> ^N {
+	node_ptr := tb_insert(builder)
+	node_ptr.data = data
+	return &node_ptr.data
 }
 
-tb_node_begin :: proc(builder: ^Tree_Builder($N, $E, $L), edge: E, node: N) {
-	node_ptr := tb_insert(builder, edge)
-	node_ptr.kind = .Node
-	node_ptr.node.data = node
+tb_node_begin :: proc(builder: ^Tree_Builder($N), data: N) -> ^N {
+	node_ptr := tb_insert(builder)
+	node_ptr.data = data
 	builder.parent = node_ptr
+	return &node_ptr.data
 }
 
-tb_node_end :: proc(builder: ^Tree_Builder($N, $E, $L), edge: E, node: N) {
+tb_node_end :: proc(builder: ^Tree_Builder($N)) {
 	builder.parent = builder.parent.parent
+}
+
+tb_make :: proc(tree: ^Tree($Node)) -> (builder: Tree_Builder(Node)) {
+	builder.tree = tree
+	return builder
 }

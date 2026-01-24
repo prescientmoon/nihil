@@ -1,16 +1,21 @@
 package anima
 
 import "base:runtime"
-import "core:container/queue"
 import "core:fmt"
 import "core:mem"
 import "core:strings"
 import "core:time"
 
 // {{{ The parser type
-Parser_Stack_Elem :: struct {
+Surrounding_Apparition :: struct {
 	indentation: uint,
-	curly:       bool,
+	power:       uint,
+	node:        ^Apt_Node,
+	kind:        enum {
+		Indented,
+		Bracketed,
+		Ambient,
+	},
 }
 
 Indented_Token :: struct {
@@ -19,120 +24,110 @@ Indented_Token :: struct {
 }
 
 Parser :: struct {
-	allocator: runtime.Allocator,
-	lexer:     Lexer,
-	tokens:    queue.Queue(Indented_Token),
-	stack:     Exparr(Parser_Stack_Elem, 3),
-	error:     struct {
-		tok: Token,
-		msg: string,
-	},
-	page:      Page,
+	// The allocator used for all the "results" of the parser, i.e. the things
+	// that must live on past its lifetime.
+	allocator:          runtime.Allocator,
+	// The allocator used for all the temporary stuff the parser allocates.
+	// In particular, non-static error messages are thrown in here.
+	//
+	// Note that the string/inline/markup parsers are not particularly efficient
+	// in this regard. That is, the memory they allocate will not get reused for
+	// the rest of the duration of the parser's runtime. This does not matter in
+	// practice though, and is not worth optimizing.
+	internal_allocator: runtime.Allocator,
+	lexer:              Lexer,
+	tokens:             Exparr(Indented_Token, 3),
+	stack:              Exparr(Surrounding_Apparition, 3),
+	error:              Parsing_Error,
+	page:               Page,
 }
 
-mk_parser :: proc(source: string, allocator := context.allocator) -> (parser: Parser, ok: bool) {
+mk_parser :: proc(
+	source: string,
+	allocator := context.allocator,
+	internal_allocator := context.allocator,
+) -> (
+	parser: Parser,
+	ok: bool,
+) {
 	lexer, lexer_ok := mk_lexer(source, allocator)
+	parser.lexer = lexer
 
-	parser = {
-		allocator = allocator,
-		lexer = lexer,
-		stack = {allocator = allocator},
-	}
+	parser.internal_allocator = internal_allocator
+	parser.tokens.allocator = internal_allocator
+	parser.stack.allocator = internal_allocator
 
+	parser.allocator = allocator
 	parser.page.toc.allocator = parser.allocator
 	parser.page.footnotes.allocator = parser.allocator
 	parser.page.links.allocator = parser.allocator
 	parser.page.feeds.allocator = parser.allocator
 	parser.page.changelog.allocator = parser.allocator
 
-	queue.init(&parser.tokens, allocator = context.allocator)
-
-	exparr_push(&parser.stack, Parser_Stack_Elem{})
+	exparr_push(&parser.stack, Surrounding_Apparition{})
 	return parser, lexer_ok
+}
+
+// To be called once parsing has ended. Ensures the entire file has been
+// consumed, erroring out otherwise.
+parser_end :: proc(parser: ^Parser) {
+	if parser.error == {} {
+		assert(parser.stack.len == 1)
+
+		tok, ok := get_indented_token(parser)
+		if !ok {
+			return
+		} else if tok.kind != .Eof {
+			parser.error = {tok, "I'm confused by this token"}
+		}
+	}
 }
 // }}}
 // {{{ Lexer helpers
 advance_token :: proc(parser: ^Parser) {
-	popped := queue.pop_front(&parser.tokens)
+	exparr_pop(&parser.tokens)
 }
 
-get_token :: proc(parser: ^Parser, skip_ws := false) -> (tok: Token, ok: bool) {
-	stack_elem := exparr_last(parser.stack)
-	for {
-		tok := get_indented_token(parser) or_return
-		if skip_ws && (tok.kind == .Newline || tok.kind == .Space) {
-			advance_token(parser)
-		} else if tok.kind == .Apparition && tok.content == "--" {
-			advance_token(parser)
-
-			apparition_arg_begin(parser, tok) or_return
-			stack_elem := exparr_last(parser.stack)
-			for {
-				tok := get_token(parser, skip_ws = true) or_return
-				if tok.kind == .None ||
-				   tok.kind == .Eof ||
-				   stack_elem.curly && tok.kind == .RCurly {
-					break
-				} else {
-					advance_token(parser)
-				}
-			}
-			apparition_arg_end(parser) or_return
-		} else {
-			break
-		}
-	}
-
-	return get_indented_token(parser)
+get_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
+	panic("deprecated")
 }
 
 get_indented_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
 	// When we run out of tokens, we run the lexer until we hit a non-whitespace
-	// character.
-	if queue.len(parser.tokens) == 0 {
+	// character. These tokens will not get thrown out, but will get adjusted to
+	// match the indentation of the following token.
+	if parser.tokens.len == 0 {
 		for {
 			tok := tokenize(&parser.lexer) or_return
-			queue.push_back(
-				&parser.tokens,
-				Indented_Token{token = tok, indentation = tok.from.col},
-			)
+			itok := Indented_Token {
+				token       = tok,
+				indentation = tok.from.col,
+			}
+
+			exparr_push(&parser.tokens, itok)
 			if tok.kind != .Space && tok.kind != .Newline do break
 		}
 
+		last_indent := exparr_last(parser.tokens).indentation
+		exparr_reverse(parser.tokens)
+
 		// Indent spaces/newlines as much as the following token
-		for i := queue.len(parser.tokens) - 2; i >= 0; i -= 1 {
-			curr := queue.get_ptr(&parser.tokens, i)
-			next := queue.get_ptr(&parser.tokens, i + 1)
-			curr.indentation = next.indentation
+		for i in 0 ..< parser.tokens.len - 1 {
+			exparr_get(parser.tokens, i).indentation = last_indent
 		}
 	}
 
 	// Sanity check
-	assert(queue.len(parser.tokens) > 0)
+	assert(parser.tokens.len > 0)
 
 	indentation := exparr_last(parser.stack).indentation
-	itok := queue.get_ptr(&parser.tokens, 0)
+	itok := exparr_last(parser.tokens)
 
 	if itok.indentation <= indentation {
 		return {from = itok.from}, true
 	} else {
 		return itok.token, true
 	}
-}
-
-expect_token :: proc(
-	parser: ^Parser,
-	kind: Token_Kind,
-	content := "",
-) -> (
-	tok: Token,
-	found: bool,
-	ok: bool,
-) {
-	tok = get_token(parser) or_return
-	found = tok.kind == kind && (content == "" || tok.content == content)
-	if found do advance_token(parser)
-	return tok, found, true
 }
 // }}}
 // {{{ Strings
@@ -142,7 +137,7 @@ String_Parser :: struct {
 }
 
 string_parser_mk :: proc(parser: ^Parser) -> String_Parser {
-	return {size = 0, segments = {allocator = parser.allocator}}
+	return {size = 0, segments = {allocator = parser.internal_allocator}}
 }
 
 string_parser_end :: proc(parser: ^Parser, sp: ^String_Parser) -> string {
@@ -201,7 +196,7 @@ Inline_Parser :: struct {
 }
 
 inline_parser_mk :: proc(parser: ^Parser) -> (res: Inline_Parser) {
-	res.elements.allocator = parser.allocator
+	res.elements.allocator = parser.internal_allocator
 	return res
 }
 
@@ -226,7 +221,7 @@ inline_parser_end :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (res: Inline_M
 inline_parser_run :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (consumed: bool, ok: bool) {
 	tok := get_token(parser) or_return
 	res: Inline_Markup
-	switch tok.kind {
+	#partial switch tok.kind {
 	case .Space, .Newline:
 		advance_token(parser)
 		res.kind = .Space
@@ -237,7 +232,7 @@ inline_parser_run :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (consumed: boo
 		advance_token(parser)
 		res.kind = .Text
 		res.raw = tok.content
-	case .None, .LCurly, .RCurly, .Eof:
+	case .None, .Eof:
 		return false, true
 	case .Apparition:
 		found: bool
@@ -255,6 +250,8 @@ inline_parser_run :: proc(parser: ^Parser, ip: ^Inline_Parser) -> (consumed: boo
 		if !found {
 			return false, true
 		}
+	case:
+		fmt.panicf("Invalid token encountered: %v", tok.kind)
 	}
 
 	exparr_push(&ip.elements, res)
@@ -267,7 +264,7 @@ Block_Parser :: struct {
 }
 
 block_parser_mk :: proc(parser: ^Parser) -> (res: Block_Parser) {
-	res.elements.allocator = parser.allocator
+	res.elements.allocator = parser.internal_allocator
 	return res
 }
 
@@ -454,6 +451,13 @@ Apparition_Making_Kit :: struct {
 	res:      Parsing_Result,
 }
 
+Apparition_Child_Multiplicity :: enum {
+	Invalid, // 0
+	Optional, // 0 or 1
+	Required, // 1
+	Repeatable, // 0 or more
+}
+
 // An apparition always comes bundled with an argument, unless the ambience is
 // set to Void, and no (repeated) children are given (such an example is the
 // \... ellipsis apparition)
@@ -462,6 +466,7 @@ Apparition :: struct {
 	// Determines what parser is going to handle the tokens not corresponding to
 	// any of the children
 	based_on:          Apparition_Ambience,
+	other_children:    [Apparition_Id]Apparition_Child_Multiplicity,
 	// Apparitions that are allowed to appear at most once in the body. If their
 	// presence is required, check this in the "make" procedure below
 	children:          bit_set[Apparition_Id],
@@ -634,7 +639,7 @@ parse_apparition :: proc(
 								fmt.aprintf(
 									"Duplicate apparition: '\\%v'",
 									name,
-									allocator = parser.allocator,
+									allocator = parser.internal_allocator,
 								),
 							}
 
@@ -646,7 +651,7 @@ parse_apparition :: proc(
 				for cid in apparition.repeated_children {
 					name := APPARITIONS[cid].name
 					if tok.content == name {
-						kit.children[cid].many.allocator = parser.allocator
+						kit.children[cid].many.allocator = parser.internal_allocator
 						advance_token(parser)
 						exparr_push(
 							&kit.children[cid].many,
@@ -701,7 +706,7 @@ parse_apparition :: proc(
 			as_date_string := fmt.aprintf(
 				"%vT00:00:00+00:00",
 				as_string,
-				allocator = parser.allocator,
+				allocator = parser.internal_allocator,
 			)
 			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
 
@@ -711,7 +716,7 @@ parse_apparition :: proc(
 				msg := fmt.aprintf(
 					"Invalid date(time): '%v'",
 					as_string,
-					allocator = parser.allocator,
+					allocator = parser.internal_allocator,
 				)
 				kit.parser.error = {kit.head, msg}
 				return underlying, false
@@ -734,49 +739,11 @@ parse_apparition :: proc(
 // }}}
 // {{{ Apparition arguments
 apparition_arg_begin :: proc(parser: ^Parser, apparition: Token) -> (ok: bool) {
-	assert(apparition.kind == .Apparition)
-
-	tok := get_token(parser, skip_ws = true) or_return
-
-	if tok.kind == .LCurly {
-		elem := Parser_Stack_Elem {
-			curly       = true,
-			indentation = 0,
-		}
-
-		advance_token(parser)
-		exparr_push(&parser.stack, elem)
-	} else {
-		elem := Parser_Stack_Elem {
-			curly       = false,
-			indentation = apparition.from.col,
-		}
-
-		exparr_push(&parser.stack, elem)
-	}
-
-	return true
+	panic("deprecated")
 }
 
 apparition_arg_end :: proc(parser: ^Parser) -> (ok: bool) {
-	elem := exparr_pop(&parser.stack)
-
-	if elem.curly {
-		tok := get_token(parser, skip_ws = true) or_return
-
-		if tok.kind != .RCurly {
-			parser.error = {
-				tok = tok,
-				msg = "Expected '}'",
-			}
-
-			return false
-		}
-
-		advance_token(parser)
-	}
-
-	return true
+	panic("deprecated")
 }
 // }}}
 
@@ -1102,6 +1069,11 @@ ap_table :: Apparition {
 	based_on = .Void,
 	children = {.Table_Head, .Inline_Caption},
 	repeated_children = {.Table_Row},
+	other_children = #partial{
+		.Inline_Caption = .Optional,
+		.Table_Head = .Required,
+		.Table_Row = .Repeatable,
+	},
 	make = proc(kit: ^Apparition_Making_Kit) {
 		kit.res.bm.kind = .Table
 		kit.res.bm.table.caption = new_clone(kit.children[.Inline_Caption].im)
@@ -1280,5 +1252,129 @@ ap_change :: Apparition {
 			kit.parser.error = {kit.head, "Change has no timestamp"}
 		}
 	},
+}
+// }}}
+
+// {{{ Apparition tree parsing
+Apt_Parsing_Error :: enum {
+	None,
+	Lexer_Error,
+}
+
+parse_apt :: proc(parser: ^Parser, builder: ^Apt_Builder) -> (err: Apt_Parsing_Error) {
+	for {
+		tok, ok := get_indented_token(parser)
+		if !ok do return .Lexer_Error
+		switch tok.kind {
+		case .Colon, .Bang:
+			advance_token(parser)
+			node := tb_leaf(builder, Apt_Node{kind = .Leaf, tok = tok})
+			node.tok.kind = .Word
+		case .LCurly:
+			advance_token(parser)
+			node := tb_leaf(builder, Apt_Node{kind = .Leaf, tok = tok})
+			node.tok.kind = .Word
+			exparr_push(&node.errors, Parsing_Error{tok, "Unexpected block opener"})
+		case .RCurly:
+			power := cast(uint)len(tok.content)
+
+			for i := parser.stack.len - 1; cast(int)i >= 0; i -= 1 {
+				elem := exparr_get(parser.stack, i)
+				if elem.power == power && elem.kind == .Bracketed {
+					return .None
+				} else if elem.power > power {
+					break
+				}
+			}
+
+			advance_token(parser)
+			node := tb_leaf(builder, Apt_Node{kind = .Leaf, tok = tok})
+			node.tok.kind = .Word
+			elem := exparr_last(parser.stack)
+			exparr_push(&elem.node.errors, Parsing_Error{tok, "Invalid block closer"})
+		case .None, .Eof:
+			// End of the current scope!
+			return .None
+		case .Word, .Space, .Newline:
+			advance_token(parser)
+			tb_leaf(builder, Apt_Node{kind = .Leaf, tok = tok})
+		case .Apparition:
+			advance_token(parser)
+			node := tb_node_begin(builder, Apt_Node{kind = .Node, tok = tok})
+			node.errors.allocator = parser.allocator
+			defer tb_node_end(builder)
+
+			elem: Surrounding_Apparition = {
+				node = node,
+			}
+
+			next_tok, ok := get_indented_token(parser)
+			if !ok do return .Lexer_Error
+			#partial switch next_tok.kind {
+			case .Colon:
+				advance_token(parser)
+				elem.power = len(next_tok.content)
+			case .LCurly:
+				advance_token(parser)
+				elem.kind = .Bracketed
+				elem.power = len(next_tok.content)
+			case .Bang:
+				advance_token(parser)
+				elem.kind = .Ambient
+				elem.power = len(next_tok.content)
+			}
+
+			switch elem.kind {
+			case .Ambient, .Bracketed:
+				elem.indentation = exparr_last(parser.stack).indentation
+			case .Indented:
+				elem.indentation = tok.from.col
+			}
+
+			exparr_push(&parser.stack, elem)
+			defer exparr_pop(&parser.stack)
+
+			first_tok, last_tok: Token
+			first_tok, ok = get_indented_token(parser)
+			if !ok do return .Lexer_Error
+			first_pos := next_tok.from.index
+
+			err := parse_apt(parser, builder)
+			switch err {
+			case .None:
+			case .Lexer_Error:
+				return .Lexer_Error
+			}
+
+			last_tok, ok = get_indented_token(parser)
+			if !ok do return .Lexer_Error
+
+			last_tok_power := cast(uint)len(last_tok.content)
+			switch elem.kind {
+			case .Indented, .Ambient:
+			case .Bracketed:
+				if last_tok.kind == .RCurly && last_tok_power == elem.power {
+					advance_token(parser)
+
+					last_tok, ok = get_indented_token(parser)
+					if !ok do return .Lexer_Error
+				} else {
+					msg := fmt.aprintf(
+						"Expected a closer for '%v' at %v",
+						next_tok.content,
+						next_tok.from,
+						allocator = parser.allocator,
+					)
+
+					exparr_push(&node.errors, Parsing_Error{tok, msg})
+				}
+			}
+
+			last_pos := last_tok.from.index + cast(uint)len(last_tok.content)
+			node.raw = parser.lexer.source[first_pos:last_pos]
+		}
+	}
+
+	return .None
 }
 // }}}

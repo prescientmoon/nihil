@@ -1,44 +1,59 @@
 package anima
 
 import "core:fmt"
+import "core:log"
 
 main :: proc() {
-	exparr: Exparr(uint, 3)
-	exparr.allocator = context.temp_allocator
+	context.logger = log.create_console_logger()
+	source :: #load("./example.anima", string)
 
-	for i in 0 ..< 1024 {
-		exparr_push(&exparr, uint(i))
-	}
+	log.info("Lexer results:")
+	mps := mps_init()
+	mps_tokens(&mps, source)
+	fmt.println(mps_to_string(mps))
 
-	exparr_pop(&exparr)
-	exparr_pop(&exparr)
-	exparr_pop(&exparr)
+	{
+		log.info("Parser results:")
+		parser := mk_parser(source) or_else panic("Failed parser init :(")
 
-	// lexer, lexer_ok := mk_lexer(#load("./example.anima"))
-	// assert(lexer_ok)
-	// for tok in tokenize(&lexer) {
-	// 	fmt.println(tok)
-	// 	if tok.kind == .Eof do break
-	// }
+		tree: Apt_Storage
+		tree.nodes.allocator = parser.allocator
+		builder := tb_make(&tree)
 
-	parser, ok := mk_parser(#load("./example.anima"))
-	assert(ok)
+		parse_apt(&parser, &builder)
+		parser_end(&parser)
 
-	blocks, blocks_ok := parse_blocks(&parser)
-	if parser.error == {} {
-		tok, found, ok := expect_token(&parser, .Eof)
-		if !found || !ok {
-			parser.error = {tok, "I'm confused by this token"}
+		if parser.lexer.error != {} {
+			fmt.println(parser.lexer.error)
+		} else if parser.error != {} {
+			fmt.println(parser.error)
+		} else {
+			tree_without_comments: Apt_Storage
+			tree_without_comments.nodes.allocator = parser.allocator
+			builder := tb_make(&tree_without_comments)
+
+			apf_remove_comments(&builder, tree.roots)
+
+			mps := mps_init()
+			mps_apparition_forest(&mps, tree_without_comments.roots)
+			fmt.println(mps_to_string(mps))
 		}
 	}
 
-	mps := mps_init()
-	mps_block_markup(&mps, blocks)
-	fmt.println(mps_to_string(mps))
-
-	if parser.lexer.error != {} {
-		fmt.println(parser.lexer.error)
-	} else if parser.error != {} {
-		fmt.println(parser.error)
-	}
+	// {
+	// 	parser := mk_parser(#load("./example.anima")) or_else panic("Failed parser init :(")
+	//
+	// 	blocks, blocks_ok := parse_blocks(&parser)
+	// 	parser_end(&parser)
+	//
+	// 	mps := mps_init()
+	// 	mps_block_markup(&mps, blocks)
+	// 	fmt.println(mps_to_string(mps))
+	//
+	// 	if parser.lexer.error != {} {
+	// 		fmt.println(parser.lexer.error)
+	// 	} else if parser.error != {} {
+	// 		fmt.println(parser.error)
+	// 	}
+	// }
 }

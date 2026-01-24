@@ -21,9 +21,11 @@ Token :: struct {
 Token_Kind :: enum {
 	None = 0,
 	Word,
+	Bang,
 	LCurly,
 	RCurly,
 	Apparition,
+	Colon,
 	Newline,
 	Space,
 	Eof,
@@ -39,6 +41,7 @@ Token_Kind :: enum {
 // with the source location) will get saved in the "error" property, and the
 // "ok" boolean of the given function will be returned as "false".
 Lexer :: struct {
+	// This allocator will hold onto strings that require unescaping
 	allocator:  runtime.Allocator,
 	source:     string,
 	pos:        Source_Loc,
@@ -91,15 +94,15 @@ advance_rune :: proc(lexer: ^Lexer) -> (ok: bool) {
 	r, w := rune(lexer.source[lexer.next_index]), 1
 	switch {
 	case r == 0:
-		lexer.error = {lexer.pos, "illegal character NUL"}
+		lexer.error = {lexer.pos, "Illegal character NUL"}
 		return false
 	case r >= utf8.RUNE_SELF:
 		r, w = utf8.decode_rune_in_string(lexer.source[lexer.next_index:])
 		if r == utf8.RUNE_ERROR && w == 1 {
-			lexer.error = {lexer.pos, "illegal UTF-8 encoding"}
+			lexer.error = {lexer.pos, "Illegal UTF-8 encoding"}
 			return false
 		} else if r == utf8.RUNE_BOM && lexer.next_index > 0 {
-			lexer.error = {lexer.pos, "illegal byte order mark"}
+			lexer.error = {lexer.pos, "Illegal byte order mark"}
 			return false
 		}
 	}
@@ -132,12 +135,12 @@ next_rune_is_text_char :: proc(lexer: Lexer) -> (width: uint) {
 		return 0
 	case '\\':
 		switch nch {
-		case '{', '}', '\\', '\n', '\r', '\t', ' ':
+		case '{', '}', '!', ':', '\\', '\n', '\r', '\t', ' ':
 			return 2
 		case:
 			return 0
 		}
-	case '{', '}', '\n', '\r', '\t', ' ':
+	case '{', '}', '!', ':', '\n', '\r', '\t', ' ':
 		return 0
 	case:
 		return 1
@@ -203,15 +206,28 @@ tokenize :: proc(lexer: ^Lexer) -> (tok: Token, ok: bool) {
 	tok.from = lexer.pos
 	tok.kind = .Eof
 
-	switch lexer.curr {
+	char := lexer.curr
+	switch char {
 	case {}:
 		break
-	case '{':
-		tok.kind = .LCurly
-		advance_rune(lexer) or_return
-	case '}':
-		tok.kind = .RCurly
-		advance_rune(lexer) or_return
+	case '{', '}', '!', ':':
+		@(rodata, static)
+		KIND_TABLE: [128]Token_Kind = {
+			'{' = .LCurly,
+			'}' = .RCurly,
+			':' = .Colon,
+			'!' = .Bang,
+		}
+
+		tok.kind = KIND_TABLE[char]
+
+		l := 0
+		for lexer.curr == char {
+			advance_rune(lexer) or_return
+			l += 1
+		}
+
+		tok.content = lexer.source[tok.from.index:][:l]
 	case '\n':
 		tok.kind = .Newline
 		advance_rune(lexer) or_return

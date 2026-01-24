@@ -2,6 +2,7 @@ package anima
 
 import "core:time"
 
+Absolute_Path :: distinct string
 Relative_Path :: distinct string
 Os_Path :: distinct string
 
@@ -29,14 +30,15 @@ Page_Config :: struct {
 	compact:            bool,
 	sitemap_priority:   f32, // 0: non-existent
 	sitemap_changefreq: string,
+  redirects:       Exparr(Absolute_Path)
 }
 
 Page_Filters :: struct {
 	// The directory of which to include the direct children of
-	children:    Relative_Path,
+	children:    Absolute_Path,
 
 	// The directory of which to include the (possibly indirect) children of
-	descendants: Relative_Path,
+	descendants: Absolute_Path,
 
 	// Whether to include hidden pages
 	hidden:      bool,
@@ -68,36 +70,30 @@ Change :: struct {
 	body: Block_Markup,
 }
 
-Page :: struct {
-	path:       Os_Path, // Where is this file currently at?
-	route:      Relative_Path, // Where are we planning to place this?
-	raw:        string, // The raw file-contents, as read off disk
-	content:    Block_Markup,
-	word_count: uint,
-	config:     Page_Config,
-	toc:        Exparr(Heading), // The first heading always dictates the title
-	footnotes:  Exparr(Fndef),
-	links:      Exparr(Linkdef),
-	feeds:      Exparr(Rss_Feed),
-	changelog:  Exparr(Change),
+// Arbitrary markup saved into a variable using the \def apparition. Can be
+// unhygienically inserted anywhere using the \use apparition.
+Markup_Declaration :: struct {
+	name:     string,
+	// Contains what remains of the contents after removing the macro's metadata
+	// (thins like the \as apparition, which states the name of the declaration).
+	//
+	// The roots are part of the storage below, but everything else is merely a
+	// reference to the nodes in the pre-existing tree.
+	contents: Apt_Storage,
 }
 
-// Parser for markup:
-// - keep pulling text and emitting text fragments
-// - when an apparition is encountered, match on it:
-//   - metadata aparitions need to be handled by now (what if they're nested?)
-//   - markup apparitions emit chunks
-// - when in a "block" context, paragraphs need to be emitted
-// - again, we collect metadata pre-entively
-// - I think we need metadata to be attached somewhat locally, in order to get
-//   inclusions to work nicely
-// - The metadata included in each page needs to be collected *somehow*,
-//   *somewhere*. This includes
-// - Actually, we might get away with not collecting it locally, but keeping
-//   track of scoping rules
-// - Back to parsing... We always have a "working paragraph", that we only close
-//   when encountering two or more consecutive newlines
-// - If the last paragraph is empty at the end of a block, it is destroyed.
-//   Otherwise, it gets closed automatically.
-// - Indentation is only important when parsing code blocks, but those are their
-//   own topic.
+Page :: struct {
+	path:         Os_Path, // Where is this file currently at?
+	route:        Relative_Path, // Where are we planning to place this?
+	raw:          string, // The raw file-contents, as read off disk
+	apt:          Apt_Storage,
+	declarations: Exparr(Markup_Declaration),
+	content:      Block_Markup,
+	word_count:   uint,
+	config:       Page_Config,
+	toc:          Exparr(Heading), // The first heading always dictates the title
+	footnotes:    Exparr(Fndef),
+	links:        Exparr(Linkdef),
+	feeds:        Exparr(Rss_Feed),
+	changelog:    Exparr(Change),
+}

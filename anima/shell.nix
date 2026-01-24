@@ -1,11 +1,11 @@
 let
   sources = import ../npins;
   pkgs = import sources.nixpkgs { };
-  odin = import sources.odin { inherit pkgs; };
+  # odin = import sources.odin { inherit pkgs; };
 in
 pkgs.mkShell rec {
   nativeBuildInputs = [
-    odin
+    pkgs.odin
     pkgs.mold
     pkgs.just
     pkgs.ols

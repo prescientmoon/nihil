@@ -78,3 +78,14 @@ exparr_pop :: proc(exparr: ^Exparr($V, $FCE)) -> V {
 	exparr.len -= 1
 	return v^
 }
+
+// NOTE: this will invalidate pointers to the elements!
+exparr_reverse :: proc(exparr: Exparr($V, $FCE)) {
+	for i in 0 ..< exparr.len / 2 {
+		xp := exparr_get(exparr, i)
+		yp := exparr_get(exparr, exparr.len - i - 1)
+		yv := yp^
+		yp^ = xp^
+		xp^ = yv
+	}
+}

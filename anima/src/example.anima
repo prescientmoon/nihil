@@ -65,7 +65,7 @@ accompilshed by using the \_{\\id apparition} inside the heading
 For the sake of clarity, this is how one would write the above using explicit
 curly brackets:
 
-\###{This is an even smaller heading! \id{very-small-heading-2}}
+\###{This is an even smaller heading! \id{very-small-heading-2} }
 
 Anima can generate a table-of-contents out of the headings of the page by using
 the toc apparition:
@@ -153,7 +153,7 @@ Lists can be ordered with a single apparition:
   \item second
 
 Links must be defined before or after being used. For example, the definition 
-below allows us to use \link{rickroll-wiki-page}:
+below allows us to use \link{rickroll-wiki-page}: \link{rickroll-wiki-page}
 
 \linkdef \id rickroll-wiki-page
   https://upload.wikimedia.org/wikipedia/en/f/f7/RickRoll.png
@@ -195,3 +195,6 @@ them, use the hidden apparition:
 The page's changelog can be written anywhere by using the "change" apparition:
 
 \change \at 2003-08-06
+
+\def zone-headers \return!
+  Thing
