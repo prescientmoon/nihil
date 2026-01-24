@@ -41,7 +41,7 @@ bump-moonythm:
 
 [doc("Copy the current date to clipboard in the required `created_at` format")]
 current-date:
-    date --rfc-3339=seconds | wl-copy
+    date --iso-8601=seconds | wl-copy
 
 [group("hot")]
 [doc("Serve the website, automatically reloading on changes")]

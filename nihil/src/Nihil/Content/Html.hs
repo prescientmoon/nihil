@@ -73,7 +73,10 @@ genForest ctx (Tree.Forest cs) = do
   for_ (HashMap.toList cs) \(edge, node) → genTree edge node
  where
   genTree edge (Tree.Leaf path) = do
-    Gen.copy (Text.pack edge) path
+    -- NOTE: this is a horrible hack since pico.sh does not allow dotfiles :/
+    let filename = takeFileName path
+    unless (filename == ".envrc" || filename == ".gitignore") $
+      Gen.copy (Text.pack edge) path
   genTree edge (Tree.Node page forest) = do
     Gen.dir (Text.pack edge) do
       genPage ctx page
