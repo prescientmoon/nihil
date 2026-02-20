@@ -23,7 +23,8 @@ Apt_Node :: struct {
 Apt_Builder :: Tree_Builder(Apt_Node)
 Apt_Storage :: Tree(Apt_Node)
 Apt :: Tree_Node(Apt_Node) // [ap]parition [t]tree
-Apf :: Chain_Link(^Apt) // [ap]parition [f]orest
+Linked_Apf :: Chain_Link(^Apt) // [ap]parition [f]orest
+Exp_Apf :: Exparr(Apt)
 // }}}
 // {{{ Variable system discussion
 // Does it get resolved in a single parser pass?
@@ -103,7 +104,7 @@ apt_remove_comments :: proc(into: ^Apt_Builder, from: Apt) {
 	}
 }
 
-apf_remove_comments :: proc(into: ^Apt_Builder, apf: Apf) {
+apf_remove_comments :: proc(into: ^Apt_Builder, apf: Linked_Apf) {
 	for next := apf.next; next != nil; next = next.siblings.next {
 		apt_remove_comments(into, next^)
 	}

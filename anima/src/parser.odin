@@ -1,7 +1,9 @@
 package anima
 
 import "base:runtime"
+import "core:flags"
 import "core:fmt"
+import "core:log"
 import "core:mem"
 import "core:strings"
 import "core:time"
@@ -112,7 +114,7 @@ get_indented_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
 		exparr_reverse(parser.tokens)
 
 		// Indent spaces/newlines as much as the following token
-		for i in 0 ..< parser.tokens.len - 1 {
+		for i in 1 ..< parser.tokens.len {
 			exparr_get(parser.tokens, i).indentation = last_indent
 		}
 	}
@@ -1281,7 +1283,7 @@ parse_apt :: proc(parser: ^Parser, builder: ^Apt_Builder) -> (err: Apt_Parsing_E
 			for i := parser.stack.len - 1; cast(int)i >= 0; i -= 1 {
 				elem := exparr_get(parser.stack, i)
 				if elem.power == power && elem.kind == .Bracketed {
-					return .None
+					return .None // End of the current scope!
 				} else if elem.power > power {
 					break
 				}
@@ -1293,8 +1295,7 @@ parse_apt :: proc(parser: ^Parser, builder: ^Apt_Builder) -> (err: Apt_Parsing_E
 			elem := exparr_last(parser.stack)
 			exparr_push(&elem.node.errors, Parsing_Error{tok, "Invalid block closer"})
 		case .None, .Eof:
-			// End of the current scope!
-			return .None
+			return .None // End of the current scope!
 		case .Word, .Space, .Newline:
 			advance_token(parser)
 			tb_leaf(builder, Apt_Node{kind = .Leaf, tok = tok})
@@ -1376,5 +1377,929 @@ parse_apt :: proc(parser: ^Parser, builder: ^Apt_Builder) -> (err: Apt_Parsing_E
 	}
 
 	return .None
+}
+// }}}
+
+// Evaluation
+// {{{ Types
+Scope :: struct {
+	parent:  ^Scope,
+	// NOTE(storage): We could use a tree structure for scopes, thus not requiring
+	// exponential arrays of members everywhere.
+	members: Exparr(Binding),
+}
+
+Binding :: struct {
+	name: string,
+	spec: Apparition_Spec,
+}
+
+Evaluator :: struct {
+	internal_allocator: runtime.Allocator,
+	allocator:          runtime.Allocator,
+	scope:              ^Scope,
+	caller:             ^Scope, // Used for delayed bindings
+	// NOTE(storage): This is always the same across all modified evaluators. We
+	// could therefore move this (together with the allocators above) to a single
+	// "evaluator context" struct, and simply reference that everywhere instead.
+	errors:             ^Exparr(Parsing_Error),
+}
+
+// Note that:
+// - An associative argument cannot be quoted (there's no children to quote!)
+// - An ambient argument cannot have any other flags (due to its parsing being
+//   completely different)
+Apparition_Argument_Flag :: enum {
+	Unique, // Cannot appear more than once.
+	Required, // Cannot appear less than once.
+	Associative, // Contains no children. Note that .Associative implies .Unique.
+	Quoted, // Arguments of this kind have their evaluation delayed until usage.
+	Ambient, // Collects every child that doesn't fit anywhere else.
+}
+
+Apparition_Argument :: struct {
+	name:  string,
+	flags: bit_set[Apparition_Argument_Flag],
+}
+
+Dynamic_Apparition_Flag :: enum {
+	// Hoisted apparitions get processed before everything else in the scope
+	Hoisted,
+}
+
+// Used for apparitions that are hardcoded in the evaluator itself. Such
+// apparitions are even more fundamental than etternal apparitions (see
+// etternal.anima), since defining etternal apparitions requires a base
+// level of syntax (in particular, access to \skeleton and \arg).
+Primordial_Apparition_Spec :: enum {
+	Skeleta,
+	Skeleton,
+	Arg,
+}
+
+// Used for referencing apparitions defined in the etternal.anima file. Like
+// primordial apparitions, such specs look dynamic from the outside, but
+// produce no proper output based on anima-code, and are instead parsed by
+// odin code into odin-specific structures.
+//
+// Another way to think of etternal apparitions is as "type definitions" for
+// dynamic apparitions. Indeed, every dynamic apparition carries an etternal
+// "skeleton" (see the dynamic apparition spec struct).
+Etternal_Apparition_Spec :: struct {
+	flags:     bit_set[Dynamic_Apparition_Flag],
+	// What apparitions can appear as the children?
+	// NOTE(storage): we could instead use an intrusive linked list backed by
+	// a flat buffer or by an arena here, although I'm not sure that would
+	// simplify usage in any way.
+	arguments: Exparr(Apparition_Argument),
+}
+
+// User defined apparition
+Dynamic_Apparition_Spec :: struct {
+	using skeleton: Etternal_Apparition_Spec,
+	// Where is this defined?
+	scope:          ^Scope,
+	// The return value of the apparition at hand.
+	body:           Exp_Apf,
+}
+
+// One uses apparition syntax in order to pass arguments to a dynamic
+// apparition. The "fake" apparitions that do nothing but append to the
+// argument list are known as "rigid" apparitions.
+Rigid_Apparition_Spec :: struct {
+	flags: bit_set[Apparition_Argument_Flag],
+}
+
+// The concrete value of an argument passed to the current scope.
+Bound_Apparition_Spec :: struct {
+	instances: Evaluated_Argument_Instances,
+}
+
+Apparition_Spec :: union #no_nil {
+	Dynamic_Apparition_Spec,
+	Rigid_Apparition_Spec,
+	Bound_Apparition_Spec,
+	Primordial_Apparition_Spec,
+	Etternal_Apparition_Spec,
+}
+
+// NOTE(storage): Using slices of exponential arrays for arguments feels weird.
+// An alternative approach would be throwing the trees into a big buffer
+// somewhere, assembling them into a "sea of trees" structure.
+Evaluated_Argument_Instances :: Exparr(Evaluated_Argument)
+Evaluated_Argument :: struct {
+	at:    Token,
+	value: Exp_Apf,
+}
+
+// The arguments appear in the same order as dictated by the spec. Every
+// argument can appear one or more times. The count is guaranteed to respect
+// the argument's flags (i.e. unique arguments cannot appear more than once).
+Apparition_Evaluation :: distinct []Evaluated_Argument_Instances
+// }}}
+// {{{ Apparition spec properties
+ap_spec_is_associative :: proc(spec: Apparition_Spec) -> bool {
+	switch inner in spec {
+	case Rigid_Apparition_Spec:
+		return .Associative in inner.flags
+	case Dynamic_Apparition_Spec:
+		return inner.arguments.len == 0
+	case Bound_Apparition_Spec:
+		return true
+	case Primordial_Apparition_Spec:
+		return false
+	case Etternal_Apparition_Spec:
+		panic("Unimplemented")
+	}
+
+	panic("impossible")
+}
+// }}}
+// {{{ Apparition forest iterator
+// Represents a collection of apparition trees, or an apparition forest for
+// short. The forest can internally be represented as one of the following:
+// - A single tree
+// - A linked forest (this is what the parser returns)
+// - A distributed forest (i.e. an ad-hoc collection of trees)
+//
+// In the future, I might attempt to simplify this by reducing the usage of
+// non-distributed forests (or even renaming the two kinds), but for now this
+// will have to do.
+Varied_Apf :: union #no_nil {
+	Apt,
+	Linked_Apf,
+	Exp_Apf,
+}
+
+Varied_Apf_Iter :: struct {
+	vapf:   Varied_Apf,
+	index:  uint, // The amount of trees extracted so far
+	offset: uint, // The minimum index after dropping whitespace
+	len:    uint, // The number of elements before the trailing whitespace
+
+	// Stores the next apt in the chain in the case of linked forests).
+	// Remains zeroed-out in the case of empty linked forests or exponential
+	// forests.
+	apt:    Apt,
+}
+
+vapf_iter_mk :: proc(
+	vapf: Varied_Apf,
+	drop_left_ws := true,
+	drop_right_ws := true,
+) -> (
+	out: Varied_Apf_Iter,
+) {
+	WHITESPACE: bit_set[Token_Kind] : {.Space, .Newline}
+	out.vapf = vapf
+
+	// Calculate lengths
+	switch inner in vapf {
+	case Apt:
+		out.len = 1
+	case Linked_Apf:
+		node := inner.next
+		for node != nil {
+			defer node = node.siblings.next
+			out.len += 1
+		}
+
+		if inner.next != nil do out.apt = inner.next^
+	case Exp_Apf:
+		out.len = inner.len
+	}
+
+	if drop_left_ws {
+		leading_ws: uint = 0
+		switch inner in vapf {
+		case Apt:
+		case Linked_Apf:
+			node := inner.next
+			for node != nil {
+				defer node = node.siblings.next
+				if node.data.tok.kind in WHITESPACE {
+					leading_ws += 1
+				} else {
+					out.apt = node^
+					break
+				}
+			}
+		case Exp_Apf:
+			for i in 0 ..< inner.len {
+				node := exparr_get(inner, i)
+				if node.data.tok.kind not_in WHITESPACE {
+					leading_ws = i
+					break
+				}
+			}
+		}
+
+		out.offset = leading_ws
+		log.assert(out.len >= leading_ws)
+		out.len -= leading_ws
+	}
+
+	if drop_right_ws {
+		trailing_ws: uint = 0
+		switch inner in vapf {
+		case Apt:
+		case Linked_Apf:
+			node := inner.prev
+			for node != nil {
+				defer node = node.siblings.prev
+				if node.data.tok.kind in WHITESPACE {
+					trailing_ws += 1
+				} else {
+					break
+				}
+			}
+		case Exp_Apf:
+			for i := inner.len - 1; int(i) >= 0; i -= 1 {
+				node := exparr_get(inner, i)
+				if node.data.tok.kind not_in WHITESPACE {
+					trailing_ws = inner.len - i - 1
+					break
+				}
+			}
+		}
+
+		// The second condition is there to ensure the trailing and leading
+		// whitepsace spans are not referring to the same section
+		if drop_right_ws && out.len != 0 {
+			log.assert(out.len >= trailing_ws)
+			out.len -= trailing_ws
+		}
+	}
+
+	return out
+}
+
+vapf_iter_next :: proc(iter: ^Varied_Apf_Iter) -> (out: Apt, ok: bool) {
+	(iter.index < iter.len) or_return
+	defer if ok do iter.index += 1
+
+	switch inner in iter.vapf {
+	case Apt:
+		out = inner
+	case Linked_Apf:
+		out = iter.apt
+		if out.siblings.next == nil {
+			log.assertf(
+				iter.index == iter.len - 1,
+				"Expected index %v to be %v",
+				iter.index,
+				iter.len - 1,
+			)
+		} else do iter.apt = out.siblings.next^
+	case Exp_Apf:
+		out = exparr_get(inner, iter.offset + iter.index)^
+	}
+
+	return out, true
+}
+// }}}
+// {{{ Apparition spec arguments
+Apparition_Spec_Arguments_Iterator :: struct {
+	index: uint,
+	spec:  Apparition_Spec,
+}
+
+ap_spec_arg_count :: proc(spec: Apparition_Spec) -> uint {
+	switch inner in spec {
+	case Dynamic_Apparition_Spec:
+		return inner.arguments.len
+	case Rigid_Apparition_Spec:
+		return 1
+	case Bound_Apparition_Spec:
+		return 0
+	case Primordial_Apparition_Spec:
+		switch inner {
+		case .Skeleta:
+			return 1
+		case .Skeleton:
+			return 3
+		case .Arg:
+			return 5
+		}
+	case Etternal_Apparition_Spec:
+		panic("unimplemented")
+	}
+
+	panic("impossible")
+}
+
+ap_spec_arg_iter_mk :: proc(spec: Apparition_Spec) -> Apparition_Spec_Arguments_Iterator {
+	return {spec = spec}
+}
+
+ap_spec_arg_iter_next :: proc(
+	iter: ^Apparition_Spec_Arguments_Iterator,
+) -> (
+	arg: Apparition_Argument,
+	index: uint,
+	ok: bool,
+) {
+	(iter.index < ap_spec_arg_count(iter.spec)) or_return
+	defer if ok do iter.index += 1
+
+	switch inner in iter.spec {
+	case Dynamic_Apparition_Spec:
+		arg = exparr_get(inner.arguments, iter.index)^
+	case Rigid_Apparition_Spec:
+		arg.name = "__ambient"
+		arg.flags = {.Ambient}
+	case Bound_Apparition_Spec:
+		panic("impossible")
+	case Primordial_Apparition_Spec:
+		switch inner {
+		case .Skeleta:
+			@(rodata, static)
+			args: []Apparition_Argument = {{"skeleton", {}}}
+			arg = args[iter.index]
+		case .Skeleton:
+			@(rodata, static)
+			args: []Apparition_Argument = {
+				{"name", {.Ambient}},
+				{"arg", {}},
+				{"hoisted", {.Associative}},
+				{"return", {.Unique, .Quoted}},
+			}
+
+			arg = args[iter.index]
+		case .Arg:
+			@(rodata, static)
+			args: []Apparition_Argument = {
+				{"name", {.Ambient}},
+				{"ambient", {.Associative}},
+				{"unique", {.Associative}},
+				{"required", {.Associative}},
+				{"assoc", {.Associative}},
+			}
+
+			arg = args[iter.index]
+		}
+	case Etternal_Apparition_Spec:
+		panic("unimplemented")
+	}
+
+	index = iter.index
+	return arg, index, true
+}
+
+ap_spec_find_ambient_arg :: proc(spec: Apparition_Spec) -> (index: uint, ok: bool) {
+	iter := ap_spec_arg_iter_mk(spec)
+
+	for arg, i in ap_spec_arg_iter_next(&iter) {
+		if .Ambient in arg.flags {
+			return i, true
+		}
+	}
+
+	return
+}
+
+ap_spec_find_arg :: proc(spec: Apparition_Spec, name: string) -> (index: uint, ok: bool) {
+	iter := ap_spec_arg_iter_mk(spec)
+
+	for arg, i in ap_spec_arg_iter_next(&iter) {
+		if name == arg.name {
+			return i, true
+		}
+	}
+
+	return
+}
+
+ap_spec_get_arg :: proc(
+	spec: Apparition_Spec,
+	args: Apparition_Evaluation,
+	arg_name: string,
+) -> Evaluated_Argument_Instances {
+	arg_ix, has_arg := ap_spec_find_arg(spec, arg_name)
+	log.assertf(has_arg, "Cannot find argument %v", arg_name)
+	return args[arg_ix]
+}
+// }}}
+// {{{ Scope operations
+scope_and_argument_lookup :: proc(
+	spec: Apparition_Spec,
+	scope: Scope,
+	name: string,
+) -> (
+	binding: Binding,
+	ok: bool,
+) {
+	scope_lookup :: proc(scope: Scope, name: string) -> (binding: Binding, ok: bool) {
+		for i := scope.members.len - 1; int(i) >= 0; i -= 1 {
+			binding := exparr_get(scope.members, i)
+			if binding.name == name {
+				return binding^, true
+			}
+		}
+
+		if scope.parent != nil {
+			return scope_lookup(scope.parent^, name)
+		}
+
+		return {}, false
+	}
+
+	iter := ap_spec_arg_iter_mk(spec)
+	for arg in ap_spec_arg_iter_next(&iter) {
+		if arg.name == name {
+			binding.name = name
+			binding.spec = Rigid_Apparition_Spec {
+				flags = arg.flags,
+			}
+
+			return binding, true
+		}
+	}
+
+	return scope_lookup(scope, name)
+}
+
+nest_scope :: proc(eval: Evaluator, scope: ^Scope) -> ^Scope {
+	scope := scope
+	nested_scope := new(Scope, eval.allocator)
+	nested_scope.parent = scope
+	nested_scope.members.allocator = scope.members.allocator
+	return nested_scope
+}
+// }}}
+// {{{ Whole apparition parsing
+mk_apparition_parsing_args :: proc(
+	eval: Evaluator,
+	spec: Apparition_Spec,
+	at: Token,
+) -> (
+	args: Apparition_Evaluation,
+) {
+	args = make_slice(Apparition_Evaluation, ap_spec_arg_count(spec), eval.allocator)
+	iter := ap_spec_arg_iter_mk(spec)
+	for arg_spec, i in ap_spec_arg_iter_next(&iter) {
+		instances := &args[i]
+		instances.allocator = eval.allocator
+		if .Ambient in arg_spec.flags {
+			arg: Evaluated_Argument
+			arg.at = at
+			arg.value.allocator = eval.allocator
+			exparr_push(instances, arg)
+		}
+	}
+
+	return args
+}
+
+apt_parse_apparition_application :: proc(
+	eval: Evaluator,
+	spec: Apparition_Spec,
+	at: Token,
+	body: Varied_Apf,
+) -> (
+	nested_arguments: Apparition_Evaluation,
+	ok: bool,
+) {
+	nested_arguments = mk_apparition_parsing_args(eval, spec, at)
+
+	nested_eval := eval
+	nested_eval.scope = nest_scope(eval, eval.scope)
+	apt_parse(nested_eval, spec, body, nested_arguments)
+	// TODO: enforce argument flags
+	return nested_arguments, true
+}
+// }}}
+// {{{ Apparition definitions parsing
+apt_parse_arg :: proc(
+	eval: Evaluator,
+	spec: Apparition_Spec,
+	partial_spec: ^Etternal_Apparition_Spec,
+	raw_arg: Evaluated_Argument,
+) -> (
+	ok: bool,
+) {
+	evaluated_arg := apt_parse_apparition_application(
+		eval,
+		spec,
+		raw_arg.at,
+		raw_arg.value,
+	) or_return
+
+	arg: Apparition_Argument
+	arg.name = arg_get_name(eval, spec, raw_arg.at, evaluated_arg, "name") or_return
+
+	if is_arg_given(spec, evaluated_arg, "ambient") {
+		arg.flags += {.Ambient}
+	}
+
+	if is_arg_given(spec, evaluated_arg, "unique") {
+		arg.flags += {.Unique}
+	}
+
+	if is_arg_given(spec, evaluated_arg, "required") {
+		arg.flags += {.Required}
+	}
+
+	if is_arg_given(spec, evaluated_arg, "assoc") {
+		arg.flags += {.Associative}
+	}
+
+	if .Ambient in arg.flags && (arg.flags - {.Ambient}) != {} {
+		arg.flags = {.Ambient}
+		exparr_push(
+			eval.errors,
+			Parsing_Error{raw_arg.at, "Ambient arguments cannot have other flags"},
+		)
+	} else if .Associative in arg.flags && .Quoted in arg.flags {
+		arg.flags = {.Associative}
+		exparr_push(
+			eval.errors,
+			Parsing_Error {
+				raw_arg.at,
+				"Argument cannot be quoted and associative at the same time",
+			},
+		)
+	}
+
+	for i in 0 ..< partial_spec.arguments.len {
+		other_arg := exparr_get(partial_spec.arguments, i)
+		if other_arg.name == arg.name {
+			msg := fmt.aprintf(
+				"Argument '%v' was already defined in this scope",
+				arg.name,
+				allocator = eval.allocator,
+			)
+
+			exparr_push(eval.errors, Parsing_Error{raw_arg.at, msg})
+			return
+		} else if .Ambient in other_arg.flags && .Ambient in arg.flags {
+			msg := fmt.aprintf(
+				"Argument '%v' is ambient, yet '%v' also is",
+				other_arg.name,
+				arg.name,
+				allocator = eval.allocator,
+			)
+
+			exparr_push(eval.errors, Parsing_Error{raw_arg.at, msg})
+			return
+		}
+	}
+
+	exparr_push(&partial_spec.arguments, arg)
+
+	return true
+}
+
+apt_parse_def :: proc(eval: Evaluator, spec: Apparition_Spec, node: Apt) -> (ok: bool) {
+	evaluated_def := apt_parse_apparition_application(
+		eval,
+		spec,
+		node.data.tok,
+		node.children,
+	) or_return
+
+	name := arg_get_name(eval, spec, node.data.tok, evaluated_def, "name") or_return
+
+	defined_spec: Dynamic_Apparition_Spec = {
+		scope = eval.scope,
+	}
+
+	defined_spec.arguments.allocator = eval.allocator
+
+	if is_arg_given(spec, evaluated_def, "hoisted") {
+		defined_spec.flags += {.Hoisted}
+	}
+
+	args := ap_spec_get_arg(spec, evaluated_def, "arg")
+	for i in 0 ..< args.len {
+		raw_arg := exparr_get(args, i)^
+		apt_parse_arg(eval, .Arg, &defined_spec.skeleton, raw_arg) or_continue
+	}
+
+	if return_ix, has_return := ap_spec_find_arg(spec, "return"); has_return {
+		arg_return := evaluated_def[return_ix]
+		defined_spec.body.allocator = eval.allocator
+		for i in 0 ..< arg_return.len {
+			exparr_push_exparr(&defined_spec.body, exparr_get(arg_return, i).value)
+		}
+	}
+
+	for i in 0 ..< eval.scope.members.len {
+		binding := exparr_get(eval.scope.members, i)
+		if binding.name == name {
+			msg := fmt.aprintf(
+				"Apparition '%v' was already defined in this scope",
+				name,
+				allocator = eval.allocator,
+			)
+
+			exparr_push(eval.errors, Parsing_Error{node.data.tok, msg})
+			return
+		}
+	}
+
+	binding := Binding {
+		name = name,
+		spec = defined_spec,
+	}
+
+	exparr_push(&eval.scope.members, binding)
+
+	return true
+}
+// }}}
+// {{{ Partial apparition parsing
+apt_parse :: proc(
+	eval: Evaluator,
+	spec: Apparition_Spec,
+	forest: Varied_Apf,
+	arguments: Apparition_Evaluation,
+	drop_left_ws := true,
+	drop_right_ws := true,
+) {
+	// Sanity checks
+	assert(!ap_spec_is_associative(spec))
+	if inner, ok := spec.(Rigid_Apparition_Spec); ok {
+		assert(.Quoted not_in inner.flags)
+	}
+
+	Passes :: enum {
+		Hoisting,
+		Ordinary,
+	}
+
+	for pass in Passes {
+		iter := vapf_iter_mk(forest, drop_left_ws = drop_left_ws, drop_right_ws = drop_right_ws)
+		for node in vapf_iter_next(&iter) {
+			if node.data.errors.len > 0 {
+				exparr_push_exparr(eval.errors, node.data.errors)
+				continue
+			}
+
+			// Apparition!
+			if node.data.kind == .Node {
+				switch node.data.tok.content {
+				case "--":
+					continue
+				case "use":
+					(pass == .Ordinary) or_continue
+					panic("TODO")
+				case "def":
+					(pass == .Hoisting) or_continue
+					apt_parse_def(eval, .Skeleton, node) or_continue
+					continue
+				case:
+					binding := scope_and_argument_lookup(
+						spec,
+						eval.scope^,
+						node.data.tok.content,
+					) or_break
+
+					log.infof("found binding %v", binding.name)
+					is_hoisted := false
+					if inner, ok := binding.spec.(Dynamic_Apparition_Spec); ok {
+						is_hoisted = .Hoisted in inner.flags
+					}
+
+					((pass == .Hoisting) == is_hoisted) or_continue
+
+					nested_arguments: Apparition_Evaluation
+
+					// TODO: perhaps do not allow querying apparitions that appear
+					// multiple times here? Or better said, error-out on them.
+					if inner, ok := binding.spec.(Bound_Apparition_Spec); ok {
+						for i in 0 ..< inner.instances.len {
+							instance := exparr_get(inner.instances, i)
+							apt_parse(eval, spec, instance.value, arguments)
+						}
+					}
+
+					is_associative := ap_spec_is_associative(binding.spec)
+
+					// Detect associative bindings
+					if is_associative {
+						apt_parse(eval, spec, node.children, arguments, drop_left_ws = false)
+					} else if inner, ok := binding.spec.(Rigid_Apparition_Spec);
+					   ok && .Quoted in inner.flags {
+						// Handled further below
+					} else {
+						nested_arguments = apt_parse_apparition_application(
+							eval,
+							binding.spec,
+							node.data.tok,
+							node.children,
+						) or_continue
+					}
+
+					switch inner in binding.spec {
+					case Primordial_Apparition_Spec, Etternal_Apparition_Spec:
+						panic("TODO")
+					case Rigid_Apparition_Spec:
+						found := false
+						iter := ap_spec_arg_iter_mk(spec)
+						for arg, i in ap_spec_arg_iter_next(&iter) {
+							(arg.name == binding.name) or_continue
+
+							evaluated: Evaluated_Argument
+							evaluated.at = node.data.tok
+							evaluated.value.allocator = eval.allocator
+
+							if .Quoted in inner.flags {
+								iter := vapf_iter_mk(node.children)
+								for child in vapf_iter_next(&iter) {
+									exparr_push(&evaluated.value, child)
+								}
+							} else if .Associative in inner.flags {
+								// Associative arguments contain no data
+							} else {
+								// QUESTION: should we handle whitespace here?
+								for i in 0 ..< nested_arguments[0].len {
+									nested_argument := exparr_get(nested_arguments[0], i)
+									exparr_push_exparr(&evaluated.value, nested_argument.value)
+								}
+							}
+
+							exparr_push(&arguments[i], evaluated)
+							found = true
+							break
+						}
+
+						assert(found, "Impossible! Argument found then disappeared...")
+					case Bound_Apparition_Spec: // Already handled!
+					case Dynamic_Apparition_Spec:
+						body_scope := nest_scope(eval, inner.scope)
+
+						for i in 0 ..< inner.arguments.len {
+							arg_binding := Binding {
+								name = exparr_get(inner.arguments, i).name,
+								spec = Bound_Apparition_Spec{instances = nested_arguments[i]},
+							}
+							exparr_push(&body_scope.members, arg_binding)
+						}
+
+						body_eval := Evaluator {
+							internal_allocator = eval.internal_allocator,
+							allocator          = eval.allocator,
+							errors             = eval.errors,
+							scope              = body_scope,
+							caller             = eval.scope,
+						}
+
+						log.infof("Evaluating body for %v", binding.name)
+						for i in 0 ..< inner.body.len {
+							apt_parse(body_eval, spec, exparr_get(inner.body, i)^, arguments)
+						}
+					}
+
+					continue
+				}
+			}
+
+			// We only handle ambient arguments in the ordinary pass
+			if pass == .Hoisting do continue
+
+			ambient_arg, has_ambient := ap_spec_find_ambient_arg(spec)
+
+			if !has_ambient {
+				// Error out if we really need an ambient argument
+				kind := node.data.tok.kind
+				if kind != .Newline && kind != .Space {
+					exparr_push(
+						eval.errors,
+						Parsing_Error {
+							node.data.tok,
+							"Underlying apparition has no ambient argument",
+						},
+					)
+				}
+
+				continue
+			}
+
+			instances := &arguments[ambient_arg]
+			log.assertf(
+				instances.len == 1,
+				"Ambient argument has %v instances (1 expected)",
+				instances.len,
+			)
+
+			arg := exparr_get(instances^, 0)
+			exparr_push(&arg.value, node)
+
+			// TODO: clean up spaces at the start/end of ambient sequences
+		}
+	}
+
+	return
+}
+// }}}
+// {{{ String evaluation
+apt_eval_string :: proc(eval: Evaluator, instances: Evaluated_Argument_Instances) -> string {
+	size: uint
+
+	// NOTE(storage): these could really easily be stored on the evaluator
+	// (context), since we never need more than one at a time.
+	segments: Exparr(Token, 3)
+	segments.allocator = eval.internal_allocator
+
+	for i in 0 ..< instances.len {
+		instance := exparr_get(instances, i)
+		iter := vapf_iter_mk(instance.value)
+		for node in vapf_iter_next(&iter) {
+			if node.data.kind == .Node {
+				exparr_push(
+					eval.errors,
+					Parsing_Error{node.data.tok, "Unexpected apparition inside string"},
+				)
+
+				continue
+			}
+
+			tok := node.data.tok
+
+			#partial switch tok.kind {
+			case .Word:
+				exparr_push(&segments, tok)
+				size += len(tok.content)
+			case .Space, .Newline:
+				// Consecutive spaces are truncated
+				if segments.len == 0 || exparr_last(segments).kind == .Space {
+					continue
+				}
+
+				// Inline newlines are turned into spaces
+				tok := Token {
+					content = " ",
+					kind    = .Space,
+					from    = tok.from,
+				}
+
+				exparr_push(&segments, tok)
+				size += 1
+			case:
+				panic("Unknown apparition")
+			}
+		}
+	}
+
+	// Allocate builder for the output string. Should never grow past the given
+	// size!
+	builder := strings.builder_make_len_cap(0, int(size), eval.allocator)
+
+	// Sanity check: attempting to re-allocate the buffer will cause a panic!
+	builder.buf.allocator = runtime.panic_allocator()
+
+	for i in 0 ..< segments.len {
+		tok := exparr_get(segments, i)
+		strings.write_string(&builder, tok.content)
+	}
+
+	return strings.to_string(builder)
+}
+// }}}
+// {{{ Argument queries
+is_arg_given :: proc(
+	spec: Apparition_Spec,
+	args: Apparition_Evaluation,
+	arg_name: string,
+) -> bool {
+	return ap_spec_get_arg(spec, args, arg_name).len > 0
+}
+
+arg_get_name :: proc(
+	eval: Evaluator,
+	spec: Apparition_Spec,
+	at: Token,
+	args: Apparition_Evaluation,
+	arg_name: string,
+) -> (
+	name: string,
+	ok: bool,
+) {
+	raw_name := ap_spec_get_arg(spec, args, arg_name)
+	name = apt_eval_string(eval, raw_name)
+
+	if name == "" {
+		exparr_push(eval.errors, Parsing_Error{at, "Expected name"})
+		return name, false
+	} else if name == "def" || name == "--" || name == "use" {
+		exparr_push(eval.errors, Parsing_Error{at, "Cannot override fundamental apparition"})
+		return name, false
+	}
+
+	return name, true
+}
+// }}}
+
+// Built-in apparitions
+// {{{ Helpers
+// Helper for turning a slice into an exponential array of arguments.
+static_arguments :: proc(slice: ..Apparition_Argument) -> (out: Exparr(Apparition_Argument)) {
+	// HACK(storage): this is terrible (but so is re-generating the whole list
+	// every time). The "proper" solution would be caching these declarations
+	// after generating them once at startup.
+	out.allocator = context.allocator
+	for v in slice do exparr_push(&out, v)
+	return out
 }
 // }}}

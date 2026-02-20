@@ -50,6 +50,11 @@ mps_init :: proc() -> (out: Markup_Printer_State) {
 	return out
 }
 
+@(private = "package")
+mps_destroy :: proc(mps: ^Markup_Printer_State) {
+	strings.builder_destroy(&mps.output)
+}
+
 // Finalizes the pretty printing by generating a string out of all of it
 @(private = "package")
 mps_to_string :: proc(mps: Markup_Printer_State) -> string {
@@ -140,6 +145,28 @@ mps_leaf_labeled_str :: proc(mps: ^Markup_Printer_State, label: string, inner: a
 mps_leaf :: proc(mps: ^Markup_Printer_State, name: string, allow_inline := false) {
 	mps_deeper(mps, name, allow_inline = allow_inline)
 	if allow_inline do mps.inlines_allowed_here = true
+}
+// }}}
+// {{{Helpers for printing other types in one call
+@(private = "package")
+mps_apf_to_string :: proc(apf: Linked_Apf) -> string {
+	mps := mps_init()
+	mps_apparition_forest(&mps, apf)
+	return strings.to_string(mps.output)
+}
+
+@(private = "package")
+mps_dapf_to_string :: proc(dapf: Exp_Apf) -> string {
+	mps := mps_init()
+	mps_distributed_apparition_forest(&mps, dapf)
+	return strings.to_string(mps.output)
+}
+
+@(private = "package")
+mps_scope_to_string :: proc(scope: Scope) -> string {
+	mps := mps_init()
+	mps_scope(&mps, scope)
+	return strings.to_string(mps.output)
 }
 // }}}
 
@@ -379,9 +406,17 @@ mps_apparition_tree :: proc(mps: ^Markup_Printer_State, node: Apt) {
 }
 
 @(private = "package")
-mps_apparition_forest :: proc(mps: ^Markup_Printer_State, cl: Apf) {
+mps_apparition_forest :: proc(mps: ^Markup_Printer_State, cl: Linked_Apf) {
 	for next := cl.next; next != nil; next = next.siblings.next {
 		mps_apparition_tree(mps, next^)
+	}
+}
+
+@(private = "package")
+mps_distributed_apparition_forest :: proc(mps: ^Markup_Printer_State, dapf: Exp_Apf) {
+	iter := vapf_iter_mk(dapf)
+	for node in vapf_iter_next(&iter) {
+		mps_apparition_tree(mps, node)
 	}
 }
 // }}}
@@ -433,6 +468,20 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, source: string) {
 			allocator = allocator,
 		)
 		mps_leaf_labeled_str(mps, "loc", pos)
+	}
+}
+// }}}
+// {{{ Scopes
+@(private = "package")
+mps_scope :: proc(mps: ^Markup_Printer_State, scope: Scope) {
+	for i in 0 ..< scope.members.len {
+		member := exparr_get(scope.members, i)
+		mps_leaf_str(mps, member.name)
+	}
+
+	if scope.parent != nil {
+		mps_deeper(mps, "parent")
+		mps_scope(mps, scope.parent^)
 	}
 }
 // }}}

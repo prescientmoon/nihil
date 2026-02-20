@@ -5,7 +5,7 @@ import "core:log"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	source :: #load("./example.anima", string)
+	source :: #load("./example2.anima", string)
 
 	log.info("Lexer results:")
 	mps := mps_init()
@@ -28,15 +28,38 @@ main :: proc() {
 		} else if parser.error != {} {
 			fmt.println(parser.error)
 		} else {
-			tree_without_comments: Apt_Storage
-			tree_without_comments.nodes.allocator = parser.allocator
-			builder := tb_make(&tree_without_comments)
+			fmt.println(mps_apf_to_string(tree.roots))
 
-			apf_remove_comments(&builder, tree.roots)
+			log.info("Evaluator results:")
+			eval: Evaluator
+			eval.allocator = parser.allocator
+			eval.internal_allocator = parser.internal_allocator
+			eval.errors = new(Exparr(Parsing_Error), allocator = parser.internal_allocator)
+			eval.errors.allocator = eval.allocator
+			eval.scope = new(Scope, allocator = parser.internal_allocator)
+			eval.caller = eval.scope
+			eval.scope.members.allocator = eval.allocator
 
-			mps := mps_init()
-			mps_apparition_forest(&mps, tree_without_comments.roots)
-			fmt.println(mps_to_string(mps))
+			spec: Apparition_Spec = Rigid_Apparition_Spec{}
+
+			args := mk_apparition_parsing_args(eval, spec, {})
+			apt_parse(eval, spec, tree.roots, args)
+
+			if eval.errors.len > 0 {
+				log.infof("Evaluation failed with %v error(s):", eval.errors.len)
+				for i in 0 ..< eval.errors.len {
+					fmt.println(exparr_get(eval.errors^, i))
+				}
+			} else {
+				log.info("Evaluation was successfull!")
+				for i in 0 ..< args[0].len {
+					arg := exparr_get(args[0], i)
+					// fmt.println(arg)
+					fmt.println(mps_dapf_to_string(arg.value))
+				}
+				// fmt.println(args[0])
+				// fmt.println(apt_eval_string(eval, args[0]))
+			}
 		}
 	}
 

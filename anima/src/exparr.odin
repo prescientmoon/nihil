@@ -89,3 +89,9 @@ exparr_reverse :: proc(exparr: Exparr($V, $FCE)) {
 		xp^ = yv
 	}
 }
+
+exparr_push_exparr :: proc(exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)) {
+	for i in 0 ..< elements.len {
+		exparr_push(exparr, exparr_get(elements, i)^)
+	}
+}
