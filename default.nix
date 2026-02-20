@@ -13,8 +13,8 @@ pkgs.lib.fix (self: {
   };
 
   moonythm = pkgs.callPackage ./moonythm {
-    # inherit (sources) moonythm;
-    moonythm = ../moonythm;
+    inherit (sources) moonythm;
+    # moonythm = ../moonythm;
     inherit (self) nihil;
   };
 })
