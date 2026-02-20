@@ -40,7 +40,7 @@ import Nihil.State
   )
 import Nihil.Tree qualified as Tree
 import Relude
-import System.FilePath (takeFileName, (</>))
+import System.FilePath (takeFileName, takeExtension, (</>))
 
 genSite ∷ Context → FileGen ()
 genSite ctx = do
@@ -75,8 +75,11 @@ genForest ctx (Tree.Forest cs) = do
   genTree edge (Tree.Leaf path) = do
     -- NOTE: this is a horrible hack since pico.sh does not allow dotfiles :/
     let filename = takeFileName path
-    unless (filename == ".envrc" || filename == ".gitignore") $
-      Gen.copy (Text.pack edge) path
+    let extension = takeExtension path
+    unless (filename == ".envrc" || filename == ".gitignore") do
+      -- The new language I'm working on
+      unless (extension == ".anima") do
+        Gen.copy (Text.pack edge) path
   genTree edge (Tree.Node page forest) = do
     Gen.dir (Text.pack edge) do
       genPage ctx page
