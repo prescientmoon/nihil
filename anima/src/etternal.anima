@@ -1,0 +1,18 @@
+\skeleton def
+  \arg \ambient name
+  \arg arg
+  \arg \required return
+  \arg \assoc hoisted
+
+\skeleton arg
+  \arg \ambient name
+  \arg \unique required
+  \arg \unique unique
+  \arg \unique ambient
+  \arg \unique quoted
+
+\skeleton tree.for
+  \rest name
+  \once in
+  \once as
+  \once do

@@ -198,3 +198,19 @@ The page's changelog can be written anywhere by using the "change" apparition:
 
 \def zone-headers \return!
   Thing
+
+\def ?maybe
+  \arg \unique \required name
+  \arg \unqiue \required \quoted nothing
+  \arg \unqiue \required \quoted just
+  \return 
+    \?list \name
+      \nil  \delayed \nothing
+      \cons \delayed \just
+
+\?list thing
+  \nil Oops, an empty list!
+  \cons
+    \def my_head \return \head
+    \def my_tail \return \tail
+    \my_head and \my_tail, yay!

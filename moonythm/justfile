@@ -43,6 +43,17 @@ bump-moonythm:
 current-date:
     date --iso-8601=seconds | wl-copy
 
+[doc("Generate a unique ID for a post")]
+gen-id:
+    #!/usr/bin/env bash
+    # Taken from https://gist.github.com/earthgecko/3089509
+    # Explanations taken from my cursory readings of the various manpages.
+    cat /dev/urandom  | # Read random bytes
+      tr -dc 'a-z0-9' | # Delete any character that's not in the given set
+      fold -w 32      | # Insert newlines after 32 characters
+      head -n 1       | # Only take the first line
+      wl-copy           # Copy to clipboard
+
 [group("hot")]
 [doc("Serve the website, automatically reloading on changes")]
 run-hot: build
