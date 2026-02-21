@@ -1,6 +1,7 @@
 package anima
 
 import "base:runtime"
+import "core:mem/virtual"
 import "core:strings"
 import "core:unicode/utf8"
 
@@ -12,10 +13,11 @@ Source_Loc :: struct {
 
 // Note that the "content" property will only be non-null in the case of spacing,
 // words, and apparitions.
-Token :: struct {
+Token :: Token_Of(Token_Kind)
+Token_Of :: struct($Kind: typeid) {
 	from:    Source_Loc,
 	content: string,
-	kind:    Token_Kind,
+	kind:    Kind,
 }
 
 Token_Kind :: enum {
@@ -41,26 +43,27 @@ Token_Kind :: enum {
 // with the source location) will get saved in the "error" property, and the
 // "ok" boolean of the given function will be returned as "false".
 Lexer :: struct {
-	// This allocator will hold onto strings that require unescaping
-	allocator:  runtime.Allocator,
-	source:     string,
-	pos:        Source_Loc,
-	curr:       rune,
-	next_index: uint,
-	error:      struct {
+	escaped_strings: virtual.Arena,
+	source:          string,
+	pos:             Source_Loc,
+	curr:            rune,
+	next_index:      uint,
+	error:           struct {
 		pos: Source_Loc,
 		msg: string,
 	},
 }
 
-mk_lexer :: proc(source: string, allocator := context.allocator) -> (lexer: Lexer, ok: bool) {
+mk_lexer :: proc(source: string) -> (lexer: Lexer, ok: bool) {
 	lexer = Lexer {
-		allocator = allocator,
 		source = source,
 		pos = Source_Loc{line = 1, col = 0, index = 0},
 		curr = 0,
 		next_index = 0,
 	}
+
+	err := virtual.arena_init_static(&lexer.escaped_strings)
+	assert(err == nil)
 
 	advance_rune(&lexer) or_return
 
@@ -176,7 +179,7 @@ consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
 	builder := strings.builder_make_len_cap(
 		0,
 		int(copy.pos.index - lexer.pos.index),
-		lexer.allocator,
+		virtual.arena_allocator(&lexer.escaped_strings),
 	)
 
 	// Sanity check: attempting to re-allocate the buffer will cause a panic!
