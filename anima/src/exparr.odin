@@ -29,7 +29,7 @@ Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 }
 
 @(private = "file")
-exprarr_destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, local_ix: uint) {
+exprarr__destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, local_ix: uint) {
 	total_bits :: uint(8 * size_of(uint))
 	ghost_chunk :: 1 << FCE
 	adjusted_ix := ix + ghost_chunk
@@ -39,20 +39,20 @@ exprarr_destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, l
 	return chunk, local_ix
 }
 
-exparr_get :: proc(exparr: Exparr($V, $FCE), #any_int ix: uint) -> ^V {
+exparr__get :: proc(exparr: Exparr($V, $FCE), #any_int ix: uint) -> ^V {
 	assert(ix < exparr.len)
-	chunk, local_ix := exprarr_destructure_ix(FCE, ix)
+	chunk, local_ix := exprarr__destructure_ix(FCE, ix)
 	return &exparr.chunks[chunk][local_ix]
 }
 
-exparr_last :: proc(exparr: Exparr($V, $FCE)) -> ^V {
+exparr__last :: proc(exparr: Exparr($V, $FCE)) -> ^V {
 	assert(exparr.len > 0)
-	return exparr_get(exparr, exparr.len - 1)
+	return exparr__get(exparr, exparr.len - 1)
 }
 
-exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
+exparr__push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
 	assert(exparr.allocator != {})
-	chunk, lix := exprarr_destructure_ix(FCE, exparr.len)
+	chunk, lix := exprarr__destructure_ix(FCE, exparr.len)
 
 	// Grow
 	if chunk >= len(exparr.chunks) {
@@ -63,6 +63,7 @@ exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
 		)
 		assert(err == nil)
 
+		exparr.chunks.allocator = exparr.allocator
 		append_elem(&exparr.chunks, multiptr)
 	}
 
@@ -72,26 +73,26 @@ exparr_push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
 	return ptr
 }
 
-exparr_pop :: proc(exparr: ^Exparr($V, $FCE)) -> V {
+exparr__pop :: proc(exparr: ^Exparr($V, $FCE)) -> V {
 	assert(exparr.len > 0)
-	v := exparr_get(exparr^, exparr.len - 1)
+	v := exparr__get(exparr^, exparr.len - 1)
 	exparr.len -= 1
 	return v^
 }
 
 // NOTE: this will invalidate pointers to the elements!
-exparr_reverse :: proc(exparr: Exparr($V, $FCE)) {
+exparr__reverse :: proc(exparr: Exparr($V, $FCE)) {
 	for i in 0 ..< exparr.len / 2 {
-		xp := exparr_get(exparr, i)
-		yp := exparr_get(exparr, exparr.len - i - 1)
+		xp := exparr__get(exparr, i)
+		yp := exparr__get(exparr, exparr.len - i - 1)
 		yv := yp^
 		yp^ = xp^
 		xp^ = yv
 	}
 }
 
-exparr_push_exparr :: proc(exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)) {
+exparr__push_exparr :: proc(exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)) {
 	for i in 0 ..< elements.len {
-		exparr_push(exparr, exparr_get(elements, i)^)
+		exparr__push(exparr, exparr__get(elements, i)^)
 	}
 }

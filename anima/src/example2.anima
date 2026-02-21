@@ -1,9 +1,0 @@
-\def short
-  \return long
-
-\def uwu
-  \arg one
-  \arg \ambient spooky
-  \return \spooky \one \spooky
-
-A \short{} sentence \uwu{boo \one value}.
