@@ -15,8 +15,8 @@
     "nixpkgs": {
       "type": "Channel",
       "name": "nixpkgs-unstable",
-      "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.05pre906997.a672be65651c/nixexprs.tar.xz",
-      "hash": "1vjmw739x11bmllig28i11rs5rbs1b8483426f2940kyxjp8myfw"
+      "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.05pre946960.d1c15b7d5806/nixexprs.tar.xz",
+      "hash": "0i1hxm0mcqm561q9gkh8fkzrbpcmcz4l8axq3bhfy65ybx2a53zf"
     },
     "odin": {
       "type": "Git",
