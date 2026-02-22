@@ -9,16 +9,9 @@ import "core:terminal/ansi"
 INDENTATION_INCREMENT :: 2
 MAX_LINE_COLS :: 80
 
-@(private = "file")
 FG_RED :: ansi.CSI + ansi.FG_RED + ansi.SGR
-
-@(private = "file")
 FG_GREEN :: ansi.CSI + ansi.FG_GREEN + ansi.SGR
-
-@(private = "file")
 FG_MAGENTA :: ansi.CSI + ansi.FG_MAGENTA + ansi.SGR
-
-@(private = "file")
 ANSI_RESET :: ansi.CSI + ansi.RESET + ansi.SGR
 
 // State manipulation ----------------------------------------------------------

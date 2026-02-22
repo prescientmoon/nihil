@@ -82,7 +82,7 @@ codec__space :: proc(kit: ^Codec_Kit) -> Typed_Codec(Unit) {
 	return codec
 }
 
-codec__constant :: proc(kit: ^Codec_Kit, $T: typeid, name: string, value: T) -> Typed_Codec(T) {
+codec__constant :: proc(kit: ^Codec_Kit, name: string, value: $T) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
 	codec.data = Codec__Constant {
 		name  = name,
