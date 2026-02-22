@@ -1,6 +1,5 @@
 package anima
 
-import "base:runtime"
 // {{{ Inline
 Inline_Markup__Space :: distinct Unit
 Inline_Markup__Ellipsis :: distinct Unit
@@ -30,38 +29,28 @@ Inline_Markup__Atom :: union {
 // }}}
 // {{{ Codecs
 @(private = "file")
-codec__inline_markup__space :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Space) {
-	return codec__transmute(kit, Inline_Markup__Space, codec__space(kit))
-}
+codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Atom) {
+	imarkup := codec__inline_markup(k)
+	space := codec__transmute(k, Inline_Markup__Space, codec__space(k))
+	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
+	ellipsis := codec__constant(k, "...", Inline_Markup__Ellipsis{})
+	emph := codec__trans_at(k, Inline_Markup__Emph, "_", imarkup)
+	strong := codec__trans_at(k, Inline_Markup__Strong, "*", imarkup)
+	strike := codec__trans_at(k, Inline_Markup__Strikethrough, "~", imarkup)
+	mono := codec__trans_at(k, Inline_Markup__Mono, "`", imarkup)
+	quote := codec__trans_at(k, Inline_Markup__Quote, "\"", imarkup)
 
-@(private = "file")
-codec__inline_markup__text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Text) {
-	return codec__transmute(kit, Inline_Markup__Text, codec__string(kit))
-}
-
-@(private = "file")
-codec__inline_markup__ellipsis :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Ellipsis) {
-	return codec__constant(kit, "...", Inline_Markup__Ellipsis{})
-}
-
-@(private = "file")
-codec__inline_markup__emph :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Emph) {
-	return codec__at(
-		kit,
-		"*",
-		codec__transmute(kit, Inline_Markup__Emph, codec__inline_markup(kit)),
-	)
-}
-
-@(private = "file")
-codec__inline_markup__atom :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Atom) {
 	return codec__sum(
-		kit,
+		k,
 		Inline_Markup__Atom,
-		codec__variant(kit, Inline_Markup__Atom, codec__inline_markup__space(kit)),
-		codec__variant(kit, Inline_Markup__Atom, codec__inline_markup__text(kit)),
-		codec__variant(kit, Inline_Markup__Atom, codec__inline_markup__ellipsis(kit)),
-		codec__variant(kit, Inline_Markup__Atom, codec__inline_markup__emph(kit)),
+		codec__variant(k, Inline_Markup__Atom, space),
+		codec__variant(k, Inline_Markup__Atom, text),
+		codec__variant(k, Inline_Markup__Atom, ellipsis),
+		codec__variant(k, Inline_Markup__Atom, emph),
+		codec__variant(k, Inline_Markup__Atom, strong),
+		codec__variant(k, Inline_Markup__Atom, strike),
+		codec__variant(k, Inline_Markup__Atom, mono),
+		codec__variant(k, Inline_Markup__Atom, quote),
 	)
 }
 

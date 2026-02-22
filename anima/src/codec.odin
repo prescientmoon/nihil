@@ -218,4 +218,14 @@ codec__memo :: proc(
 	lie.codec^ = codec.codec^
 	return lie
 }
+
+// Wrapper around codec__transmute and codec__at.
+codec__trans_at :: proc(
+	kit: ^Codec_Kit,
+	$To: typeid,
+	at: string,
+	inner: Typed_Codec($From),
+) -> Typed_Codec(To) {
+	return codec__at(kit, at, codec__transmute(kit, To, inner))
+}
 // }}}
