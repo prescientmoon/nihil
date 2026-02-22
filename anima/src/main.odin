@@ -18,7 +18,7 @@ main :: proc() {
 	ok := mk_parser(source, &parser)
 	assert(ok, "Failed to create parser")
 
-	raw_output, _ := codec_eval(&parser, codec)
+	raw_output, _ := codec__eval(&parser, codec)
 	virtual.arena_destroy(&parser.codec_output_stack)
 	virtual.arena_destroy(&parser.codec_state_stack)
 	virtual.arena_destroy(&parser.internal_arena)

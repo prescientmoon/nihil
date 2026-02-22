@@ -1,3 +1,4 @@
+#+private file
 package anima
 
 import "base:runtime"
@@ -27,6 +28,7 @@ Parsing_Error :: struct {
 	msg: string,
 }
 
+@(private = "package")
 Parser :: struct {
 	internal_arena:     virtual.Arena, // Every other piece of internal data
 	codec_output_stack: virtual.Arena, // Temporary data for use by Codec__Focus
@@ -39,6 +41,7 @@ Parser :: struct {
 	errors:             Exparr(Parsing_Error),
 }
 
+@(private = "package")
 mk_parser :: proc(source: string, parser: ^Parser) -> (ok: bool) {
 	lexer, lexer_ok := mk_lexer(source)
 	parser.lexer = lexer
@@ -62,13 +65,6 @@ mk_parser :: proc(source: string, parser: ^Parser) -> (ok: bool) {
 }
 // }}}
 // {{{ Memory helpers
-any_copy :: proc(dst, src: any) {
-	src := transmute(runtime.Raw_Any)src
-	dst := transmute(runtime.Raw_Any)dst
-	assert(dst.id == src.id)
-	mem.copy(dst.data, src.data, reflect.size_of_typeid(src.id))
-}
-
 // Similar to the standard library's "new", except the type of the allocation
 // need not be known at compile time.
 dynamic_new :: proc(type: typeid, allocator := context.allocator) -> rawptr {
@@ -86,17 +82,17 @@ advance_token :: proc(parser: ^Parser) {
 	exparr__pop(&parser.tokens)
 }
 
-parser_error :: proc(parser: ^Parser, tok: Token, msg: string) {
+parser__error :: proc(parser: ^Parser, tok: Token, msg: string) {
 	exparr__push(&parser.errors, Parsing_Error{tok, msg})
 }
 
-parser_errorf :: proc(parser: ^Parser, tok: Token, format: string, args: ..any) {
+parser__errorf :: proc(parser: ^Parser, tok: Token, format: string, args: ..any) {
 	allocator := virtual.arena_allocator(&parser.error_arena)
 	msg := fmt.aprintf(format, ..args, allocator = allocator)
-	parser_error(parser, tok, msg)
+	parser__error(parser, tok, msg)
 }
 
-get_indented_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
+parser__get_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
 	// When we run out of tokens, we run the lexer until we hit a non-whitespace
 	// character. These tokens will not get thrown out, but will get adjusted to
 	// match the indentation of the following token.
@@ -106,7 +102,7 @@ get_indented_token :: proc(parser: ^Parser) -> (tok: Token, ok: bool) {
 
 			if !ok {
 				tok.from = parser.lexer.error.pos
-				parser_error(parser, tok, parser.lexer.error.msg)
+				parser__error(parser, tok, parser.lexer.error.msg)
 			}
 
 			itok := Indented_Token {
@@ -160,28 +156,28 @@ Codec_Instance :: struct {
 
 // Count the number of codecs in the current block that care about keeping track
 // of whether they've been completed or not.
-codec_count_completable :: proc(instance: Codec_Instance) -> uint {
+codec__count_completable :: proc(instance: Codec_Instance) -> uint {
 	switch inner in instance.codec.data {
 	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
 		return 0
 	case Codec__Focus:
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		return codec_count_completable(inner_instance)
+		return codec__count_completable(inner_instance)
 	case Codec__Tracked:
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		return codec_count_completable(inner_instance) + 1
+		return codec__count_completable(inner_instance) + 1
 	case Codec__Loop:
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
-		return codec_count_completable(inner_instance)
+		return codec__count_completable(inner_instance)
 	case Codec__Sum:
 		total: uint = 0
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
-			total += codec_count_completable(inner_instance)
+			total += codec__count_completable(inner_instance)
 		}
 
 		return total
@@ -190,7 +186,7 @@ codec_count_completable :: proc(instance: Codec_Instance) -> uint {
 	panic("impossible")
 }
 
-codec_is_completed :: proc(instance: Codec_Instance) -> bool {
+codec__is_completed :: proc(instance: Codec_Instance) -> bool {
 	for completed in instance.completed_codecs {
 		if completed == instance.codec do return true
 	}
@@ -198,18 +194,18 @@ codec_is_completed :: proc(instance: Codec_Instance) -> bool {
 	return false
 }
 
-codec_mark_completed :: proc(instance: Codec_Instance, could_be_completed := true) {
-	if could_be_completed && codec_is_completed(instance) do return
+codec__mark_completed :: proc(instance: Codec_Instance, could_be_completed := true) {
+	if could_be_completed && codec__is_completed(instance) do return
 	append_elem(instance.completed_codecs, instance.codec)
 }
 
-codec_make_completed_state :: proc(instance: Codec_Instance) -> ^[dynamic](^Codec) {
+codec__make_completed_state :: proc(instance: Codec_Instance) -> ^[dynamic](^Codec) {
 	allocator := virtual.arena_allocator(&instance.parser.codec_state_stack)
 
 	completed_codecs := make_dynamic_array_len_cap(
 		[dynamic](^Codec),
 		0,
-		codec_count_completable(instance),
+		codec__count_completable(instance),
 		allocator,
 	)
 
@@ -217,11 +213,11 @@ codec_make_completed_state :: proc(instance: Codec_Instance) -> ^[dynamic](^Code
 	return new_clone(completed_codecs, allocator)
 }
 
-codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bool) {
+codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bool) {
 	switch inner in instance.codec.data {
 	case Codec__Space:
 		for {
-			tok := get_indented_token(instance.parser) or_return
+			tok := parser__get_token(instance.parser) or_return
 			(tok.kind == .Space) or_break
 			advance_token(instance.parser)
 			consumed = true
@@ -235,13 +231,13 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 			instance.codec.type,
 		)
 
-		tok := get_indented_token(instance.parser) or_return
+		tok := parser__get_token(instance.parser) or_return
 		if tok.kind != .Word && tok.kind != .Bang && tok.kind != .Colon do return false, true
 		advance_token(instance.parser)
 		mem.copy(instance.output, &tok.content, size_of(string))
 		return true, true
 	case Codec__Constant:
-		tok := get_indented_token(instance.parser) or_return
+		tok := parser__get_token(instance.parser) or_return
 		if tok.kind != .Apparition do return false, true
 		if tok.content != inner.name do return false, true
 		advance_token(instance.parser)
@@ -261,7 +257,7 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 		inner_instance := instance
 		inner_instance.codec = inner.inner
 		inner_instance.output = inner_output
-		consumed := codec_eval_instance(inner_instance) or_return
+		consumed := codec__eval_instance(inner_instance) or_return
 		if consumed do inner.inject(instance.output, inner_output)
 
 		return consumed, true
@@ -269,13 +265,13 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
-			consumed := codec_eval_instance(inner_instance) or_return
+			consumed := codec__eval_instance(inner_instance) or_return
 			if consumed do return true, true
 		}
 
 		return false, true
 	case Codec__At:
-		tok := get_indented_token(instance.parser) or_return
+		tok := parser__get_token(instance.parser) or_return
 		if tok.kind != .Apparition do return false, true
 		if tok.content != inner.name do return false, true
 		advance_token(instance.parser)
@@ -287,21 +283,21 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 		// TODO: handle proper argument syntax here
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		inner_instance.completed_codecs = codec_make_completed_state(inner_instance)
+		inner_instance.completed_codecs = codec__make_completed_state(inner_instance)
 
-		consumed = codec_eval_instance(inner_instance) or_return
+		consumed = codec__eval_instance(inner_instance) or_return
 		// TODO: check "required" flags
 		return consumed, true
 	case Codec__Tracked:
 		inner_instance := instance
 		inner_instance.codec = inner.inner
 
-		is_completed := codec_is_completed(inner_instance)
+		is_completed := codec__is_completed(inner_instance)
 		if is_completed && inner.unique do return false, true
 
-		consumed = codec_eval_instance(inner_instance) or_return
+		consumed = codec__eval_instance(inner_instance) or_return
 		if !is_completed && consumed {
-			codec_mark_completed(inner_instance, could_be_completed = false)
+			codec__mark_completed(inner_instance, could_be_completed = false)
 		}
 
 		return consumed, true
@@ -309,7 +305,7 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
 
-		for codec_eval_instance(inner_instance) or_return {
+		for codec__eval_instance(inner_instance) or_return {
 			consumed = true
 		}
 
@@ -321,7 +317,8 @@ codec_eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: bo
 	log.panic("impossible", instance.codec)
 }
 
-codec_eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool) {
+@(private = "package")
+codec__eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool) {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
 
@@ -335,10 +332,10 @@ codec_eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool)
 		output = output,
 	}
 
-	instance.completed_codecs = codec_make_completed_state(instance)
+	instance.completed_codecs = codec__make_completed_state(instance)
 
 	// TODO: check "required" flags
-	consumed, eval_ok := codec_eval_instance(instance)
+	consumed, eval_ok := codec__eval_instance(instance)
 	if !eval_ok || !consumed {
 		virtual.arena_temp_end(temp_output)
 		return nil, eval_ok
