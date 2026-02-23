@@ -27,7 +27,6 @@ Token_Kind :: enum {
 	LCurly,
 	RCurly,
 	Apparition,
-	Colon,
 	Newline,
 	Space,
 	Eof,
@@ -138,12 +137,12 @@ next_rune_is_text_char :: proc(lexer: Lexer) -> (width: uint) {
 		return 0
 	case '\\':
 		switch nch {
-		case '{', '}', '!', ':', '\\', '\n', '\r', '\t', ' ':
+		case '{', '}', '!', '\\', '\n', '\r', '\t', ' ':
 			return 2
 		case:
 			return 0
 		}
-	case '{', '}', '!', ':', '\n', '\r', '\t', ' ':
+	case '{', '}', '!', '\n', '\r', '\t', ' ':
 		return 0
 	case:
 		return 1
@@ -213,24 +212,17 @@ tokenize :: proc(lexer: ^Lexer) -> (tok: Token, ok: bool) {
 	switch char {
 	case {}:
 		break
-	case '{', '}', '!', ':':
+	case '{', '}', '!':
 		@(rodata, static)
 		KIND_TABLE: [128]Token_Kind = {
 			'{' = .LCurly,
 			'}' = .RCurly,
-			':' = .Colon,
 			'!' = .Bang,
 		}
 
 		tok.kind = KIND_TABLE[char]
-
-		l := 0
-		for lexer.curr == char {
-			advance_rune(lexer) or_return
-			l += 1
-		}
-
-		tok.content = lexer.source[tok.from.index:][:l]
+		advance_rune(lexer) or_return
+		tok.content = lexer.source[tok.from.index:][:1]
 	case '\n':
 		tok.kind = .Newline
 		advance_rune(lexer) or_return
