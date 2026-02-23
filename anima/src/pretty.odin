@@ -2,6 +2,7 @@
 package anima
 
 import "core:fmt"
+import "core:log"
 import "core:strings"
 import "core:terminal/ansi"
 
@@ -145,6 +146,13 @@ mps__inline_markup_to_string :: proc(inline_markup: Inline_Markup) -> string {
 	return mps__to_string(mps)
 }
 
+@(private = "package")
+mps__block_markup_to_string :: proc(block_markup: Block_Markup) -> string {
+	mps := mps__init()
+	mps__block_markup(&mps, block_markup)
+	return mps__to_string(mps)
+}
+
 // @(private = "package")
 // mps_dapf_to_string :: proc(dapf: Exp_Apf) -> string {
 // 	mps := mps__init()
@@ -219,6 +227,64 @@ mps__inline_markup :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup) {
 	for i in 0 ..< markup.elements.len {
 		inner := exparr__get(markup.elements, i)
 		mps__inline_markup__atom(mps, inner^)
+	}
+}
+// }}}
+// {{{ Block markup
+mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup__Atom) {
+	switch inner in markup {
+	case nil:
+		mps__leaf(mps, "none", allow_inline = true)
+	case Block_Markup__Paragraph:
+		mps__deeper(mps, "paragraph")
+		mps__inline_markup(mps, Inline_Markup(inner))
+	case Block_Markup__Blockquote:
+		mps__deeper(mps, "blockquote")
+		mps__block_markup(mps, Block_Markup(inner))
+	case Block_Markup__Image:
+		mps__deeper(mps, "image")
+		mps__leaf_labeled_str(mps, "source", inner.source)
+		mps__deeper(mps, "alt")
+		mps__inline_markup(mps, inner.alt)
+	case Block_Markup__Description:
+		mps__leaf(mps, "embed-description")
+	case Block_Markup__Table_Of_Contents:
+		mps__leaf(mps, "table-of-contents")
+	case Block_Markup__Thematic_Break:
+		mps__leaf(mps, "thematic-break")
+	case Block_Markup__Figure:
+		mps__deeper(mps, "figure")
+		{mps__deeper(mps, "caption"); mps__inline_markup(mps, inner.caption)}
+		mps__block_markup(mps, inner.content)
+	case Block_Markup__List:
+		mps__deeper(mps, "list")
+
+		if inner.ordered do mps__leaf(mps, "ordered")
+		else do mps__leaf(mps, "unordered")
+		if inner.block do mps__leaf(mps, "block")
+		else do mps__leaf(mps, "inline")
+
+		switch elements in inner.elements {
+		case Exparr(Inline_Markup):
+			for i in 0 ..< elements.len {
+				mps__deeper(mps, "item")
+				mps__inline_markup(mps, exparr__get(elements, i)^)
+			}
+		case Exparr(Block_Markup):
+			for i in 0 ..< elements.len {
+				mps__deeper(mps, "item")
+				mps__block_markup(mps, exparr__get(elements, i)^)
+			}
+		}
+	case:
+		mps__leaf(mps, "unknown", allow_inline = true)
+	}
+}
+
+mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
+	for i in 0 ..< markup.elements.len {
+		inner := exparr__get(markup.elements, i)
+		mps__block_markup__atom(mps, inner^)
 	}
 }
 // }}}

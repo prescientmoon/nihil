@@ -69,3 +69,97 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	)
 }
 // }}}
+
+// {{{ Block
+Block_Markup__Paragraph :: distinct Inline_Markup
+
+Block_Markup__Image :: struct {
+	alt:    Inline_Markup,
+	source: string,
+}
+
+Block_Markup__Figure :: struct {
+	caption: Inline_Markup,
+	content: Block_Markup,
+}
+
+Block_Markup__List :: struct {
+	ordered:  bool,
+	block:    bool,
+	elements: union #no_nil {
+		Exparr(Inline_Markup),
+		Exparr(Block_Markup),
+	},
+}
+
+Block_Markup__Blockquote :: distinct Block_Markup
+Block_Markup__Description :: distinct Unit
+Block_Markup__Table_Of_Contents :: distinct Unit
+Block_Markup__Thematic_Break :: distinct Unit
+
+Block_Markup__Atom :: union {
+	Block_Markup__Paragraph,
+	Block_Markup__Image,
+	Block_Markup__Figure,
+	Block_Markup__List,
+	Block_Markup__Blockquote,
+	Block_Markup__Description,
+	Block_Markup__Table_Of_Contents,
+	Block_Markup__Thematic_Break,
+}
+
+Block_Markup :: struct {
+	elements: Exparr(Block_Markup__Atom),
+}
+// }}}
+// {{{ Codecs
+@(private = "file")
+codec__block_markup__image :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__Image) {
+	// TODO: replace this with codec__text once that's implemented
+	source := codec__at(k, "source", codec__once(k, codec__string(k)))
+	source_ref := codec__field(k, "source", Block_Markup__Image, source)
+	alt := codec__inline_markup(k)
+	alt_ref := codec__field(k, "alt", Block_Markup__Image, alt)
+	return codec__loop(k, codec__sum(k, Block_Markup__Image, source_ref, alt_ref))
+}
+
+@(private = "file")
+codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__Atom) {
+	imarkup := codec__inline_markup(k)
+	bmarkup := codec__block_markup(k)
+	description := codec__constant(k, "embed-description", Block_Markup__Description{})
+	thematic_break := codec__constant(k, "---", Block_Markup__Thematic_Break{})
+	table_of_contents := codec__constant(k, "toc", Block_Markup__Table_Of_Contents{})
+	blockquote := codec__trans_at(k, Block_Markup__Blockquote, ">", bmarkup)
+	image := codec__at(k, "image", codec__block_markup__image(k))
+	// Block_Markup__Paragraph,
+	// Block_Markup__Figure,
+	// Block_Markup__List,
+
+	return codec__sum(
+		k,
+		Block_Markup__Atom,
+		codec__forget(k, Block_Markup__Atom, codec__space(k)),
+		codec__variant(k, Block_Markup__Atom, blockquote),
+		codec__variant(k, Block_Markup__Atom, description),
+		codec__variant(k, Block_Markup__Atom, table_of_contents),
+		codec__variant(k, Block_Markup__Atom, thematic_break),
+		codec__variant(k, Block_Markup__Atom, image),
+	)
+}
+
+codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
+	return codec__memo(
+		kit,
+		Block_Markup,
+		"block_markup",
+		proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
+			return codec__transmute(
+				kit,
+				Block_Markup,
+				codec__exparr(kit, codec__block_markup__atom(kit), non_zero = true),
+			)
+		},
+	)
+}
+// }}}

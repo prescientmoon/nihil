@@ -9,7 +9,7 @@ main :: proc() {
 
 	kit: Codec_Kit
 	codec__mk_kit(&kit)
-	codec := codec__inline_markup(&kit)
+	codec := codec__block_markup(&kit)
 	virtual.arena_destroy(&kit.memo_arena)
 	defer virtual.arena_destroy(&kit.codec_arena)
 
@@ -18,7 +18,7 @@ main :: proc() {
 	ok := mk_parser(source, &parser)
 	assert(ok, "Failed to create parser")
 
-	raw_output, _ := codec__eval(&parser, codec)
+	raw_output, consumed := codec__eval(&parser, codec)
 	virtual.arena_destroy(&parser.codec_output_stack)
 	virtual.arena_destroy(&parser.codec_state_stack)
 	virtual.arena_destroy(&parser.internal_arena)
@@ -32,8 +32,8 @@ main :: proc() {
 			log.error(err.msg, err.tok)
 		}
 	} else {
-		output: ^Inline_Markup = cast(^Inline_Markup)raw_output
+		output: ^Block_Markup = cast(^Block_Markup)raw_output
 		log.debug("Finished")
-		fmt.println(mps__inline_markup_to_string(output^))
+		fmt.println(mps__block_markup_to_string(output^))
 	}
 }

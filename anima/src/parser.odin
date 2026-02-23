@@ -261,8 +261,9 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: b
 		defer virtual.arena_temp_end(temp)
 		allocator := virtual.arena_allocator(&instance.parser.codec_output_stack)
 
-		// project & inject can reference this
+		// project & inject can reference these
 		context.allocator = virtual.arena_allocator(&instance.parser.output_arena)
+		context.user_ptr = inner.user_data
 
 		inner_output := dynamic_new(inner.inner.type, allocator)
 		inner.project(instance.output, inner_output)
@@ -369,6 +370,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool, ok: b
 @(private = "package")
 codec__eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool) {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
+	defer virtual.arena_temp_ignore(temp_output)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
 
 	temp_state := virtual.arena_temp_begin(&parser.codec_state_stack)
@@ -384,13 +386,7 @@ codec__eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool
 	instance.completed_codecs = codec__make_completed_state(instance)
 
 	// TODO: check "required" flags
-	consumed, eval_ok := codec__eval_instance(instance)
-	if !eval_ok || !consumed {
-		virtual.arena_temp_end(temp_output)
-		return nil, eval_ok
-	} else {
-		virtual.arena_temp_ignore(temp_output)
-		return output, true
-	}
+	_ = codec__eval_instance(instance) or_return
+	return output, true
 }
 // }}}
