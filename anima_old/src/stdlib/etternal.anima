@@ -1,0 +1,22 @@
+\skeleton def
+  \rest name
+  \many once
+  \many flag
+  \sure rest
+
+\skeleton rest
+  \rest name
+  \flag quoted
+  \flag raw
+
+\skeleton arg
+  \rest arg
+
+  \return' something
+
+$var, $func{...}, $func ..., $func! ...
+$†hoisted-var ...
+--flag
+\some-arg value
+\some-arg' quoted
+\some-arg'' raw

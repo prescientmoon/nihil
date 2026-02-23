@@ -1,0 +1,17 @@
+\†def list.splat
+  \rest list
+  \once as
+  \return \list.for \$list \as{item} \do \${\as} \$item
+
+\†def list.for
+  \rest list
+  \once as
+  \once do \quoted
+  \return \tree.for item \in{$list} \as{\$as} \do \$do
+    
+\†def tree.get
+  \rest name
+  \once in
+  \return \list.for \$name \in{\in} \as{item} \do \item \$item 
+
+\def suzu \return Suzu uwu \`{:3}
