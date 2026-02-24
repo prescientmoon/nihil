@@ -28,6 +28,12 @@ Inline_Markup__Strong :: distinct Inline_Markup
 Inline_Markup__Strikethrough :: distinct Inline_Markup
 Inline_Markup__Mono :: distinct Inline_Markup
 Inline_Markup__Quote :: distinct Inline_Markup
+Inline_Markup__Icon :: distinct Contiguous_Text
+Inline_Markup__Fn :: distinct Contiguous_Text
+Inline_Markup__Link :: struct {
+	id:    Contiguous_Text,
+	label: Inline_Markup,
+}
 
 // Using distinct runs into circular types issue (for no reason)
 Inline_Markup :: struct {
@@ -44,6 +50,9 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Strikethrough,
 	Inline_Markup__Mono,
 	Inline_Markup__Quote,
+	Inline_Markup__Icon,
+	Inline_Markup__Fn,
+	Inline_Markup__Link,
 }
 // }}}
 // {{{ Codecs
@@ -213,19 +222,11 @@ Table :: struct {
 // }}}
 // {{{ Codecs
 @(private = "file")
-codec__table__cell :: proc(k: ^Codec_Kit) -> Typed_Codec(Table__Cell) {
-	return codec__field(k, "content", Table__Cell, codec__inline_markup(k))
-}
-
-@(private = "file")
-codec__table__row :: proc(k: ^Codec_Kit) -> Typed_Codec(Table__Row) {
-	cell := codec__at(k, "cell", codec__table__cell(k))
-	return codec__field(k, "cells", Table__Row, codec__spaced_exparr(k, cell))
-}
-
-@(private = "file")
 codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
-	row := codec__table__row(k)
+	cell_payload := codec__field(k, "content", Table__Cell, codec__inline_markup(k))
+	cell := codec__at(k, "cell", cell_payload)
+	row := codec__field(k, "cells", Table__Row, codec__spaced_exparr(k, cell))
+
 	caption := codec__field(k, "caption", Table, codec__inline_markup(k))
 	header := codec__field_at(k, "header", Table, codec__once(k, row))
 	rows := codec__field(k, "rows", Table, codec__exparr(k, codec__at(k, "row", row)))

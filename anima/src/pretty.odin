@@ -205,21 +205,24 @@ mps__inline_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Inline_Mark
 	case Inline_Markup__Quote:
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
-	// case .Fn:
-	// 	mps__leaf_labeled_str(mps, "fn", markup.raw)
-	// case .Icon:
-	// 	mps__leaf_labeled_str(mps, "icon", markup.raw)
+	case Inline_Markup__Icon:
+		// NOTE: these should ideally use mps__leaf_labeled_str, except that doesn't
+		// currently accept Contiguous_Text...
+		mps__deeper(mps, "icon")
+		mps__contiguous_text(mps, Contiguous_Text(inner))
+	case Inline_Markup__Fn:
+		mps__deeper(mps, "fn")
+		mps__contiguous_text(mps, Contiguous_Text(inner))
+	case Inline_Markup__Link:
+		mps__deeper(mps, "link")
+		mps__contiguous_text(mps, inner.id)
+		if inner.label.elements.len != 0 {
+			mps__deeper(mps, "label")
+			mps__inline_markup(mps, inner.label)
+		}
 	// case .LaTeX:
 	// 	mps__leaf_labeled_str(mps, "math", markup.raw)
-	// case .Link:
-	// 	mps__deeper(mps, "link")
-	//
-	// 	if markup.link.label.kind != .None {
-	// 		mps__deeper(mps, "label")
-	// 		mps__inline_markup(mps, markup.link.label^)
-	// 	}
-	//
-	// 	mps__leaf_labeled_str(mps, "id", markup.link.id)
+	// cps__leaf_labeled_str(mps, "id", markup.link.id)
 	// case .Date:
 	// 	mps__deeper(mps, "date")
 	// 	if markup.time.compact do mps__leaf(mps, "compact")
@@ -371,6 +374,7 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, source: string) {
 			lexer.error.pos.col,
 			allocator = allocator,
 		)
+
 		mps__leaf_labeled_str(mps, "loc", pos)
 	}
 }
