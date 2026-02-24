@@ -1,5 +1,28 @@
 package anima
 
+// {{{ Contiguous text
+// A sequence of text where all the whitespace in the source is discarded
+Contiguous_Text :: distinct Exparr(string)
+codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
+	return codec__memo(
+		kit,
+		Contiguous_Text,
+		"contiguous_text",
+		proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
+			return codec__transmute(
+				kit,
+				Contiguous_Text,
+				codec__exparr(
+					kit,
+					codec__sum(kit, string, codec__space(kit, string), codec__string(kit)),
+					non_zero = true,
+				),
+			)
+		},
+	)
+}
+// }}}
+
 // {{{ Inline
 Inline_Markup__Space :: distinct Unit
 Inline_Markup__Ellipsis :: distinct Unit
@@ -31,7 +54,7 @@ Inline_Markup__Atom :: union {
 @(private = "file")
 codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Atom) {
 	imarkup := codec__inline_markup(k)
-	space := codec__transmute(k, Inline_Markup__Space, codec__space(k))
+	space := codec__space(k, Inline_Markup__Space)
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
 	ellipsis := codec__constant(k, "...", Inline_Markup__Ellipsis{})
 	emph := codec__trans_at(k, Inline_Markup__Emph, "_", imarkup)
@@ -75,7 +98,7 @@ Block_Markup__Paragraph :: distinct Inline_Markup
 
 Block_Markup__Image :: struct {
 	alt:    Inline_Markup,
-	source: string,
+	source: Contiguous_Text,
 }
 
 Block_Markup__Figure :: struct {
@@ -100,7 +123,7 @@ Block_Markup__Thematic_Break :: distinct Unit
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
-	Block_Markup__Figure, // todo
+	Block_Markup__Figure,
 	Block_Markup__List, // todo
 	Block_Markup__Blockquote,
 	Block_Markup__Description,
@@ -115,8 +138,7 @@ Block_Markup :: struct {
 // {{{ Codecs
 @(private = "file")
 codec__block_markup__image :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__Image) {
-	// TODO: replace this with codec__text once that's implemented
-	source := codec__at(k, "source", codec__once(k, codec__string(k)))
+	source := codec__at(k, "source", codec__once(k, codec__contiguous_text(k)))
 	source_ref := codec__field(k, "source", Block_Markup__Image, source)
 	alt := codec__inline_markup(k)
 	alt_ref := codec__field(k, "alt", Block_Markup__Image, alt)
@@ -148,7 +170,7 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	return codec__sum(
 		k,
 		Block_Markup__Atom,
-		codec__forget(k, Block_Markup__Atom, codec__space(k)),
+		codec__space(k, Block_Markup__Atom),
 		codec__variant(k, Block_Markup__Atom, blockquote),
 		codec__variant(k, Block_Markup__Atom, description),
 		codec__variant(k, Block_Markup__Atom, table_of_contents),
@@ -172,5 +194,17 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 			)
 		},
 	)
+}
+// }}}
+
+// {{{ Pages
+Linkdef :: struct {
+	id:     string,
+	target: string,
+	label:  Inline_Markup,
+}
+
+Page :: struct {
+	links: Exparr(Linkdef),
 }
 // }}}

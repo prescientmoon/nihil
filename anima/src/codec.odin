@@ -1,5 +1,6 @@
 package anima
 
+import "base:runtime"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
@@ -85,8 +86,8 @@ codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
 	return {codec}
 }
 
-codec__space :: proc(kit: ^Codec_Kit) -> Typed_Codec(Unit) {
-	codec := codec__make(kit, Unit)
+codec__space :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
+	codec := codec__make(kit, T)
 	codec.data = Codec__Space{}
 	return codec
 }
