@@ -27,6 +27,7 @@ Codec__Tracked :: struct {
 }
 
 Codec__Loop :: distinct ^Codec
+Codec__Paragraph :: distinct ^Codec // Terminated by two consecutive newlines
 Codec__Sum :: distinct []Codec
 Codec__Focus :: struct {
 	inner:     ^Codec,
@@ -46,6 +47,7 @@ Codec :: struct {
 		Codec__Sum,
 		Codec__Focus,
 		Codec__Loop,
+		Codec__Paragraph,
 	},
 }
 // }}}
@@ -63,9 +65,11 @@ Codec_Kit :: struct {
 	codec_arena: virtual.Arena,
 	memo_arena:  virtual.Arena,
 	memoized:    Exparr(Memoized_Codec),
+	statistics:  ^Statistics,
 }
 
-codec__mk_kit :: proc(kit: ^Codec_Kit) {
+codec__mk_kit :: proc(kit: ^Codec_Kit, statistics: ^Statistics) {
+	kit.statistics = statistics
 	err := virtual.arena_init_static(&kit.codec_arena)
 	assert(err == nil)
 	err = virtual.arena_init_static(&kit.memo_arena)
@@ -74,6 +78,7 @@ codec__mk_kit :: proc(kit: ^Codec_Kit) {
 }
 
 codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
+	kit.statistics.codecs += 1
 	codec, err := new(Codec, virtual.arena_allocator(&kit.codec_arena))
 	codec.type = T
 	assert(err == nil)
@@ -329,5 +334,11 @@ codec__tracked :: proc(
 // Marks a codec as both unique and required.
 codec__once :: proc(kit: ^Codec_Kit, codec: Typed_Codec($T)) -> Typed_Codec(T) {
 	return codec__tracked(kit, codec, unique = true, required = true)
+}
+
+codec__para :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
+	codec := codec__make(kit, T)
+	codec.data = Codec__Paragraph(inner.codec)
+	return codec
 }
 // }}}

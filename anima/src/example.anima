@@ -1,5 +1,13 @@
 \> \---
 
-\image
-  \source{thing}
-  Hi, this is the alt!
+Here's a paragraph!
+It can continue on another line, and contain stuff like \*{this}!
+
+It can still be broken off though!
+
+\figure \caption Ummm, this is the caption, I guess :3
+  \image
+    \source{thing}
+    Hi, this is the alt!
+
+Other block elements do this as well!

@@ -13,11 +13,10 @@ Source_Loc :: struct {
 
 // Note that the "content" property will only be non-null in the case of spacing,
 // words, and apparitions.
-Token :: Token_Of(Token_Kind)
-Token_Of :: struct($Kind: typeid) {
+Token :: struct {
 	from:    Source_Loc,
 	content: string,
-	kind:    Kind,
+	kind:    Token_Kind,
 }
 
 Token_Kind :: enum {
@@ -42,7 +41,7 @@ Token_Kind :: enum {
 // with the source location) will get saved in the "error" property, and the
 // "ok" boolean of the given function will be returned as "false".
 Lexer :: struct {
-	escaped_strings: virtual.Arena,
+	escaped_strings: ^virtual.Arena,
 	source:          string,
 	pos:             Source_Loc,
 	curr:            rune,
@@ -53,16 +52,13 @@ Lexer :: struct {
 	},
 }
 
-mk_lexer :: proc(source: string) -> (lexer: Lexer, ok: bool) {
+lexer__make :: proc(source: string, out_arena: ^virtual.Arena) -> (lexer: Lexer, ok: bool) {
 	lexer = Lexer {
 		source = source,
 		pos = Source_Loc{line = 1, col = 0, index = 0},
 		curr = 0,
 		next_index = 0,
 	}
-
-	err := virtual.arena_init_static(&lexer.escaped_strings)
-	assert(err == nil)
 
 	advance_rune(&lexer) or_return
 
@@ -178,7 +174,7 @@ consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
 	builder := strings.builder_make_len_cap(
 		0,
 		int(copy.pos.index - lexer.pos.index),
-		virtual.arena_allocator(&lexer.escaped_strings),
+		virtual.arena_allocator(lexer.escaped_strings),
 	)
 
 	// Sanity check: attempting to re-allocate the buffer will cause a panic!

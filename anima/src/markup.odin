@@ -100,8 +100,8 @@ Block_Markup__Thematic_Break :: distinct Unit
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
-	Block_Markup__Figure,
-	Block_Markup__List,
+	Block_Markup__Figure, // todo
+	Block_Markup__List, // todo
 	Block_Markup__Blockquote,
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
@@ -124,6 +124,14 @@ codec__block_markup__image :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__I
 }
 
 @(private = "file")
+codec__block_markup__figure :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__Figure) {
+	caption := codec__at(k, "caption", codec__once(k, codec__inline_markup(k)))
+	caption_ref := codec__field(k, "caption", Block_Markup__Figure, caption)
+	content := codec__field(k, "content", Block_Markup__Figure, codec__block_markup(k))
+	return codec__loop(k, codec__sum(k, Block_Markup__Figure, caption_ref, content))
+}
+
+@(private = "file")
 codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__Atom) {
 	imarkup := codec__inline_markup(k)
 	bmarkup := codec__block_markup(k)
@@ -132,7 +140,8 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	table_of_contents := codec__constant(k, "toc", Block_Markup__Table_Of_Contents{})
 	blockquote := codec__trans_at(k, Block_Markup__Blockquote, ">", bmarkup)
 	image := codec__at(k, "image", codec__block_markup__image(k))
-	// Block_Markup__Paragraph,
+	figure := codec__at(k, "figure", codec__block_markup__figure(k))
+	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
 	// Block_Markup__Figure,
 	// Block_Markup__List,
 
@@ -145,6 +154,8 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 		codec__variant(k, Block_Markup__Atom, table_of_contents),
 		codec__variant(k, Block_Markup__Atom, thematic_break),
 		codec__variant(k, Block_Markup__Atom, image),
+		codec__variant(k, Block_Markup__Atom, figure),
+		codec__variant(k, Block_Markup__Atom, para),
 	)
 }
 
