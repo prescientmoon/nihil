@@ -10,4 +10,15 @@ It can still be broken off though!
     \source{thing  sldkfjsldfkj }
     Hi, this is the alt!
 
+\table
+  yo yo yo
+  \header 
+    \cell one
+    \cell two
+    \cell three
+    \cell and go!
+  \row \cell{} \cell{} \cell{meow} \cell{}
+  \row \cell{boo} \cell{} \cell{} \cell{}
+  \row \cell{boo} \cell{} \cell{} \cell{aaaaaa}
+
 Other block elements do this as well!

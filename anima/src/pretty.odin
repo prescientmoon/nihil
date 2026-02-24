@@ -265,6 +265,33 @@ mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup
 		mps__deeper(mps, "figure")
 		{mps__deeper(mps, "caption"); mps__inline_markup(mps, inner.caption)}
 		mps__block_markup(mps, inner.content)
+	case Table:
+		mps__deeper(mps, "table")
+
+		if inner.caption.elements.len != 0 {
+			mps__deeper(mps, "caption")
+			mps__inline_markup(mps, inner.caption)
+		}
+
+		mps__table_cell :: proc(mps: ^Markup_Printer_State, cell: Table__Cell) {
+			mps__inline_markup(mps, cell.content)
+		}
+
+		mps__table_row :: proc(mps: ^Markup_Printer_State, row: Table__Row) {
+			for i in 0 ..< row.cells.len {
+				cell := exparr__get(row.cells, i)^
+				mps__deeper(mps, "cell")
+				mps__table_cell(mps, cell)
+			}
+		}
+
+		{mps__deeper(mps, "header"); mps__table_row(mps, inner.header)}
+
+		for i in 0 ..< inner.rows.len {
+			row := exparr__get(inner.rows, i)^
+			mps__deeper(mps, "row")
+			mps__table_row(mps, row)
+		}
 	case Block_Markup__List:
 		mps__deeper(mps, "list")
 

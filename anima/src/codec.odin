@@ -2,7 +2,6 @@ package anima
 
 import "base:runtime"
 import "core:log"
-import "core:mem"
 import "core:mem/virtual"
 import "core:reflect"
 
@@ -232,30 +231,37 @@ codec__forget :: proc(
 	return codec__focus(kit, inner, noop, noop)
 }
 
-codec__exparr :: proc(
-	kit: ^Codec_Kit,
-	inner: Typed_Codec($T),
-	non_zero := false,
-) -> Typed_Codec(Exparr(T)) {
-	User_Data :: struct {
-		non_zero: bool,
-	}
-
-	allocator := virtual.arena_allocator(&kit.codec_arena)
-	user_data, err := new_clone(User_Data{non_zero}, allocator)
-	log.assert(err == nil)
-
+codec__exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
 	project :: proc(o: ^Exparr(T), i: ^T) {}
 	inject :: proc(o: ^Exparr(T), i: ^T) {
-		user_data := (cast(^User_Data)context.user_ptr)^
 		if o.allocator == {} do o.allocator = context.allocator
-		if !user_data.non_zero || !mem.check_zero(mem.ptr_to_bytes(i)) {
-			exparr__push(o, i^)
+		exparr__push(o, i^)
+	}
+
+	return codec__loop(kit, codec__focus(kit, inner, project, inject))
+}
+
+// Similar to codec__exparr, except spaces can appear freely in between the
+// elements.
+codec__spaced_exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
+	project :: proc(o: ^Exparr(T), i: ^Maybe(T)) {}
+	inject :: proc(o: ^Exparr(T), i: ^Maybe(T)) {
+		if o.allocator == {} do o.allocator = context.allocator
+		if value, ok := i.(T); ok {
+			exparr__push(o, value)
 		}
 	}
 
-	return codec__loop(kit, codec__focus(kit, inner, project, inject, user_data))
+	inner_sum := codec__sum(
+		kit,
+		Maybe(T),
+		codec__variant(kit, Maybe(T), inner),
+		codec__space(kit, Maybe(T)),
+	)
+
+	return codec__loop(kit, codec__focus(kit, inner_sum, project, inject))
 }
+
 
 codec__sum :: proc(kit: ^Codec_Kit, $T: typeid, codecs: ..Typed_Codec(T)) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
@@ -307,11 +313,21 @@ codec__memo :: proc(
 // Wrapper around codec__transmute and codec__at.
 codec__trans_at :: proc(
 	kit: ^Codec_Kit,
-	$To: typeid,
 	at: string,
+	$To: typeid,
 	inner: Typed_Codec($From),
 ) -> Typed_Codec(To) {
 	return codec__at(kit, at, codec__transmute(kit, To, inner))
+}
+
+// Wrapper around codec__field and codec__at.
+codec__field_at :: proc(
+	kit: ^Codec_Kit,
+	at: string,
+	$To: typeid,
+	inner: Typed_Codec($From),
+) -> Typed_Codec(To) {
+	return codec__at(kit, at, codec__field(kit, at, To, inner))
 }
 
 codec__tracked :: proc(

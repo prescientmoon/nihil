@@ -338,7 +338,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		defer exparr__pop(&instance.parser.stack)
 
 		parser__skip_spaces(instance)
-		consumed = codec__eval_instance(inner_instance)
+		codec__eval_instance(inner_instance)
 		last_tok := parser__get_token(instance)
 
 		if elem.kind == .Bracketed {
@@ -355,7 +355,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		}
 
 		// TODO: check "required" flags
-		return consumed
+		return true
 	case Codec__Tracked:
 		inner_instance := instance
 		inner_instance.codec = inner.inner

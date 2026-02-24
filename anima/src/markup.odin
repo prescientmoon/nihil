@@ -12,11 +12,7 @@ codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) 
 			return codec__transmute(
 				kit,
 				Contiguous_Text,
-				codec__exparr(
-					kit,
-					codec__sum(kit, string, codec__space(kit, string), codec__string(kit)),
-					non_zero = true,
-				),
+				codec__spaced_exparr(kit, codec__string(kit)),
 			)
 		},
 	)
@@ -57,11 +53,11 @@ codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__
 	space := codec__space(k, Inline_Markup__Space)
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
 	ellipsis := codec__constant(k, "...", Inline_Markup__Ellipsis{})
-	emph := codec__trans_at(k, Inline_Markup__Emph, "_", imarkup)
-	strong := codec__trans_at(k, Inline_Markup__Strong, "*", imarkup)
-	strike := codec__trans_at(k, Inline_Markup__Strikethrough, "~", imarkup)
-	mono := codec__trans_at(k, Inline_Markup__Mono, "`", imarkup)
-	quote := codec__trans_at(k, Inline_Markup__Quote, "\"", imarkup)
+	emph := codec__trans_at(k, "_", Inline_Markup__Emph, imarkup)
+	strong := codec__trans_at(k, "*", Inline_Markup__Strong, imarkup)
+	strike := codec__trans_at(k, "~", Inline_Markup__Strikethrough, imarkup)
+	mono := codec__trans_at(k, "`", Inline_Markup__Mono, imarkup)
+	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
 
 	return codec__sum(
 		k,
@@ -120,6 +116,7 @@ Block_Markup__Description :: distinct Unit
 Block_Markup__Table_Of_Contents :: distinct Unit
 Block_Markup__Thematic_Break :: distinct Unit
 
+// TODO: heading, code, aside, index, link/fn defs
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
@@ -129,6 +126,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
+	Table,
 }
 
 Block_Markup :: struct {
@@ -160,11 +158,11 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	description := codec__constant(k, "embed-description", Block_Markup__Description{})
 	thematic_break := codec__constant(k, "---", Block_Markup__Thematic_Break{})
 	table_of_contents := codec__constant(k, "toc", Block_Markup__Table_Of_Contents{})
-	blockquote := codec__trans_at(k, Block_Markup__Blockquote, ">", bmarkup)
+	blockquote := codec__trans_at(k, ">", Block_Markup__Blockquote, bmarkup)
 	image := codec__at(k, "image", codec__block_markup__image(k))
 	figure := codec__at(k, "figure", codec__block_markup__figure(k))
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
-	// Block_Markup__Figure,
+	table := codec__at(k, "table", codec__table(k))
 	// Block_Markup__List,
 
 	return codec__sum(
@@ -178,6 +176,7 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 		codec__variant(k, Block_Markup__Atom, image),
 		codec__variant(k, Block_Markup__Atom, figure),
 		codec__variant(k, Block_Markup__Atom, para),
+		codec__variant(k, Block_Markup__Atom, table),
 	)
 }
 
@@ -190,10 +189,48 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 			return codec__transmute(
 				kit,
 				Block_Markup,
-				codec__exparr(kit, codec__block_markup__atom(kit), non_zero = true),
+				codec__spaced_exparr(kit, codec__block_markup__atom(kit)),
 			)
 		},
 	)
+}
+// }}}
+
+// {{{ Tables
+Table__Cell :: struct {
+	content: Inline_Markup,
+}
+
+Table__Row :: struct {
+	cells: Exparr(Table__Cell),
+}
+
+Table :: struct {
+	caption: Inline_Markup,
+	header:  Table__Row,
+	rows:    Exparr(Table__Row),
+}
+// }}}
+// {{{ Codecs
+@(private = "file")
+codec__table__cell :: proc(k: ^Codec_Kit) -> Typed_Codec(Table__Cell) {
+	return codec__field(k, "content", Table__Cell, codec__inline_markup(k))
+}
+
+@(private = "file")
+codec__table__row :: proc(k: ^Codec_Kit) -> Typed_Codec(Table__Row) {
+	cell := codec__at(k, "cell", codec__table__cell(k))
+	return codec__field(k, "cells", Table__Row, codec__spaced_exparr(k, cell))
+}
+
+@(private = "file")
+codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
+	row := codec__table__row(k)
+	caption := codec__field(k, "caption", Table, codec__inline_markup(k))
+	header := codec__field_at(k, "header", Table, codec__once(k, row))
+	rows := codec__field(k, "rows", Table, codec__exparr(k, codec__at(k, "row", row)))
+
+	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
 // }}}
 
