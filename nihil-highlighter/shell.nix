@@ -12,5 +12,5 @@ pkgs.mkShell {
     pkgs.rustfmt
   ];
 
-  NVIM_TREESITTER = pkgs.vimPlugins.nvim-treesitter.withAllGrammars;
+  NVIM_TREESITTER = pkgs.vimPlugins.nvim-treesitter.withAllGrammars.dependencies;
 }

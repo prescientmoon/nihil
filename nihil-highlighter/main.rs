@@ -102,29 +102,29 @@ fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
 			tree_sitter_rust::INJECTIONS_QUERY,
 			"",
 		)),
-		"haskell" | "hs" => Some((
-			"haskell",
-			Language::new(tree_sitter_haskell::LANGUAGE),
-			// I love nedless allocations + leaking memory aaaaaaaaaaaa (sorry)
-			// Wish concat! would work with any strings, not just literals...
-			concat!(
-				include_str!(concat!(
-					env!("NVIM_TREESITTER"),
-					"/queries/haskell/highlights.scm"
-				)),
-				r#"
-          [ "∀" ] @keyword.repeat
-        "#
-			),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/haskell/injections.scm"
-			)),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/haskell/locals.scm"
-			)),
-		)),
+		// "haskell" | "hs" => Some((
+		// 	"haskell",
+		// 	Language::new(tree_sitter_haskell::LANGUAGE),
+		// 	// I love nedless allocations + leaking memory aaaaaaaaaaaa (sorry)
+		// 	// Wish concat! would work with any strings, not just literals...
+		// 	concat!(
+		// 		include_str!(concat!(
+		// 			env!("NVIM_TREESITTER"),
+		// 			"/queries/haskell/highlights.scm"
+		// 		)),
+		// 		r#"
+		//         [ "∀" ] @keyword.repeat
+		//       "#
+		// 	),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/haskell/injections.scm"
+		// 	)),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/haskell/locals.scm"
+		// 	)),
+		// )),
 		"djot" | "dj" => Some((
 			"dj",
 			tree_sitter_djot::language(),
@@ -146,49 +146,49 @@ fn highlighter_config(lang: &str) -> Option<HighlightConfiguration> {
 			"",
 			"",
 		)),
-		"typescript" | "ts" => Some((
-			"typescript",
-			Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
-			concat!(
-				include_str!(concat!(
-					env!("NVIM_TREESITTER"),
-					"/queries/ecma/highlights.scm"
-				)),
-				"\n",
-				include_str!(concat!(
-					env!("NVIM_TREESITTER"),
-					"/queries/typescript/highlights.scm"
-				))
-			),
-			"",
-			tree_sitter_typescript::LOCALS_QUERY,
-		)),
-		"typst" | "typ" => Some((
-			"typst",
-			tree_sitter_typst::language(),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/typst/highlights.scm"
-			)),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/typst/injections.scm"
-			)),
-			"",
-		)),
-		"agda" => Some((
-			"agda",
-			Language::new(tree_sitter_agda::LANGUAGE),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/agda/highlights.scm"
-			)),
-			include_str!(concat!(
-				env!("NVIM_TREESITTER"),
-				"/queries/agda/injections.scm"
-			)),
-			"",
-		)),
+		// "typescript" | "ts" => Some((
+		// 	"typescript",
+		// 	Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
+		// 	concat!(
+		// 		include_str!(concat!(
+		// 			env!("NVIM_TREESITTER"),
+		// 			"/queries/ecma/highlights.scm"
+		// 		)),
+		// 		"\n",
+		// 		include_str!(concat!(
+		// 			env!("NVIM_TREESITTER"),
+		// 			"/queries/typescript/highlights.scm"
+		// 		))
+		// 	),
+		// 	"",
+		// 	tree_sitter_typescript::LOCALS_QUERY,
+		// )),
+		// "typst" | "typ" => Some((
+		// 	"typst",
+		// 	tree_sitter_typst::language(),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/typst/highlights.scm"
+		// 	)),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/typst/injections.scm"
+		// 	)),
+		// 	"",
+		// )),
+		// "agda" => Some((
+		// 	"agda",
+		// 	Language::new(tree_sitter_agda::LANGUAGE),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/agda/highlights.scm"
+		// 	)),
+		// 	include_str!(concat!(
+		// 		env!("NVIM_TREESITTER"),
+		// 		"/queries/agda/injections.scm"
+		// 	)),
+		// 	"",
+		// )),
 		_ => None,
 	}?;
 
