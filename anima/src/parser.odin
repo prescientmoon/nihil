@@ -105,7 +105,7 @@ parser__lex :: proc(parser: ^Parser, source: string) -> (ok: bool) {
 // {{{ Memory helpers
 // Similar to the standard library's "new", except the type of the allocation
 // need not be known at compile time.
-dynamic_new :: proc(type: typeid, allocator := context.allocator) -> rawptr {
+dynamic_new :: proc(type: typeid, allocator: mem.Allocator) -> rawptr {
 	if ti := type_info_of(type); ti != nil {
 		ptr, err := mem.alloc(size = ti.size, alignment = ti.align, allocator = allocator)
 		assert(err == nil)
@@ -165,6 +165,7 @@ Codec_Instance :: struct {
 	codec:            ^Codec,
 	output:           rawptr,
 	in_paragraph:     bool,
+	document:         rawptr, // Top-level context any function can access
 
 	// The capacity for this list is computed at the start of the block, and its
 	// allocator is set to the panic allocator. We could instead store this as a
@@ -279,18 +280,27 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		defer virtual.arena_temp_end(temp)
 		allocator := virtual.arena_allocator(&instance.parser.codec_output_stack)
 
-		// project & inject can reference these
-		context.allocator = virtual.arena_allocator(&instance.parser.output_arena)
-		context.user_ptr = inner.user_data
-
 		inner_output := dynamic_new(inner.inner.type, allocator)
-		inner.project(instance.output, inner_output)
+    kit := Lens_Kit {
+      outer     = instance.output,
+      inner     = inner_output,
+      user_data = inner.user_data,
+      document  = instance.document,
+      mode      = .Project,
+      allocator = virtual.arena_allocator(&instance.parser.output_arena)
+    }
+
+		inner.lens(kit)
 
 		inner_instance := instance
 		inner_instance.codec = inner.inner
 		inner_instance.output = inner_output
-		consumed := codec__eval_instance(inner_instance)
-		if consumed do inner.inject(instance.output, inner_output)
+
+		consumed = codec__eval_instance(inner_instance)
+		if consumed {
+      kit.mode = .Inject
+      inner.lens(kit)
+    }
 
 		return consumed
 	case Codec__Sum:
@@ -393,7 +403,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 }
 
 @(private = "package")
-codec__eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool) {
+codec__eval :: proc(parser: ^Parser, codec: ^Codec, document: rawptr) -> (output: rawptr, ok: bool) {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
 	defer virtual.arena_temp_ignore(temp_output)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
@@ -403,9 +413,10 @@ codec__eval :: proc(parser: ^Parser, codec: ^Codec) -> (output: rawptr, ok: bool
 
 	output = dynamic_new(codec.type, output_allocator)
 	instance := Codec_Instance {
-		parser = parser,
-		codec  = codec,
-		output = output,
+		parser   = parser,
+		codec    = codec,
+		output   = output,
+    document = document
 	}
 
 	instance.completed_codecs = codec__make_completed_state(instance)

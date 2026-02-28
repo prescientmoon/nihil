@@ -1,7 +1,9 @@
 package anima
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:log"
+import "core:mem"
 import "core:mem/virtual"
 import "core:reflect"
 
@@ -31,9 +33,19 @@ Codec__Paragraph :: distinct ^Codec // Terminated by two consecutive newlines
 Codec__Sum :: distinct []Codec
 Codec__Focus :: struct {
 	inner:     ^Codec,
-	project:   proc(outer: rawptr, inner: rawptr),
-	inject:    proc(outer: rawptr, inner: rawptr),
 	user_data: rawptr,
+	lens:      #type proc(kit: Lens_Kit),
+}
+
+Lens_Kit :: struct{
+  allocator: mem.Allocator,
+	outer:     rawptr,
+  inner:     rawptr,
+  user_data: rawptr,
+  document:  rawptr,
+  // Inject  => set the focus of the outer pointer to the inner pointer
+  // Project => set the inner pointer to the focus of the outer pointer
+	mode:      enum { Inject, Project },
 }
 
 Codec :: struct {
@@ -125,16 +137,15 @@ codec__at :: proc(kit: ^Codec_Kit, name: string, inner: Typed_Codec($T)) -> Type
 
 codec__focus :: proc(
 	kit: ^Codec_Kit,
+  $Outer: typeid,
 	inner: Typed_Codec($Inner),
-	project: proc(o: ^$Outer, i: ^Inner),
-	inject: proc(o: ^Outer, i: ^Inner),
+	lens: proc(kit: Lens_Kit),
 	user_data: rawptr = nil,
 ) -> Typed_Codec(Outer) {
 	codec := codec__make(kit, Outer)
 	codec.data = Codec__Focus {
 		inner     = inner,
-		project   = cast(proc(o: rawptr, i: rawptr))(project),
-		inject    = cast(proc(o: rawptr, i: rawptr))(inject),
+		lens      = lens,
 		user_data = user_data,
 	}
 
@@ -145,13 +156,18 @@ codec__transmute :: proc(
 	kit: ^Codec_Kit,
 	$To: typeid,
 	inner: Typed_Codec($From),
-) -> Typed_Codec(To) where size_of(To) == size_of(From) &&
-	align_of(To) == align_of(From) {
+) -> Typed_Codec(To) {
+  #assert(size_of(To)  == size_of(From))
+  #assert(align_of(To) == align_of(From))
 
-	project :: proc(o: ^To, i: ^From) {i^ = transmute(From)o^}
-	inject :: proc(o: ^To, i: ^From) {o^ = transmute(To)i^}
+  lens :: proc(kit: Lens_Kit) {
+    switch kit.mode {
+    case .Project: mem.copy(kit.inner, kit.outer, size_of(From))
+    case .Inject:  mem.copy(kit.outer, kit.inner, size_of(From))
+    }
+  }
 
-	return codec__focus(kit, inner, project = project, inject = inject)
+	return codec__focus(kit, To, inner, lens)
 }
 
 codec__ref_map :: proc(
@@ -159,17 +175,16 @@ codec__ref_map :: proc(
 	inner: Typed_Codec($Inner),
 	f: proc(outer: ^$Outer) -> ^Inner,
 ) -> Typed_Codec(Outer) {
-	project :: proc(o: ^Outer, i: ^Inner) {
-		f := cast(proc(outer: ^Outer) -> ^Inner)context.user_ptr
-		i^ = f(o)^
-	}
+  lens :: proc(kit: Lens_Kit) {
+		f := cast(proc(outer: rawptr) -> rawptr)kit.user_data
+    mapped := f(kit.outer)
+    switch kit.mode {
+    case .Project: mem.copy(kit.inner, mapped, size_of(Inner))
+    case .Inject:  mem.copy(mapped, kit.inner, size_of(Inner))
+    }
+  }
 
-	inject :: proc(o: ^Outer, i: ^Inner) {
-		f := cast(proc(outer: ^Outer) -> ^Inner)context.user_ptr
-		f(o)^ = i^
-	}
-
-	return codec__focus(kit, inner, project, inject, cast(rawptr)f)
+	return codec__focus(kit, Outer, inner, lens, cast(rawptr)f)
 }
 
 // This could technically be implemented in terms of "codec__ref_map", but
@@ -182,7 +197,14 @@ codec__field :: proc(
 	inner: Typed_Codec($Inner),
 ) -> Typed_Codec(Outer) {
 	field := reflect.struct_field_by_name(Outer, name)
-	log.assertf(field != {}, "Field %v for type %v not found.", name, typeid_of(Outer))
+
+	log.assertf(
+    field != {}, 
+    "Field %v for type %v not found.",
+    name,
+    typeid_of(Outer)
+  )
+
 	log.assertf(
 		field.type.id == Inner,
 		"Type missmatch for field %v of %v: expected %v, got %v instead.",
@@ -192,34 +214,37 @@ codec__field :: proc(
 		field.type,
 	)
 
-	ref_map :: proc(o: ^Outer) -> ^Inner {
-		offset := cast(uintptr)context.user_ptr
-		return cast(^Inner)(cast(uintptr)o + offset)
-	}
+  lens :: proc(kit: Lens_Kit) {
+		field := cast(rawptr)(cast(uintptr)kit.outer + cast(uintptr)kit.user_data)
+    switch kit.mode {
+    case .Project: mem.copy(kit.inner, field, size_of(Inner))
+    case .Inject:  mem.copy(field, kit.inner, size_of(Inner))
+    }
+  }
 
-	project :: proc(o: ^Outer, i: ^Inner) {i^ = ref_map(o)^}
-	inject :: proc(o: ^Outer, i: ^Inner) {ref_map(o)^ = i^}
-
-	return codec__focus(kit, inner, project, inject, cast(rawptr)field.offset)
+	return codec__focus(kit, Outer, inner, lens, cast(rawptr)field.offset)
 }
 
 codec__ref :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(^T) {
-	project :: proc(o: ^^T, i: ^T) {
-		if o^ == nil {
-			t, err := new(T)
-			assert(err == nil)
-			o^ = t
-		}
+  lens :: proc(kit: Lens_Kit) {
+    as_ptr := cast(^rawptr)kit.outer
 
-		i^ = o^^
-	}
+    switch kit.mode {
+    case .Project: 
+      if as_ptr^ == nil {
+        t, err := new(T)
+        assert(err == nil)
+        mem.copy(as_ptr, &t, size_of(rawptr))
+      }
 
-	inject :: proc(o: ^^T, i: ^T) {
-		assert(o^ != nil)
-		o^^ = i^
-	}
+      mem.copy(kit.inner, as_ptr^, size_of(rawptr))
+    case .Inject: 
+      log.assert(as_ptr^ != nil)
+      mem.copy(as_ptr^, kit.inner, size_of(rawptr))
+    }
+  }
 
-	return codec__focus(kit, inner, project = project, inject = inject)
+	return codec__focus(kit, ^T, inner, lens)
 }
 
 codec__forget :: proc(
@@ -227,30 +252,34 @@ codec__forget :: proc(
 	$Outer: typeid,
 	inner: Typed_Codec($Inner),
 ) -> Typed_Codec(Outer) {
-	noop :: proc(o: ^Outer, i: ^Inner) {}
-	return codec__focus(kit, inner, noop, noop)
+	noop :: proc(kit: Lens_Kit) {}
+	return codec__focus(kit, Outer, inner, noop)
 }
 
 codec__exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
-	project :: proc(o: ^Exparr(T), i: ^T) {}
-	inject :: proc(o: ^Exparr(T), i: ^T) {
-		if o.allocator == {} do o.allocator = context.allocator
-		exparr__push(o, i^)
-	}
+  lens :: proc(kit: Lens_Kit) {
+    if kit.mode == .Inject {
+      outer := cast(^Exparr(T))kit.outer
+      inner := cast(^T)kit.inner
+      if outer.allocator == {} do outer.allocator = kit.allocator
+      exparr__push(outer, inner^)
+    }
+  }
 
-	return codec__loop(kit, codec__focus(kit, inner, project, inject))
+	return codec__loop(kit, codec__focus(kit, Exparr(T), inner, lens))
 }
 
 // Similar to codec__exparr, except spaces can appear freely in between the
 // elements.
 codec__spaced_exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
-	project :: proc(o: ^Exparr(T), i: ^Maybe(T)) {}
-	inject :: proc(o: ^Exparr(T), i: ^Maybe(T)) {
-		if o.allocator == {} do o.allocator = context.allocator
-		if value, ok := i.(T); ok {
-			exparr__push(o, value)
-		}
-	}
+  lens :: proc(kit: Lens_Kit) {
+    if kit.mode == .Inject {
+      outer := cast(^Exparr(T))kit.outer
+      inner := cast(^Maybe(T))kit.inner
+      if outer.allocator == {} do outer.allocator = kit.allocator
+      if value, ok := inner.(T); ok do exparr__push(outer, value)
+    }
+  }
 
 	inner_sum := codec__sum(
 		kit,
@@ -259,7 +288,7 @@ codec__spaced_exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_C
 		codec__space(kit, Maybe(T)),
 	)
 
-	return codec__loop(kit, codec__focus(kit, inner_sum, project, inject))
+	return codec__loop(kit, codec__focus(kit, Exparr(T), inner_sum, lens))
 }
 
 
@@ -277,17 +306,18 @@ codec__variant :: proc(
 	$Union: typeid,
 	inner: Typed_Codec($Inner),
 ) -> Typed_Codec(Union) {
-	project :: proc(o: ^Union, i: ^Inner) {
-		if v, ok := o^.(Inner); ok {
-			i^ = v
-		}
-	}
+  lens :: proc(kit: Lens_Kit) {
+    outer := cast(^Union)kit.outer
+    inner := cast(^Inner)kit.inner
+    switch kit.mode {
+    case .Project:
+      if v, ok := outer^.(Inner); ok do inner^ = v
+    case .Inject:
+      outer^ = Union(inner^)
+    }
+  }
 
-	inject :: proc(o: ^Union, i: ^Inner) {
-		o^ = Union(i^)
-	}
-
-	return codec__focus(kit, inner, project = project, inject = inject)
+	return codec__focus(kit, Union, inner, lens)
 }
 
 codec__memo :: proc(

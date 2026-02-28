@@ -20,7 +20,9 @@ main :: proc() {
 	ok := parser__lex(&parser, source)
 	assert(ok, "Failed to lex file")
 
-	raw_output, consumed := codec__eval(&parser, codec)
+  page := page__make(virtual.arena_allocator(&parser.output_arena))
+
+	raw_output, consumed := codec__eval(&parser, codec, &page)
 	virtual.arena_destroy(&parser.codec_output_stack)
 	virtual.arena_destroy(&parser.codec_state_stack)
 	defer virtual.arena_destroy(&parser.internal_arena)

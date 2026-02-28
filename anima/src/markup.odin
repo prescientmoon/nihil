@@ -1,5 +1,8 @@
 package anima
 
+import "core:log"
+import "core:mem"
+
 // {{{ Contiguous text
 // A sequence of text where all the whitespace in the source is discarded
 Contiguous_Text :: distinct Exparr(string)
@@ -9,6 +12,7 @@ codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) 
 		Contiguous_Text,
 		"contiguous_text",
 		proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
+      // TODO: disallow empty strings
 			return codec__transmute(
 				kit,
 				Contiguous_Text,
@@ -135,6 +139,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
+  ^Linkdef, // Ref to the linkdef saved in the parent page
 	Table,
 }
 
@@ -172,12 +177,12 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	figure := codec__at(k, "figure", codec__block_markup__figure(k))
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
+	linkdef := codec__at(k, "linkdef", codec__linkdef(k))
 	// Block_Markup__List,
 
 	return codec__sum(
 		k,
 		Block_Markup__Atom,
-		codec__space(k, Block_Markup__Atom),
 		codec__variant(k, Block_Markup__Atom, blockquote),
 		codec__variant(k, Block_Markup__Atom, description),
 		codec__variant(k, Block_Markup__Atom, table_of_contents),
@@ -186,6 +191,7 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 		codec__variant(k, Block_Markup__Atom, figure),
 		codec__variant(k, Block_Markup__Atom, para),
 		codec__variant(k, Block_Markup__Atom, table),
+		codec__variant(k, Block_Markup__Atom, linkdef),
 	)
 }
 
@@ -237,12 +243,51 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 
 // {{{ Pages
 Linkdef :: struct {
-	id:     string,
-	target: string,
+	id:     Contiguous_Text,
+	target: Contiguous_Text, // url
 	label:  Inline_Markup,
 }
 
 Page :: struct {
 	links: Exparr(Linkdef),
+}
+
+page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
+  page.links.allocator = allocator
+  return page
+}
+// }}}
+// {{{ Codecs
+@(private = "file")
+codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
+  cont_text := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+
+	id := codec__field(k, "id", Linkdef, cont_text)
+  target := codec__field_at(k, "target", Linkdef, codec__once(k, cont_text))
+  label := codec__field_at(k, "label", Linkdef, codec__once(k, imarkup))
+
+  // Save the linkdef into the parent document
+  lens :: proc(kit: Lens_Kit) {
+    page := cast(^Page)kit.document
+    inner := cast(^Linkdef)kit.inner
+    outer := cast(^^Linkdef)kit.outer
+
+    switch kit.mode {
+    case .Project: 
+      if outer^ == nil {
+        linkdef := exparr__push(&page.links, Linkdef {})
+        outer^ = linkdef
+      }
+
+      inner^ = outer^^
+    case .Inject:
+      log.assert(outer^ != nil)
+      outer^^ = inner^
+    }
+  }
+
+  inner_loop := codec__loop(k, codec__sum(k, Linkdef, label, target, id))
+	return codec__focus(k, ^Linkdef, inner_loop, lens)
 }
 // }}}

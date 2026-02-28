@@ -183,7 +183,7 @@ mps__contiguous_text :: proc(mps: ^Markup_Printer_State, text: Contiguous_Text) 
 mps__inline_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup__Atom) {
 	switch inner in markup {
 	case nil:
-		mps__leaf(mps, "none", allow_inline = true)
+		mps__leaf(mps, "inline›none", allow_inline = true)
 	case Inline_Markup__Space:
 		mps__leaf(mps, "space", allow_inline = true)
 	case Inline_Markup__Ellipsis:
@@ -247,7 +247,7 @@ mps__inline_markup :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup) {
 mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup__Atom) {
 	switch inner in markup {
 	case nil:
-		mps__leaf(mps, "none", allow_inline = true)
+		mps__leaf(mps, "block›none", allow_inline = true)
 	case Block_Markup__Paragraph:
 		mps__deeper(mps, "paragraph")
 		mps__inline_markup(mps, Inline_Markup(inner))
@@ -268,6 +268,11 @@ mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup
 		mps__deeper(mps, "figure")
 		{mps__deeper(mps, "caption"); mps__inline_markup(mps, inner.caption)}
 		mps__block_markup(mps, inner.content)
+	case ^Linkdef:
+		mps__deeper(mps, "linkdef")
+		{mps__deeper(mps, "label"); mps__inline_markup(mps, inner.label)}
+		{mps__deeper(mps, "target"); mps__contiguous_text(mps, inner.target)}
+		mps__contiguous_text(mps, inner.id)
 	case Table:
 		mps__deeper(mps, "table")
 
@@ -346,7 +351,7 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, source: string) {
 			case .Bang, .LCurly, .RCurly, .Word:
 				mps__leaf_str(mps, tok.content, allow_inline = true)
 			case .None:
-				mps__leaf(mps, "none", allow_inline = true)
+				mps__leaf(mps, "token›none", allow_inline = true)
 			case .Eof:
 				mps__leaf(mps, "eof", allow_inline = true)
 			case .Newline:
