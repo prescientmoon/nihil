@@ -236,9 +236,12 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
-  ^Linkdef, // Ref to the linkdef saved in the parent page
-  ^Fndef,   // Ref to the fndef saved in the parent page
 	Table,
+
+  // References to data saved in the parent Page structure
+  ^Linkdef,
+  ^Fndef,
+  ^Heading,
 }
 
 Block_Markup :: struct {
@@ -277,6 +280,9 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	table := codec__at(k, "table", codec__table(k))
 	linkdef := codec__at(k, "linkdef", codec__linkdef(k))
 	fndef := codec__at(k, "fndef", codec__fndef(k))
+	h1 := codec__at(k, "#", codec__heading(k, 1))
+	h2 := codec__at(k, "#", codec__heading(k, 2))
+	h3 := codec__at(k, "#", codec__heading(k, 3))
 	// Block_Markup__List,
 
 	return codec__sum(
@@ -292,6 +298,9 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 		codec__variant(k, Block_Markup__Atom, table),
 		codec__variant(k, Block_Markup__Atom, linkdef),
 		codec__variant(k, Block_Markup__Atom, fndef),
+		codec__variant(k, Block_Markup__Atom, h1),
+		codec__variant(k, Block_Markup__Atom, h2),
+		codec__variant(k, Block_Markup__Atom, h3),
 	)
 }
 
@@ -343,8 +352,15 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 
 // {{{ Pages
 Page :: struct {
+  headings:  Exparr(Heading),
 	links:     Exparr(Linkdef),
 	footnotes: Exparr(Fndef),
+}
+
+Heading :: struct {
+  id:      Contiguous_Text,
+  content: Inline_Markup,
+  level:   uint,
 }
 
 Linkdef :: struct {
@@ -360,6 +376,7 @@ Fndef :: struct {
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   page.links.allocator     = allocator
+  page.headings.allocator  = allocator
   page.footnotes.allocator = allocator
   return page
 }
@@ -382,5 +399,27 @@ codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Fndef) {
   content := codec__field(k, "content", Fndef, codec__block_markup(k))
   inner_loop := codec__loop(k, codec__sum(k, Fndef, content, id))
 	return codec__remote_push(k, "footnotes", inner_loop)
+}
+
+@(private = "file")
+codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
+  lens :: proc(kit: ^Lens_Kit) {
+    outer := cast(^Heading)kit.outer
+    inner := cast(^Heading)kit.inner
+
+    switch kit.mode {
+    case .Project: inner^ = outer^
+    case .Inject:
+      outer.level = uint(uintptr(kit.user_data))
+      outer^ = inner^
+    }
+  }
+
+  ctext := codec__contiguous_text(k)
+	id := codec__field_at(k, "id", Heading, codec__once(k, ctext))
+  content := codec__field(k, "content", Heading, codec__inline_markup(k))
+  looped := codec__loop(k, codec__sum(k, Heading, content, id))
+  with_level := codec__focus(k, Heading, looped, lens, rawptr(uintptr(level)))
+	return codec__remote_push(k, "headings", with_level)
 }
 // }}}

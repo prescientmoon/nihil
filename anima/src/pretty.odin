@@ -283,6 +283,16 @@ mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup
 		mps__deeper(mps, "fndef")
 		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
     mps__block_markup(mps, inner.content)
+	case ^Heading:
+		mps__deeper(mps, "heading")
+		mps__leaf_labeled_str(mps, "level", fmt.tprint(inner.level))
+
+		if inner.id.len > 0 {
+      mps__deeper(mps, "id")
+      mps__contiguous_text(mps, inner.id)
+    }
+
+    mps__inline_markup(mps, inner.content)
 	case Table:
 		mps__deeper(mps, "table")
 
