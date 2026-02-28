@@ -1,7 +1,6 @@
 #+private file
 package anima
 
-import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -64,12 +63,35 @@ parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
 }
 
 @(private = "package")
+parser__destroy :: proc(parser: ^Parser) {
+	virtual.arena_destroy(&parser.codec_output_stack)
+	virtual.arena_destroy(&parser.codec_state_stack)
+	virtual.arena_destroy(&parser.internal_arena)
+	virtual.arena_destroy(&parser.error_arena)
+	virtual.arena_destroy(&parser.output_arena)
+}
+
+parser__error :: proc(parser: ^Parser, tok: Token, msg: string) {
+	exparr__push(&parser.errors, Parsing_Error{tok, msg})
+}
+
+parser__errorf :: proc(
+  parser: ^Parser, tok: Token, format: string, args: ..any
+) {
+	allocator := virtual.arena_allocator(&parser.error_arena)
+	msg := fmt.aprintf(format, ..args, allocator = allocator)
+	parser__error(parser, tok, msg)
+}
+// }}}
+// {{{ Lexing
+@(private = "package")
 parser__lex :: proc(parser: ^Parser, source: string) -> (ok: bool) {
 	log.assert(parser.tokens.len == 0, "Cannot lex inside a non-clean parser")
 	lexer := lexer__make(source, &parser.output_arena) or_return
 
 	for {
-		tok, ok := tokenize(&lexer)
+    tok: Token
+		tok, ok = tokenize(&lexer)
 
 		if !ok {
 			tok.from = lexer.error.pos
@@ -102,19 +124,9 @@ parser__lex :: proc(parser: ^Parser, source: string) -> (ok: bool) {
 	return true
 }
 // }}}
-// {{{ Lexer helpers
+// {{{ Token handling
 parser__advance :: proc(parser: ^Parser) {
 	parser.token += 1
-}
-
-parser__error :: proc(parser: ^Parser, tok: Token, msg: string) {
-	exparr__push(&parser.errors, Parsing_Error{tok, msg})
-}
-
-parser__errorf :: proc(parser: ^Parser, tok: Token, format: string, args: ..any) {
-	allocator := virtual.arena_allocator(&parser.error_arena)
-	msg := fmt.aprintf(format, ..args, allocator = allocator)
-	parser__error(parser, tok, msg)
 }
 
 parser__get_token :: proc(instance: Codec_Instance) -> (tok: Token) {
@@ -129,7 +141,8 @@ parser__get_token :: proc(instance: Codec_Instance) -> (tok: Token) {
 	if instance.in_paragraph && itok.kind == .Newline {
 		offset: uint = 1
 		for {
-			next_itok := exparr__get(instance.parser.tokens, instance.parser.token + offset)^
+      index     := instance.parser.token + offset
+			next_itok := exparr__get(instance.parser.tokens, index)^
 
 			if next_itok.kind == .Space {
 				offset += 1
@@ -148,11 +161,11 @@ parser__get_token :: proc(instance: Codec_Instance) -> (tok: Token) {
 // If codecs are templates for parsers, a codec instance is the actual parser,
 // together with its state.
 Codec_Instance :: struct {
-	parser:           ^Parser,
-	codec:            ^Codec,
-	output:           rawptr,
-	in_paragraph:     bool,
-	document:         rawptr, // Top-level context any function can access
+	parser:       ^Parser,
+	codec:        ^Codec,
+	output:       rawptr,
+	in_paragraph: bool,
+	document:     rawptr, // Top-level context any function can access
 
 	// The capacity for this list is computed at the start of the block, and its
 	// allocator is set to the panic allocator. We could instead store this as a
@@ -313,7 +326,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
-			consumed := codec__eval_instance(inner_instance)
+			consumed = codec__eval_instance(inner_instance)
 			if consumed do return true
 		}
 
@@ -326,7 +339,6 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
 		temp := virtual.arena_temp_begin(&instance.parser.codec_state_stack)
 		defer virtual.arena_temp_end(temp)
-		allocator := virtual.arena_allocator(&instance.parser.codec_state_stack)
 
 		elem: Surrounding_Apparition = {}
 
@@ -399,8 +411,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		inner_instance.codec = cast(^Codec)inner
 		inner_instance.in_paragraph = true
 
-		consumed := codec__eval_instance(inner_instance)
-		return consumed
+		return codec__eval_instance(inner_instance)
 	case nil:
 		log.panic("Cannot evaluate the nil codec.")
 	}

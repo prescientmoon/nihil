@@ -29,7 +29,9 @@ Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 }
 
 @(private = "file")
-exprarr__destructure_ix :: proc($FCE: uint, #any_int ix: uint) -> (chunk: uint, local_ix: uint) {
+exprarr__destructure_ix :: proc(
+  $FCE: uint, #any_int ix: uint
+) -> (chunk: uint, local_ix: uint) {
 	total_bits :: uint(8 * size_of(uint))
 	ghost_chunk :: 1 << FCE
 	adjusted_ix := ix + ghost_chunk
@@ -91,7 +93,9 @@ exparr__reverse :: proc(exparr: Exparr($V, $FCE)) {
 	}
 }
 
-exparr__push_exparr :: proc(exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)) {
+exparr__push_exparr :: proc(
+  exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)
+) {
 	for i in 0 ..< elements.len {
 		exparr__push(exparr, exparr__get(elements, i)^)
 	}

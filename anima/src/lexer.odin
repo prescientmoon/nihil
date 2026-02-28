@@ -5,14 +5,18 @@ import "core:mem/virtual"
 import "core:strings"
 import "core:unicode/utf8"
 
+File_Id :: distinct uint
+
+// This is a bit fatter than we could get away with, but it doesn't really 
+// matter, and having everything in one place makes a lot of stuff easier.
 Source_Loc :: struct {
+  file:  File_Id,
 	index: uint,
 	line:  uint,
 	col:   uint,
 }
 
-// Note that the "content" property will only be non-null in the case of spacing,
-// words, and apparitions.
+// NOTE: the "content" property might be null for certain tokens (i.e. EOF).
 Token :: struct {
 	from:    Source_Loc,
 	content: string,
@@ -21,14 +25,14 @@ Token :: struct {
 
 Token_Kind :: enum {
 	None = 0,
-	Word,
-	Bang,
-	LCurly,
-	RCurly,
-	Apparition,
-	Newline,
-	Space,
-	Eof,
+	Space,      // One or more spaces
+	Newline,    // Newlines (\r is not kept around at the moment)
+	Word,       // A contiguous sequence of everything else
+	Apparition, // \<word>
+	Bang,       // !
+	LCurly,     // {
+	RCurly,     // }
+	Eof,        // Special token emitted once there's nothing more to consume
 }
 
 // The lexer for the anima language. The "curr" propery contains the rune
@@ -52,7 +56,9 @@ Lexer :: struct {
 	},
 }
 
-lexer__make :: proc(source: string, out_arena: ^virtual.Arena) -> (lexer: Lexer, ok: bool) {
+lexer__make :: proc(
+  source: string, out_arena: ^virtual.Arena
+) -> (lexer: Lexer, ok: bool) {
 	lexer = Lexer {
 		source = source,
 		pos = Source_Loc{line = 1, col = 0, index = 0},

@@ -1,7 +1,5 @@
 package anima
 
-import "base:intrinsics"
-import "base:runtime"
 import "core:log"
 import "core:fmt"
 import "core:mem"
@@ -96,7 +94,7 @@ Codec_Kit :: struct {
 	statistics:    ^Statistics,
 }
 
-codec__mk_kit :: proc(
+codec__kit__make :: proc(
   kit: ^Codec_Kit, statistics: ^Statistics, doc_type: typeid
 ) {
   kit.document_type = doc_type
@@ -108,6 +106,11 @@ codec__mk_kit :: proc(
 	assert(err == nil)
 
 	kit.memoized.allocator = virtual.arena_allocator(&kit.memo_arena)
+}
+
+codec__kit__destroy :: proc(kit: ^Codec_Kit) {
+  virtual.arena_destroy(&kit.memo_arena)
+  virtual.arena_destroy(&kit.codec_arena)
 }
 
 codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
@@ -124,7 +127,9 @@ codec__space :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
 	return codec
 }
 
-codec__constant :: proc(kit: ^Codec_Kit, name: string, value: $T) -> Typed_Codec(T) {
+codec__const :: proc(
+  kit: ^Codec_Kit, name: string, value: $T
+) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
 	codec.data = Codec__Constant {
 		name  = name,
@@ -146,7 +151,9 @@ codec__loop :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
 	return codec
 }
 
-codec__at :: proc(kit: ^Codec_Kit, name: string, inner: Typed_Codec($T)) -> Typed_Codec(T) {
+codec__at :: proc(
+  kit: ^Codec_Kit, name: string, inner: Typed_Codec($T)
+) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
 	codec.data = Codec__At {
 		name  = name,
@@ -285,7 +292,9 @@ codec__forget :: proc(
 	return codec__focus(kit, Outer, inner, noop)
 }
 
-codec__exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
+codec__exparr :: proc(
+  kit: ^Codec_Kit, inner: Typed_Codec($T)
+) -> Typed_Codec(Exparr(T)) {
   lens :: proc(kit: ^Lens_Kit) {
     if kit.mode == .Inject {
       outer := cast(^Exparr(T))kit.outer
@@ -300,7 +309,9 @@ codec__exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Ex
 
 // Similar to codec__exparr, except spaces can appear freely in between the
 // elements.
-codec__spaced_exparr :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(Exparr(T)) {
+codec__spaced_exparr :: proc(
+  kit: ^Codec_Kit, inner: Typed_Codec($T)
+) -> Typed_Codec(Exparr(T)) {
   lens :: proc(kit: ^Lens_Kit) {
     if kit.mode == .Inject {
       outer := cast(^Exparr(T))kit.outer
@@ -347,9 +358,12 @@ codec__remote_push :: proc(
 	return codec__focus(kit, ^T, inner, lens, rawptr(field.offset))
 }
 
-codec__sum :: proc(kit: ^Codec_Kit, $T: typeid, codecs: ..Typed_Codec(T)) -> Typed_Codec(T) {
+codec__sum :: proc(
+  kit: ^Codec_Kit, $T: typeid, codecs: ..Typed_Codec(T)
+) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
-	slice := make_slice([]Codec, len(codecs), virtual.arena_allocator(&kit.codec_arena))
+  allocator := virtual.arena_allocator(&kit.codec_arena)
+	slice := make_slice([]Codec, len(codecs), allocator)
 	for c, i in codecs do slice[i] = c.codec^
 
 	codec.data = Codec__Sum(slice)
@@ -445,7 +459,7 @@ codec__para :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
 }
 
 codec__flag :: proc(kit: ^Codec_Kit, name: string) -> Typed_Codec(bool) {
-  return codec__tracked(kit, codec__constant(kit, name, true), unique = true)
+  return codec__tracked(kit, codec__const(kit, name, true), unique = true)
 }
 
 codec__flag_at :: proc(

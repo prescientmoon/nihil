@@ -74,7 +74,7 @@ mps__deeper_raw :: proc(
 		mps.current_col += required_inline_cols
 	} else {
 		if len(mps__to_string(mps^)) > 0 do strings.write_rune(&mps.output, '\n')
-		for i in 0 ..< mps.indentation do strings.write_rune(&mps.output, ' ')
+		for _ in 0 ..< mps.indentation do strings.write_rune(&mps.output, ' ')
 		fmt.sbprint(&mps.output, str)
 		mps.current_col = mps.indentation + len(str)
 		mps.current_line_indentation = mps.indentation
@@ -106,7 +106,9 @@ msp__deeper_end :: proc(mps: ^Markup_Printer_State) {
 }
 
 // Pretty prints a leaf node that's just a string
-mps__leaf_str :: proc(mps: ^Markup_Printer_State, inner: any, allow_inline := false) {
+mps__leaf_str :: proc(
+  mps: ^Markup_Printer_State, inner: any, allow_inline := false
+) {
 	mps__deeper_raw(
 		mps,
 		FG_GREEN + "%q" + ANSI_RESET,
@@ -122,7 +124,9 @@ mps__leaf_str :: proc(mps: ^Markup_Printer_State, inner: any, allow_inline := fa
 }
 
 // Pretty prints a leaf node of the form "label: ...str"
-mps__leaf_labeled_str :: proc(mps: ^Markup_Printer_State, label: string, inner: any) {
+mps__leaf_labeled_str :: proc(
+  mps: ^Markup_Printer_State, label: string, inner: any
+) {
 	mps__deeper_raw(
 		mps,
 		FG_RED + "%v: " + FG_GREEN + "%q" + ANSI_RESET,
@@ -134,7 +138,9 @@ mps__leaf_labeled_str :: proc(mps: ^Markup_Printer_State, label: string, inner: 
 }
 
 // Pretty prints a leaf node representing some apparition
-mps__leaf :: proc(mps: ^Markup_Printer_State, name: string, allow_inline := false) {
+mps__leaf :: proc(
+  mps: ^Markup_Printer_State, name: string, allow_inline := false
+) {
 	mps__deeper(mps, name, allow_inline = allow_inline)
 	if allow_inline do mps.inlines_allowed_here = true
 }
@@ -171,7 +177,9 @@ mps__block_markup_to_string :: proc(block_markup: Block_Markup) -> string {
 
 // Pretty printers -------------------------------------------------------------
 // {{{ Contiguous text
-mps__contiguous_text :: proc(mps: ^Markup_Printer_State, text: Contiguous_Text) {
+mps__contiguous_text :: proc(
+  mps: ^Markup_Printer_State, text: Contiguous_Text
+) {
 	if text.len == 0 do mps__leaf_str(mps, "", allow_inline = true)
 	for i in 0 ..< text.len {
 		chunk := exparr__get(text, i)
@@ -236,7 +244,6 @@ mps__inline_markup__atom :: proc(
     mps__timestamp(mps, Timestamp(inner))
 	// case .LaTeX:
 	// 	mps__leaf_labeled_str(mps, "math", markup.raw)
-	// cps__leaf_labeled_str(mps, "id", markup.link.id)
 	case:
 		mps__leaf(mps, "unknown", allow_inline = true)
 	}
@@ -250,7 +257,9 @@ mps__inline_markup :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup) {
 }
 // }}}
 // {{{ Block markup
-mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup__Atom) {
+mps__block_markup__atom :: proc(
+  mps: ^Markup_Printer_State, markup: Block_Markup__Atom
+) {
 	switch inner in markup {
 	case nil:
 		mps__leaf(mps, "block›none", allow_inline = true)
@@ -274,12 +283,12 @@ mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup
 		mps__deeper(mps, "figure")
 		{mps__deeper(mps, "caption"); mps__inline_markup(mps, inner.caption)}
 		mps__block_markup(mps, inner.content)
-	case ^Linkdef:
+	case ^Def__Link:
 		mps__deeper(mps, "linkdef")
 		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
 		{mps__deeper(mps, "target"); mps__contiguous_text(mps, inner.target)}
     if inner.label.elements.len != 0 do mps__inline_markup(mps, inner.label)
-	case ^Fndef:
+	case ^Def__Footnote:
 		mps__deeper(mps, "fndef")
 		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
     mps__block_markup(mps, inner.content)

@@ -12,22 +12,22 @@ let
     };
     patches = [ (builtins.elem 0 og.patches) ]; # The second patch is broken
   });
-
-  ols = (pkgs.ols.override { inherit odin; }).overrideAttrs {
-    version = "unstable-2026-02-20";
-    src = pkgs.fetchFromGitHub {
-      owner = "DanielGavin";
-      repo = "ols";
-      rev = "28ce44287b495f26cd1e5c01332a51e52e294fe2";
-      sha256 = "0p5hr0zc667pqks0p5dm3p8w5ry08vai4i14v2pmnj26a82vh8j3";
-    };
-  };
+  #
+  # ols = (pkgs.ols.override { inherit odin; }).overrideAttrs {
+  #   version = "unstable-2026-02-20";
+  #   src = pkgs.fetchFromGitHub {
+  #     owner = "DanielGavin";
+  #     repo = "ols";
+  #     rev = "28ce44287b495f26cd1e5c01332a51e52e294fe2";
+  #     sha256 = "0p5hr0zc667pqks0p5dm3p8w5ry08vai4i14v2pmnj26a82vh8j3";
+  #   };
+  # };
 in
 pkgs.mkShell rec {
   nativeBuildInputs = [
-    # pkgs.odin
     odin
-    ols
+    # pkgs.odin
+    # ols
     pkgs.mold
     pkgs.just
     pkgs.seer
