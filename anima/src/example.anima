@@ -21,8 +21,11 @@ It can still be broken off though!
   \row \cell{boo} \cell{} \cell{} \cell{}
   \row \cell{boo} \cell{} \cell{} \cell{aaaaaa}
 
-\linkdef example
+\linkdef \id example
   \target https://example.com
-  \label Example link :3
+  Example link :3
+
+\fndef \id example
+  Example footnote :3
 
 Other block elements do this as well!

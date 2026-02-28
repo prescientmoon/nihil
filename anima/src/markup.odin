@@ -140,6 +140,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
   ^Linkdef, // Ref to the linkdef saved in the parent page
+  ^Fndef,   // Ref to the fndef saved in the parent page
 	Table,
 }
 
@@ -178,6 +179,7 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
 	linkdef := codec__at(k, "linkdef", codec__linkdef(k))
+	fndef := codec__at(k, "fndef", codec__fndef(k))
 	// Block_Markup__List,
 
 	return codec__sum(
@@ -192,6 +194,7 @@ codec__block_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Block_Markup__At
 		codec__variant(k, Block_Markup__Atom, para),
 		codec__variant(k, Block_Markup__Atom, table),
 		codec__variant(k, Block_Markup__Atom, linkdef),
+		codec__variant(k, Block_Markup__Atom, fndef),
 	)
 }
 
@@ -242,18 +245,25 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 // }}}
 
 // {{{ Pages
+Page :: struct {
+	links:     Exparr(Linkdef),
+	footnotes: Exparr(Fndef),
+}
+
 Linkdef :: struct {
 	id:     Contiguous_Text,
 	target: Contiguous_Text, // url
 	label:  Inline_Markup,
 }
 
-Page :: struct {
-	links: Exparr(Linkdef),
+Fndef :: struct {
+	id:      Contiguous_Text,
+	content: Block_Markup,
 }
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
-  page.links.allocator = allocator
+  page.links.allocator     = allocator
+  page.footnotes.allocator = allocator
   return page
 }
 // }}}
@@ -261,11 +271,9 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
 @(private = "file")
 codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
   cont_text := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
-
-	id := codec__field(k, "id", Linkdef, cont_text)
+	id := codec__field_at(k, "id", Linkdef, codec__once(k, cont_text))
   target := codec__field_at(k, "target", Linkdef, codec__once(k, cont_text))
-  label := codec__field_at(k, "label", Linkdef, codec__once(k, imarkup))
+  label := codec__field(k, "label", Linkdef, codec__inline_markup(k))
 
   // Save the linkdef into the parent document
   lens :: proc(kit: Lens_Kit) {
@@ -289,5 +297,35 @@ codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
 
   inner_loop := codec__loop(k, codec__sum(k, Linkdef, label, target, id))
 	return codec__focus(k, ^Linkdef, inner_loop, lens)
+}
+
+@(private = "file")
+codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Fndef) {
+  cont_text := codec__contiguous_text(k)
+	id := codec__field_at(k, "id", Fndef, codec__once(k, cont_text))
+  content := codec__field(k, "content", Fndef, codec__block_markup(k))
+
+  // Save the linkdef into the parent document
+  lens :: proc(kit: Lens_Kit) {
+    page := cast(^Page)kit.document
+    inner := cast(^Fndef)kit.inner
+    outer := cast(^^Fndef)kit.outer
+
+    switch kit.mode {
+    case .Project: 
+      if outer^ == nil {
+        fndef := exparr__push(&page.footnotes, Fndef {})
+        outer^ = fndef
+      }
+
+      inner^ = outer^^
+    case .Inject:
+      log.assert(outer^ != nil)
+      outer^^ = inner^
+    }
+  }
+
+  inner_loop := codec__loop(k, codec__sum(k, Fndef, content, id))
+	return codec__focus(k, ^Fndef, inner_loop, lens)
 }
 // }}}

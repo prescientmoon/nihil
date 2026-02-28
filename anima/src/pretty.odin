@@ -270,9 +270,13 @@ mps__block_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Block_Markup
 		mps__block_markup(mps, inner.content)
 	case ^Linkdef:
 		mps__deeper(mps, "linkdef")
-		{mps__deeper(mps, "label"); mps__inline_markup(mps, inner.label)}
+		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
 		{mps__deeper(mps, "target"); mps__contiguous_text(mps, inner.target)}
-		mps__contiguous_text(mps, inner.id)
+    if inner.label.elements.len != 0 do mps__inline_markup(mps, inner.label)
+	case ^Fndef:
+		mps__deeper(mps, "fndef")
+		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
+    mps__block_markup(mps, inner.content)
 	case Table:
 		mps__deeper(mps, "table")
 
