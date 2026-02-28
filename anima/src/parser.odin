@@ -102,19 +102,6 @@ parser__lex :: proc(parser: ^Parser, source: string) -> (ok: bool) {
 	return true
 }
 // }}}
-// {{{ Memory helpers
-// Similar to the standard library's "new", except the type of the allocation
-// need not be known at compile time.
-dynamic_new :: proc(type: typeid, allocator: mem.Allocator) -> rawptr {
-	if ti := type_info_of(type); ti != nil {
-		ptr, err := mem.alloc(size = ti.size, alignment = ti.align, allocator = allocator)
-		assert(err == nil)
-		return ptr
-	}
-
-	return nil
-}
-// }}}
 // {{{ Lexer helpers
 parser__advance :: proc(parser: ^Parser) {
 	parser.token += 1
@@ -280,29 +267,48 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		defer virtual.arena_temp_end(temp)
 		allocator := virtual.arena_allocator(&instance.parser.codec_output_stack)
 
-		inner_output := dynamic_new(inner.inner.type, allocator)
+		inner_output := mem__reflected_new(inner.inner.type, allocator)
     kit := Lens_Kit {
-      outer     = instance.output,
-      inner     = inner_output,
-      user_data = inner.user_data,
-      document  = instance.document,
-      mode      = .Project,
-      allocator = virtual.arena_allocator(&instance.parser.output_arena)
+      outer           = instance.output,
+      inner           = inner_output,
+      user_data       = inner.user_data,
+      document        = instance.document,
+      mode            = .Project,
+      allocator       = virtual.arena_allocator(&instance.parser.output_arena),
+      temp_allocator  = allocator,
+      error_allocator = virtual.arena_allocator(&instance.parser.error_arena),
     }
 
-		inner.lens(kit)
+    kit.errors.allocator = kit.temp_allocator
 
-		inner_instance := instance
-		inner_instance.codec = inner.inner
-		inner_instance.output = inner_output
+		inner.lens(&kit)
+    if kit.errors.len == 0 {
+      inner_instance := instance
+      inner_instance.codec = inner.inner
+      inner_instance.output = inner_output
 
-		consumed = codec__eval_instance(inner_instance)
-		if consumed {
-      kit.mode = .Inject
-      inner.lens(kit)
+      consumed = codec__eval_instance(inner_instance)
+      if consumed {
+        kit.mode = .Inject
+        inner.lens(&kit)
+      }
+
+      if kit.errors.len == 0 do return consumed
     }
 
-		return consumed
+    // HACK: Try to go slightly backwards. Fixing this would require tracking
+    // the tokens consumed by each codec instance. This is very much doable,
+    // but I'm too lazy to implement it right now.
+    tok_ix := instance.parser.token
+    if tok_ix > 0 do tok_ix -= 1
+    tok := exparr__get(instance.parser.tokens, tok_ix)
+
+    for i in 0..<kit.errors.len {
+      msg := exparr__get(kit.errors, i)^
+      parser__error(instance.parser, tok, msg)
+    }
+
+    return consumed
 	case Codec__Sum:
 		for &codec in inner {
 			inner_instance := instance
@@ -411,7 +417,7 @@ codec__eval :: proc(parser: ^Parser, codec: ^Codec, document: rawptr) -> (output
 	temp_state := virtual.arena_temp_begin(&parser.codec_state_stack)
 	defer virtual.arena_temp_end(temp_state)
 
-	output = dynamic_new(codec.type, output_allocator)
+	output = mem__reflected_new(codec.type, output_allocator)
 	instance := Codec_Instance {
 		parser   = parser,
 		codec    = codec,

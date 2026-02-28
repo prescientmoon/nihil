@@ -1,18 +1,20 @@
 let
   sources = import ../npins;
   pkgs = import sources.nixpkgs { };
-  odin = pkgs.odin.overrideAttrs {
+  odin = pkgs.odin.overrideAttrs (og: {
     version = "unstable-2026-02-28";
     src = pkgs.fetchFromGitHub {
+      fetchLFS = true;
       owner = "odin-lang";
       repo = "Odin";
       rev = "a0b9d710f72e114efdd4de7b76fa3ccc0182a90c";
-      sha256 = "0kyg9wkn9g8rir7gxhi74ghryf3n9dv4lj27f5ngvxkw9v8r1q5r";
+      sha256 = "sha256-zXiabTTQdD1ZeJzjehSmp011JLUYSFNS4GkAKw6fjOg=";
     };
-  };
+    patches = [ (builtins.elem 0 og.patches) ]; # The second patch is broken
+  });
 
   ols = (pkgs.ols.override { inherit odin; }).overrideAttrs {
-    version = "unstable-2026-02-28";
+    version = "unstable-2026-02-20";
     src = pkgs.fetchFromGitHub {
       owner = "DanielGavin";
       repo = "ols";

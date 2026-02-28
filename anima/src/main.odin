@@ -9,7 +9,7 @@ main :: proc() {
 
 	stats: Statistics
 	kit: Codec_Kit
-	codec__mk_kit(&kit, &stats)
+	codec__mk_kit(&kit, &stats, Page)
 	codec := codec__block_markup(&kit)
 	virtual.arena_destroy(&kit.memo_arena)
 	defer virtual.arena_destroy(&kit.codec_arena)

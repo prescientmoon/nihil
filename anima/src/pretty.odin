@@ -179,8 +179,16 @@ mps__contiguous_text :: proc(mps: ^Markup_Printer_State, text: Contiguous_Text) 
 	}
 }
 // }}}
+// {{{ Timestamp
+mps__timestamp :: proc(mps: ^Markup_Printer_State, timestamp: Timestamp) {
+  if timestamp.compact do mps__leaf(mps, "compact")
+  mps__leaf_str(mps, fmt.tprintf("%v", timestamp.time))
+}
+// }}}
 // {{{ Inline markup
-mps__inline_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup__Atom) {
+mps__inline_markup__atom :: proc(
+  mps: ^Markup_Printer_State, markup: Inline_Markup__Atom
+) {
 	switch inner in markup {
 	case nil:
 		mps__leaf(mps, "inline›none", allow_inline = true)
@@ -220,17 +228,15 @@ mps__inline_markup__atom :: proc(mps: ^Markup_Printer_State, markup: Inline_Mark
 			mps__deeper(mps, "label")
 			mps__inline_markup(mps, inner.label)
 		}
+	case Inline_Markup__Date:
+		mps__deeper(mps, "date")
+    mps__timestamp(mps, Timestamp(inner))
+	case Inline_Markup__Datetime:
+		mps__deeper(mps, "datetime")
+    mps__timestamp(mps, Timestamp(inner))
 	// case .LaTeX:
 	// 	mps__leaf_labeled_str(mps, "math", markup.raw)
 	// cps__leaf_labeled_str(mps, "id", markup.link.id)
-	// case .Date:
-	// 	mps__deeper(mps, "date")
-	// 	if markup.time.compact do mps__leaf(mps, "compact")
-	// 	mps__leaf_str(mps, markup.time.time)
-	// case .Datetime:
-	// 	mps__deeper(mps, "datetime")
-	// 	if markup.time.compact do mps__leaf(mps, "compact")
-	// 	mps__leaf_str(mps, markup.time.time)
 	case:
 		mps__leaf(mps, "unknown", allow_inline = true)
 	}

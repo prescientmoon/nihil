@@ -35,3 +35,6 @@ footnote: \fn{example}.
 
 Other block elements do this as well!
 
+I'm typing this out at \datetime{2026-02-28T18:17:52+01:00}. Here it is
+as a date: \date{\compact 2026-02-2818:17:52+01:00    }.
+

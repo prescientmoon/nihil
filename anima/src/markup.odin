@@ -1,7 +1,11 @@
 package anima
 
+import "base:runtime"
 import "core:log"
 import "core:mem"
+import "core:fmt"
+import "core:time"
+import "core:strings"
 
 // {{{ Contiguous text
 // A sequence of text where all the whitespace in the source is discarded
@@ -21,6 +25,77 @@ codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) 
 		},
 	)
 }
+
+contiguous_text__concat :: proc(
+  ctext: Contiguous_Text, allocator: mem.Allocator
+) -> string {
+  size := 0
+  exparr := cast(Exparr(string))ctext
+  for i in 0..<exparr.len do size += len(exparr__get(exparr, i))
+
+  // Allocate a string buffer, preventing further re-allocations
+  builder := strings.builder_make_len_cap(0, size, allocator)
+  builder.buf.allocator = runtime.panic_allocator()
+
+  for i in 0..<exparr.len {
+    strings.write_string(&builder, exparr__get(exparr, i)^)
+  }
+
+  return strings.to_string(builder)
+}
+// }}}
+// {{{ Timestamp
+Timestamp :: struct {
+  compact: bool, // Shortens the output
+  time:    time.Time
+}
+
+codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
+  lens :: proc(kit: ^Lens_Kit) {
+    outer := cast(^time.Time)kit.outer
+    inner := cast(^Contiguous_Text)kit.inner
+    if kit.mode == .Inject {
+      as_string := contiguous_text__concat(inner^, kit.temp_allocator)
+      datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
+
+      if datetime_consumed > 0 {
+        outer^ = datetime
+        return
+      }
+
+			// Try to tack an empty timestamp at the end
+			as_date_string := fmt.aprintf("%vT00:00:00+00:00",
+				as_string,
+				allocator = kit.temp_allocator,
+			)
+
+			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
+
+      if date_consumed > 0 {
+        outer^ = date
+        return
+      }
+
+      lens__errorf(kit, "Invalid timestamp: '%v'", as_string)
+    }
+  }
+
+  codec :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
+    time_payload := codec__focus(
+      k,
+      time.Time,
+      codec__contiguous_text(k),
+      lens
+    )
+
+    time := codec__field(k, "time", Timestamp, codec__once(k, time_payload))
+    compact := codec__flag_at(k, "compact", Timestamp)
+
+    return codec__loop(k, codec__sum(k, Timestamp, time, compact))
+  }
+
+  return codec__memo(k, Timestamp, "timestamp", codec)
+}
 // }}}
 
 // {{{ Inline
@@ -38,6 +113,9 @@ Inline_Markup__Link :: struct {
 	id:    Contiguous_Text,
 	label: Inline_Markup,
 }
+
+Inline_Markup__Date :: distinct Timestamp
+Inline_Markup__Datetime :: distinct Timestamp
 
 // Using distinct runs into circular types issue (for no reason)
 Inline_Markup :: struct {
@@ -57,6 +135,8 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Icon,
 	Inline_Markup__Fn,
 	Inline_Markup__Link,
+	Inline_Markup__Date,
+	Inline_Markup__Datetime,
 }
 // }}}
 // {{{ Codecs
@@ -81,6 +161,10 @@ codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__
   link_sum := codec__sum(k, Link, link_label, link_id)
   link := codec__at(k, "link", codec__loop(k, link_sum))
 
+  timestamp := codec__timestamp(k)
+  date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
+  datetime := codec__trans_at(k, "datetime", Inline_Markup__Datetime, timestamp)
+
 	return codec__sum(
 		k,
 		Inline_Markup__Atom,
@@ -94,6 +178,8 @@ codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__
 		codec__variant(k, Inline_Markup__Atom, quote),
 		codec__variant(k, Inline_Markup__Atom, fn),
 		codec__variant(k, Inline_Markup__Atom, link),
+		codec__variant(k, Inline_Markup__Atom, date),
+		codec__variant(k, Inline_Markup__Atom, datetime),
 	)
 }
 
@@ -285,29 +371,8 @@ codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
 	id := codec__field_at(k, "id", Linkdef, codec__once(k, ctext))
   target := codec__field_at(k, "target", Linkdef, codec__once(k, ctext))
   label := codec__field(k, "label", Linkdef, codec__inline_markup(k))
-
-  // Save the linkdef into the parent document
-  lens :: proc(kit: Lens_Kit) {
-    page := cast(^Page)kit.document
-    inner := cast(^Linkdef)kit.inner
-    outer := cast(^^Linkdef)kit.outer
-
-    switch kit.mode {
-    case .Project: 
-      if outer^ == nil {
-        linkdef := exparr__push(&page.links, Linkdef {})
-        outer^ = linkdef
-      }
-
-      inner^ = outer^^
-    case .Inject:
-      log.assert(outer^ != nil)
-      outer^^ = inner^
-    }
-  }
-
   inner_loop := codec__loop(k, codec__sum(k, Linkdef, label, target, id))
-	return codec__focus(k, ^Linkdef, inner_loop, lens)
+	return codec__remote_push(k, "links", inner_loop)
 }
 
 @(private = "file")
@@ -315,28 +380,7 @@ codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Fndef) {
   ctext := codec__contiguous_text(k)
 	id := codec__field_at(k, "id", Fndef, codec__once(k, ctext))
   content := codec__field(k, "content", Fndef, codec__block_markup(k))
-
-  // Save the linkdef into the parent document
-  lens :: proc(kit: Lens_Kit) {
-    page := cast(^Page)kit.document
-    inner := cast(^Fndef)kit.inner
-    outer := cast(^^Fndef)kit.outer
-
-    switch kit.mode {
-    case .Project: 
-      if outer^ == nil {
-        fndef := exparr__push(&page.footnotes, Fndef {})
-        outer^ = fndef
-      }
-
-      inner^ = outer^^
-    case .Inject:
-      log.assert(outer^ != nil)
-      outer^^ = inner^
-    }
-  }
-
   inner_loop := codec__loop(k, codec__sum(k, Fndef, content, id))
-	return codec__focus(k, ^Fndef, inner_loop, lens)
+	return codec__remote_push(k, "footnotes", inner_loop)
 }
 // }}}
