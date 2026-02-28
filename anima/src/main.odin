@@ -2,10 +2,13 @@ package anima
 
 import "core:fmt"
 import "core:log"
+import "core:mem"
 import "core:mem/virtual"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
+  context.allocator = mem.panic_allocator()
+	context.logger = log.create_console_logger(allocator=context.temp_allocator)
+  defer log.destroy_console_logger(context.logger, allocator=context.temp_allocator)
 
 	stats: Statistics
 

@@ -1,3 +1,6 @@
+// A somewhat scuffed module for pretty printing trees of things. Right now all
+// allocations reference the temporary allocator, although I might change this
+// to use a dedicated arena in the future.
 #+private file
 package anima
 
@@ -38,7 +41,7 @@ Markup_Printer_State :: struct {
 
 @(private = "package")
 mps__init :: proc() -> (out: Markup_Printer_State) {
-	out.output = strings.builder_make_len_cap(0, 1024)
+	out.output = strings.builder_make_len_cap(0, 1024, context.temp_allocator)
 	return out
 }
 
