@@ -44,7 +44,7 @@ Inline_Markup :: struct {
 	elements: Exparr(Inline_Markup__Atom),
 }
 
-// TODO: datetime, date, time, link, fn, icon, LaTeX
+// TODO: datetime, date, time, icon, LaTeX
 Inline_Markup__Atom :: union {
 	Inline_Markup__Space,
 	Inline_Markup__Ellipsis,
@@ -63,6 +63,8 @@ Inline_Markup__Atom :: union {
 @(private = "file")
 codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__Atom) {
 	imarkup := codec__inline_markup(k)
+	ctext := codec__contiguous_text(k)
+
 	space := codec__space(k, Inline_Markup__Space)
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
 	ellipsis := codec__constant(k, "...", Inline_Markup__Ellipsis{})
@@ -71,6 +73,13 @@ codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__
 	strike := codec__trans_at(k, "~", Inline_Markup__Strikethrough, imarkup)
 	mono := codec__trans_at(k, "`", Inline_Markup__Mono, imarkup)
 	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
+  fn := codec__trans_at(k, "fn", Inline_Markup__Fn, ctext)
+
+  Link :: Inline_Markup__Link
+  link_id := codec__field(k, "id", Link, ctext)
+  link_label := codec__field_at(k, "label", Link, codec__once(k, imarkup))
+  link_sum := codec__sum(k, Link, link_label, link_id)
+  link := codec__at(k, "link", codec__loop(k, link_sum))
 
 	return codec__sum(
 		k,
@@ -83,6 +92,8 @@ codec__inline_markup__atom :: proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup__
 		codec__variant(k, Inline_Markup__Atom, strike),
 		codec__variant(k, Inline_Markup__Atom, mono),
 		codec__variant(k, Inline_Markup__Atom, quote),
+		codec__variant(k, Inline_Markup__Atom, fn),
+		codec__variant(k, Inline_Markup__Atom, link),
 	)
 }
 
@@ -129,7 +140,7 @@ Block_Markup__Description :: distinct Unit
 Block_Markup__Table_Of_Contents :: distinct Unit
 Block_Markup__Thematic_Break :: distinct Unit
 
-// TODO: heading, code, aside, index, link/fn defs
+// TODO: heading, code, aside, index
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
@@ -270,9 +281,9 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
 // {{{ Codecs
 @(private = "file")
 codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
-  cont_text := codec__contiguous_text(k)
-	id := codec__field_at(k, "id", Linkdef, codec__once(k, cont_text))
-  target := codec__field_at(k, "target", Linkdef, codec__once(k, cont_text))
+  ctext := codec__contiguous_text(k)
+	id := codec__field_at(k, "id", Linkdef, codec__once(k, ctext))
+  target := codec__field_at(k, "target", Linkdef, codec__once(k, ctext))
   label := codec__field(k, "label", Linkdef, codec__inline_markup(k))
 
   // Save the linkdef into the parent document
@@ -301,8 +312,8 @@ codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Linkdef) {
 
 @(private = "file")
 codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Fndef) {
-  cont_text := codec__contiguous_text(k)
-	id := codec__field_at(k, "id", Fndef, codec__once(k, cont_text))
+  ctext := codec__contiguous_text(k)
+	id := codec__field_at(k, "id", Fndef, codec__once(k, ctext))
   content := codec__field(k, "content", Fndef, codec__block_markup(k))
 
   // Save the linkdef into the parent document

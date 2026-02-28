@@ -25,7 +25,13 @@ It can still be broken off though!
   \target https://example.com
   Example link :3
 
+Markup can contain references to things like links: \link{example}. One can even
+override their default labels: \link{example \label meow}. Such references can
+also look into the future. For example, here's a reference to a not-yet-defined
+footnote: \fn{example}.
+
 \fndef \id example
   Example footnote :3
 
 Other block elements do this as well!
+
