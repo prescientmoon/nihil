@@ -10,13 +10,13 @@
       "submodules": false,
       "revision": "f57fd6b1db3b693cfe517f8ee47fbb5bc90d7212",
       "url": null,
-      "hash": "1y58i4256pfkyc53idlcgv9kpfsnpldq4pkyv59qck7f21yzrsdi"
+      "hash": "sha256-sen8fRDuTIZT2X5eghu9Vrs7036MtjgK89NdUwSJqPg="
     },
     "nixpkgs": {
       "type": "Channel",
       "name": "nixpkgs-unstable",
       "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.05pre946960.d1c15b7d5806/nixexprs.tar.xz",
-      "hash": "0i1hxm0mcqm561q9gkh8fkzrbpcmcz4l8axq3bhfy65ybx2a53zf"
+      "hash": "sha256-7o+iRF++GO/gGrgrRMlnld2V/3QIzpdwMKViVkHtMEQ="
     },
     "odin": {
       "type": "Git",
@@ -28,8 +28,8 @@
       "submodules": false,
       "revision": "5c8dbc4196e458a8e1cea378c891e891ddfa97f1",
       "url": null,
-      "hash": "1ypwlr27z3wcy0y0j4p456blkih5j9383r4m2q46hds1w34f7ap0"
+      "hash": "sha256-4KrjyOBBN2gIFpXkgUaSBcZJlynkEgk88IyPf0Sm/Po="
     }
   },
-  "version": 5
+  "version": 7
 }
