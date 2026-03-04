@@ -31,8 +31,6 @@ Page :: struct {
   aliases:   Exparr(Contiguous_Text), // Locations to redirect from
 }
 
-Tag :: distinct Contiguous_Text
-
 Change :: struct {
   at:      Timestamp, 
   Message: Inline_Markup,
@@ -46,18 +44,79 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
 }
 // }}}
 // {{{ Page filtering
-Page_Filter__Any        :: distinct Exparr(Page_Filter) // OR
-Page_Filter__All        :: distinct Exparr(Page_Filter) // AND
-Page_Filter__Not        :: distinct ^Page_Filter        // NOT
-Page_Filter__Tag        :: distinct Tag                 // Pages having this tag
-Page_Filter__Local      :: distinct Unit                // The current page
-Page_Filter__Everything :: distinct Unit                // Every page
+// We make this a struct, since we otherwise hit bugs in the compiler
+Page_Filter__Many :: struct { elements: Exparr(Page_Filter__Atom) }
 
-Page_Filter :: union {
+Page_Filter__Any   :: distinct Page_Filter__Many  // OR
+Page_Filter__All   :: distinct Page_Filter__Many  // AND
+Page_Filter__Not   :: distinct ^Page_Filter__Atom // NOT
+
+Page_Filter__Tag   :: distinct Tag  // Pages having this tag
+Page_Filter__Local :: distinct Unit // The current page
+
+Page_Filter__Atom :: union {
   Page_Filter__All,
   Page_Filter__Any,
   Page_Filter__Not,
   Page_Filter__Tag,
+  Page_Filter__Local,
+}
+
+@(private = "file")
+codec__page_filter__atom :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Page_Filter__Atom) {
+  return codec__memo(
+  	k,
+  	"page_filter__atom",
+  	proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__Atom) {
+      atom := codec__page_filter__atom(k)
+      many := codec__page_filter__many(k)
+
+      local := codec__const(k, "local", Page_Filter__Local{})
+      not := codec__trans_at(k, "not", Page_Filter__Not, codec__ref(k, atom))
+      all := codec__trans_at(k, "all", Page_Filter__All, many)
+      any := codec__trans_at(k, "any", Page_Filter__Any, many)
+      tag := codec__trans_at(k, "tag", Page_Filter__Tag, codec__tag(k))
+
+      return codec__sum(
+        k,
+        Page_Filter__Atom,
+        codec__variant(k, Page_Filter__Atom, local),
+        codec__variant(k, Page_Filter__Atom, not),
+        codec__variant(k, Page_Filter__Atom, all),
+        codec__variant(k, Page_Filter__Atom, any),
+        codec__variant(k, Page_Filter__Atom, tag),
+      )
+    },
+  )
+}
+
+@(private = "file")
+codec__page_filter__many :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Page_Filter__Many) {
+	return codec__memo(
+		k,
+		"page_filter__many",
+		proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__Many) {
+      inner := codec__spaced_exparr(k, codec__page_filter__atom(k))
+			return codec__transmute(k, Page_Filter__Many, inner)
+		},
+	)
+}
+
+@(private = "file")
+codec__page_filter__all :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Page_Filter__All) {
+	return codec__memo(
+		k,
+		"page_filter__all",
+		proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__All) {
+			return codec__transmute(k, Page_Filter__All, codec__page_filter__many(k))
+		},
+	)
 }
 // }}}
 // {{{ Icon definitions
@@ -102,7 +161,7 @@ codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
 // }}}
 // {{{ Feed definitions
 Def__Feed :: struct {
-  id:           string, // TODO: perhaps make the whole path configurable?
+  id:           string, // TODO: consider making the whole path configurable?
   description:  Inline_Markup,
   advertise_on: Page_Filter__All, // Which pages should this appear on?
   elements:     Page_Filter__All, // What posts should this include?
@@ -172,6 +231,7 @@ Timestamp :: struct {
   time:    time.Time
 }
 
+@(private = "file")
 codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^time.Time)kit.outer
@@ -216,16 +276,17 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
     return codec__loop(k, codec__sum(k, Timestamp, time, compact))
   }
 
-  return codec__memo(k, Timestamp, "timestamp", codec)
+  return codec__memo(k, "timestamp", codec)
 }
 // }}}
 // {{{ Contiguous text
 // A sequence of text where all the whitespace in the source is discarded
 Contiguous_Text :: distinct Exparr(string)
+
+@(private = "file")
 codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
 	return codec__memo(
 		kit,
-		Contiguous_Text,
 		"contiguous_text",
 		proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
       // TODO: disallow empty strings
@@ -254,6 +315,14 @@ contiguous_text__concat :: proc(
   }
 
   return strings.to_string(builder)
+}
+// }}}
+// {{{ Tag
+Tag :: distinct Contiguous_Text
+
+@(private = "file")
+codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
+  return codec__transmute(k, Tag, codec__contiguous_text(k))
 }
 // }}}
 
@@ -349,7 +418,6 @@ codec__inline_markup__atom :: proc(
 codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	return codec__memo(
 		kit,
-		Inline_Markup,
 		"inline_markup",
 		proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 			return codec__transmute(
@@ -384,12 +452,28 @@ Block_Markup__List :: struct {
 	},
 }
 
+Block_Markup__Aside :: struct {
+  id:       Contiguous_Text,
+  char:     Contiguous_Text,
+  content:  Block_Markup,
+  title:    Inline_Markup,
+
+  // Whether to hide the content by default
+  collapse: bool,
+}
+
+Block_Markup__Code :: struct {
+  language: Contiguous_Text,
+  content:  Contiguous_Text,
+}
+
 Block_Markup__Blockquote :: distinct Block_Markup
 Block_Markup__Description :: distinct Unit
 Block_Markup__Table_Of_Contents :: distinct Unit
 Block_Markup__Thematic_Break :: distinct Unit
+Block_Markup__Index :: distinct Page_Filter__All
 
-// TODO: code, aside, index
+// TODO: code, list
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
@@ -399,6 +483,8 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
+  Block_Markup__Index,
+  Block_Markup__Aside,
 	Table,
 
   // References to data saved in the parent Page structure
@@ -436,11 +522,34 @@ codec__block_markup__figure :: proc(
 }
 
 @(private = "file")
+codec__block_markup__aside :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Block_Markup__Aside) {
+  Self :: Block_Markup__Aside
+
+  ctext   := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+  bmarkup := codec__block_markup(k)
+
+  id       := codec__field_at(k, "id", Self, codec__once(k, ctext))
+  icon     := codec__field_at(k, "char", Self, codec__once(k, ctext))
+  title    := codec__field_at(k, "title", Self, codec__once(k, imarkup))
+	content  := codec__field(k, "content", Self, bmarkup)
+  collapse := codec__flag_at(k, "collapse", Self)
+
+	return codec__loop(
+    k, 
+    codec__sum(k, Self, content, id, icon, title, collapse, content)
+  )
+}
+
+@(private = "file")
 codec__block_markup__atom :: proc(
   k: ^Codec_Kit
 ) -> Typed_Codec(Block_Markup__Atom) {
 	imarkup := codec__inline_markup(k)
 	bmarkup := codec__block_markup(k)
+
 	description := codec__const(k, "embed-description", Block_Markup__Description{})
 	thematic_break := codec__const(k, "---", Block_Markup__Thematic_Break{})
 	table_of_contents := codec__const(k, "toc", Block_Markup__Table_Of_Contents{})
@@ -451,10 +560,14 @@ codec__block_markup__atom :: proc(
 	table := codec__at(k, "table", codec__table(k))
 	linkdef := codec__at(k, "linkdef", codec__linkdef(k))
 	fndef := codec__at(k, "fndef", codec__fndef(k))
+	aside := codec__at(k, "aside", codec__block_markup__aside(k))
+
 	h1 := codec__at(k, "#", codec__heading(k, 1))
 	h2 := codec__at(k, "#", codec__heading(k, 2))
 	h3 := codec__at(k, "#", codec__heading(k, 3))
-	// Block_Markup__List,
+
+  filter__all := codec__page_filter__all(k)
+	index := codec__trans_at(k, "index", Block_Markup__Index, filter__all)
 
 	return codec__sum(
 		k,
@@ -465,20 +578,21 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, thematic_break),
 		codec__variant(k, Block_Markup__Atom, image),
 		codec__variant(k, Block_Markup__Atom, figure),
-		codec__variant(k, Block_Markup__Atom, para),
 		codec__variant(k, Block_Markup__Atom, table),
 		codec__variant(k, Block_Markup__Atom, linkdef),
 		codec__variant(k, Block_Markup__Atom, fndef),
 		codec__variant(k, Block_Markup__Atom, h1),
 		codec__variant(k, Block_Markup__Atom, h2),
 		codec__variant(k, Block_Markup__Atom, h3),
+		codec__variant(k, Block_Markup__Atom, index),
+		codec__variant(k, Block_Markup__Atom, aside),
+		codec__variant(k, Block_Markup__Atom, para),
 	)
 }
 
 codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 	return codec__memo(
 		kit,
-		Block_Markup,
 		"block_markup",
 		proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 			return codec__transmute(

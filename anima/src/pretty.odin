@@ -225,13 +225,11 @@ mps__inline_markup__atom :: proc(
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
 	case Inline_Markup__Icon:
-		// NOTE: these should ideally use mps__leaf_labeled_str, except that doesn't
-		// currently accept Contiguous_Text...
-		mps__deeper(mps, "icon")
-		mps__contiguous_text(mps, Contiguous_Text(inner))
+    icon := contiguous_text__concat(Contiguous_Text(inner), context.temp_allocator)
+    mps__leaf_labeled_str(mps, "icon", icon)
 	case Inline_Markup__Fn:
-		mps__deeper(mps, "fn")
-		mps__contiguous_text(mps, Contiguous_Text(inner))
+    fn := contiguous_text__concat(Contiguous_Text(inner), context.temp_allocator)
+    mps__leaf_labeled_str(mps, "fn", fn)
 	case Inline_Markup__Link:
 		mps__deeper(mps, "link")
 		mps__contiguous_text(mps, inner.id)
@@ -274,7 +272,10 @@ mps__block_markup__atom :: proc(
 		mps__block_markup(mps, Block_Markup(inner))
 	case Block_Markup__Image:
 		mps__deeper(mps, "image")
-		{mps__deeper(mps, "source"); mps__contiguous_text(mps, inner.source)}
+
+    source := contiguous_text__concat(inner.source, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "source", source)
+
 		{mps__deeper(mps, "alt"); mps__inline_markup(mps, inner.alt)}
 	case Block_Markup__Description:
 		mps__leaf(mps, "embed-description")
@@ -288,12 +289,44 @@ mps__block_markup__atom :: proc(
 		mps__block_markup(mps, inner.content)
 	case ^Def__Link:
 		mps__deeper(mps, "linkdef")
-		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
-		{mps__deeper(mps, "target"); mps__contiguous_text(mps, inner.target)}
+
+    id := contiguous_text__concat(inner.id, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "id", id)
+
+    target := contiguous_text__concat(inner.target, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "target", target)
+
     if inner.label.elements.len != 0 do mps__inline_markup(mps, inner.label)
 	case ^Def__Footnote:
 		mps__deeper(mps, "fndef")
-		{mps__deeper(mps, "id"); mps__contiguous_text(mps, inner.id)}
+
+    id := contiguous_text__concat(inner.id, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "id", id)
+
+    mps__block_markup(mps, inner.content)
+	case Block_Markup__Index:
+		mps__deeper(mps, "index")
+    mps__page_filter__many(mps, Page_Filter__All(inner))
+	case Block_Markup__Aside:
+		mps__deeper(mps, "aside")
+
+		if inner.collapse do mps__leaf(mps, "collapse")
+
+		if inner.id.len > 0 {
+      id := contiguous_text__concat(inner.id, context.temp_allocator)
+      mps__leaf_labeled_str(mps, "id", id)
+    }
+
+		if inner.char.len > 0 {
+      char := contiguous_text__concat(inner.char, context.temp_allocator)
+      mps__leaf_labeled_str(mps, "char", char)
+    }
+
+		if inner.title.elements.len > 0 {
+      mps__deeper(mps, "title")
+      mps__inline_markup(mps, inner.title)
+    }
+
     mps__block_markup(mps, inner.content)
 	case ^Heading:
 		mps__deeper(mps, "heading")
@@ -414,5 +447,35 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, source: string) {
 
 		mps__leaf_labeled_str(mps, "loc", pos)
 	}
+}
+// }}}
+// {{{ Filters
+mps__page_filter__many :: proc(
+  mps: ^Markup_Printer_State, many: $T/Page_Filter__Many
+) {
+  for i in 0..<many.elements.len {
+    mps__page_filter__atom(mps, exparr__get(many.elements, i)^)
+  }
+}
+
+mps__page_filter__atom :: proc(
+  mps: ^Markup_Printer_State, atom: Page_Filter__Atom
+) {
+  switch inner in atom {
+  case Page_Filter__Local:
+    mps__leaf(mps, "local")
+  case Page_Filter__Not:
+    mps__deeper(mps, "not")
+    mps__page_filter__atom(mps, inner^)
+  case Page_Filter__All:
+    mps__deeper(mps, "all")
+    mps__page_filter__many(mps, inner)
+  case Page_Filter__Any:
+    mps__deeper(mps, "any")
+    mps__page_filter__many(mps, inner)
+  case Page_Filter__Tag:
+    tag := contiguous_text__concat(Contiguous_Text(inner), context.temp_allocator)
+    mps__leaf_labeled_str(mps, "tag", tag)
+  }
 }
 // }}}

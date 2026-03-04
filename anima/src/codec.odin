@@ -7,8 +7,7 @@ import "core:mem/virtual"
 import "core:reflect"
 
 // {{{ The Codec type
-Unit :: struct {}
-Codec__Text :: distinct Unit
+Codec__Text  :: distinct Unit
 Codec__Space :: distinct Unit
 
 Codec__Constant :: struct {
@@ -22,14 +21,20 @@ Codec__At :: struct {
 }
 
 Codec__Tracked :: struct {
-	inner:    ^Codec,
+	inner: ^Codec,
+
+  // NOTE: we could use a bitfield here in order to save some memory
 	required: bool, // Must run at least once
 	unique:   bool, // Cannot run more than once
 }
 
-Codec__Loop :: distinct ^Codec
+Codec__Sum       :: distinct []Codec
+Codec__Loop      :: distinct ^Codec
 Codec__Paragraph :: distinct ^Codec // Terminated by two consecutive newlines
-Codec__Sum :: distinct []Codec
+
+// A lens-based constructor that allows changing the type of data the codecs are
+// working on. This is the primary means of injecting custom logic into the
+// parsing process.
 Codec__Focus :: struct {
 	inner:     ^Codec,
 	user_data: rawptr,
@@ -268,15 +273,15 @@ codec__ref :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(^T) {
     switch kit.mode {
     case .Project: 
       if as_ptr^ == nil {
-        t, err := new(T)
-        assert(err == nil)
+        t, err := new(T, kit.allocator)
+        log.assert(err == nil)
         mem.copy(as_ptr, &t, size_of(rawptr))
       }
 
-      mem.copy(kit.inner, as_ptr^, size_of(rawptr))
+      mem.copy(kit.inner, as_ptr^, size_of(T))
     case .Inject: 
       log.assert(as_ptr^ != nil)
-      mem.copy(as_ptr^, kit.inner, size_of(rawptr))
+      mem.copy(as_ptr^, kit.inner, size_of(T))
     }
   }
 
@@ -324,8 +329,8 @@ codec__spaced_exparr :: proc(
 	inner_sum := codec__sum(
 		kit,
 		Maybe(T),
-		codec__variant(kit, Maybe(T), inner),
 		codec__space(kit, Maybe(T)),
+		codec__variant(kit, Maybe(T), inner),
 	)
 
 	return codec__loop(kit, codec__focus(kit, Exparr(T), inner_sum, lens))
@@ -391,9 +396,8 @@ codec__variant :: proc(
 
 codec__memo :: proc(
 	kit: ^Codec_Kit,
-	$T: typeid,
 	name: string,
-	mk_inner: proc(kit: ^Codec_Kit) -> Typed_Codec(T),
+	mk_inner: proc(kit: ^Codec_Kit) -> Typed_Codec($T),
 ) -> Typed_Codec(T) {
 	for i in 0 ..< kit.memoized.len {
 		entry := exparr__get(kit.memoized, i)

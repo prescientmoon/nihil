@@ -1,3 +1,5 @@
+// Memory-related helpers. These will get moved to my "common odin stuff"
+// library, once I set that up for myself.
 package anima
 
 import "core:mem"
@@ -22,3 +24,6 @@ mem__reflected_new :: proc(type: typeid, allocator: mem.Allocator) -> rawptr {
 mem__offset :: proc(ptr: rawptr, offset: uintptr) -> rawptr {
   return rawptr(uintptr(ptr) + offset)
 }
+
+// This doesn't really belong here, yet I have nowhere else to place it :3
+Unit :: struct {}

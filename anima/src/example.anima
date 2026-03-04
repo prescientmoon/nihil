@@ -40,3 +40,13 @@ Other block elements do this as well!
 I'm typing this out at \datetime{2026-02-28T18:17:52+01:00}. Here it is
 as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 
+\index
+  \tag echo
+  \local
+  \not \all
+    \tag thing
+    \tag other-thing
+    \any \tag me
+
+\aside \collapse \id{greeting} \char{lagrange} \title A greeting
+  Hi there!
