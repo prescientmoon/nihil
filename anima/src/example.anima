@@ -21,7 +21,7 @@ It can still be broken off though!
   \row \cell{boo} \cell{} \cell{} \cell{}
   \row \cell{boo} \cell{} \cell{} \cell{aaaaaa}
 
-\linkdef \id example
+\deflink \id example
   \target https://example.com
   Example link :3
 
@@ -30,7 +30,7 @@ override their default labels: \link{example \label meow}. Such references can
 also look into the future. For example, here's a reference to a not-yet-defined
 footnote: \fn{example}.
 
-\fndef \id example
+\defnote \id example
   Example footnote :3
 
 Other block elements do this as well!
@@ -50,3 +50,7 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 
 \aside \collapse \id{greeting} \char{lagrange} \title A greeting
   Hi there!
+
+\deficon lagrange 
+  \path /icons/lagrange.png
+  \scope \local

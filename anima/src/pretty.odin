@@ -288,7 +288,7 @@ mps__block_markup__atom :: proc(
 		{mps__deeper(mps, "caption"); mps__inline_markup(mps, inner.caption)}
 		mps__block_markup(mps, inner.content)
 	case ^Def__Link:
-		mps__deeper(mps, "linkdef")
+		mps__deeper(mps, "deflink")
 
     id := contiguous_text__concat(inner.id, context.temp_allocator)
     mps__leaf_labeled_str(mps, "id", id)
@@ -297,8 +297,19 @@ mps__block_markup__atom :: proc(
     mps__leaf_labeled_str(mps, "target", target)
 
     if inner.label.elements.len != 0 do mps__inline_markup(mps, inner.label)
+	case ^Def__Icon:
+		mps__deeper(mps, "deficon")
+
+    id := contiguous_text__concat(inner.id, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "id", id)
+
+    path := contiguous_text__concat(inner.path, context.temp_allocator)
+    mps__leaf_labeled_str(mps, "path", path)
+
+		mps__deeper(mps, "scope")
+    mps__page_filter__many(mps, inner.scope)
 	case ^Def__Footnote:
-		mps__deeper(mps, "fndef")
+		mps__deeper(mps, "defnote")
 
     id := contiguous_text__concat(inner.id, context.temp_allocator)
     mps__leaf_labeled_str(mps, "id", id)

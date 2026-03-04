@@ -38,6 +38,7 @@ Change :: struct {
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   page.links.allocator     = allocator
+  page.icons.allocator     = allocator
   page.headings.allocator  = allocator
   page.footnotes.allocator = allocator
   return page
@@ -54,6 +55,7 @@ Page_Filter__Not   :: distinct ^Page_Filter__Atom // NOT
 Page_Filter__Tag   :: distinct Tag  // Pages having this tag
 Page_Filter__Local :: distinct Unit // The current page
 
+// NOTE: nil is equivalent to Page_Filter__Local
 Page_Filter__Atom :: union {
   Page_Filter__All,
   Page_Filter__Any,
@@ -121,9 +123,24 @@ codec__page_filter__all :: proc(
 // }}}
 // {{{ Icon definitions
 Def__Icon :: struct {
-  id:    string,
+  id:    Contiguous_Text,
   path:  Contiguous_Text,
   scope: Page_Filter__All,
+}
+
+@(private = "file")
+codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
+  Self :: Def__Icon
+
+  ctext := codec__contiguous_text(k)
+  filter := codec__page_filter__all(k)
+
+	id := codec__field(k, "id", Self, ctext)
+	path := codec__field_at(k, "path", Self, codec__once(k, ctext))
+	scope := codec__field_at(k, "scope", Self, codec__once(k, filter))
+
+  inner_loop := codec__loop(k, codec__sum(k, Self, id, path, scope))
+	return codec__remote_push(k, "icons", inner_loop)
 }
 // }}}
 // {{{ Link definitions
@@ -135,7 +152,7 @@ Def__Link :: struct {
 }
 
 @(private = "file")
-codec__linkdef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
+codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   ctext := codec__contiguous_text(k)
 	id := codec__field_at(k, "id", Def__Link, codec__once(k, ctext))
   target := codec__field_at(k, "target", Def__Link, codec__once(k, ctext))
@@ -151,7 +168,7 @@ Def__Footnote :: struct {
 }
 
 @(private = "file")
-codec__fndef :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
+codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
   ctext := codec__contiguous_text(k)
 	id := codec__field_at(k, "id", Def__Footnote, codec__once(k, ctext))
   content := codec__field(k, "content", Def__Footnote, codec__block_markup(k))
@@ -490,6 +507,7 @@ Block_Markup__Atom :: union {
   // References to data saved in the parent Page structure
   ^Def__Link,
   ^Def__Footnote,
+  ^Def__Icon,
   ^Heading,
 }
 
@@ -558,8 +576,9 @@ codec__block_markup__atom :: proc(
 	figure := codec__at(k, "figure", codec__block_markup__figure(k))
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
-	linkdef := codec__at(k, "linkdef", codec__linkdef(k))
-	fndef := codec__at(k, "fndef", codec__fndef(k))
+	deflink := codec__at(k, "deflink", codec__deflink(k))
+	defnote := codec__at(k, "defnote", codec__defnote(k))
+  deficon := codec__at(k, "deficon", codec__deficon(k))
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
 
 	h1 := codec__at(k, "#", codec__heading(k, 1))
@@ -579,13 +598,14 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, image),
 		codec__variant(k, Block_Markup__Atom, figure),
 		codec__variant(k, Block_Markup__Atom, table),
-		codec__variant(k, Block_Markup__Atom, linkdef),
-		codec__variant(k, Block_Markup__Atom, fndef),
 		codec__variant(k, Block_Markup__Atom, h1),
 		codec__variant(k, Block_Markup__Atom, h2),
 		codec__variant(k, Block_Markup__Atom, h3),
 		codec__variant(k, Block_Markup__Atom, index),
 		codec__variant(k, Block_Markup__Atom, aside),
+		codec__variant(k, Block_Markup__Atom, deflink),
+		codec__variant(k, Block_Markup__Atom, defnote),
+		codec__variant(k, Block_Markup__Atom, deficon),
 		codec__variant(k, Block_Markup__Atom, para),
 	)
 }
