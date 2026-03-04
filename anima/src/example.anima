@@ -54,3 +54,31 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 \deficon lagrange 
   \path /icons/lagrange.png
   \scope \local
+
+\feed 
+  \id toplevel
+
+  \members 
+    \tag under:/echoes
+
+  \under \any!
+    \tag under:/echoes
+    \tag at:/echoes
+
+  This is my feed!
+
+\alias something
+\tag wow
+\compact \public
+
+\filename slkjdfslkdjfs
+\created_at 2026-03-04T21:30:59+01:00
+\published_at 2026-03-04T21:31:01+01:00
+\changefreq weekly
+\priority 0.7
+
+\description
+  This is merely an example page
+
+\change \at 2026-03-04T21:38:11+01:00
+  I added changelog support!

@@ -3,6 +3,7 @@ package anima
 import "base:intrinsics"
 import "base:runtime"
 import "core:mem"
+import "core:log"
 
 // An array that allocates chunks in exponentially increasing sizes. As a
 // result, pointers to elements are guaranteed to remain stable. Moreover,
@@ -42,18 +43,20 @@ exprarr__destructure_ix :: proc(
 }
 
 exparr__get :: proc(exparr: Exparr($V, $FCE), #any_int ix: uint) -> ^V {
-	assert(ix < exparr.len)
+	log.assert(ix < exparr.len)
 	chunk, local_ix := exprarr__destructure_ix(FCE, ix)
 	return &exparr.chunks[chunk][local_ix]
 }
 
 exparr__last :: proc(exparr: Exparr($V, $FCE)) -> ^V {
-	assert(exparr.len > 0)
+	log.assert(exparr.len > 0)
 	return exparr__get(exparr, exparr.len - 1)
 }
 
-exparr__push :: proc(exparr: ^Exparr($V, $FCE), element: V) -> ^V {
-	assert(exparr.allocator != {})
+exparr__push :: proc(
+  exparr: ^Exparr($V, $FCE), element: V, loc := #caller_location
+) -> ^V {
+	log.assert(exparr.allocator != {}, loc=loc)
 	chunk, lix := exprarr__destructure_ix(FCE, exparr.len)
 
 	// Grow

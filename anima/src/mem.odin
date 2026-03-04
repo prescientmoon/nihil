@@ -25,5 +25,11 @@ mem__offset :: proc(ptr: rawptr, offset: uintptr) -> rawptr {
   return rawptr(uintptr(ptr) + offset)
 }
 
+mem__nz :: mem__non_zero
+mem__non_zero :: proc(v: $T) -> bool {
+  v := v
+  return !mem.check_zero(mem.ptr_to_bytes(&v))
+}
+
 // This doesn't really belong here, yet I have nowhere else to place it :3
 Unit :: struct {}

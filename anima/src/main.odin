@@ -23,9 +23,8 @@ main :: proc() {
 	ok := parser__lex(&parser, #load("./example.anima", string))
 	assert(ok, "Failed to lex file")
 
-	codec := codec__block_markup(&kit)
-  page := page__make(virtual.arena_allocator(&parser.output_arena))
-	raw_output, _ := codec__eval(&parser, codec, &page)
+	codec := codec__page(&kit)
+	raw_output, _ := codec__eval(&parser, codec)
 
 	tok := exparr__get(parser.tokens, parser.token)
 	if parser.errors.len > 0 {
@@ -37,8 +36,8 @@ main :: proc() {
 		log.error("File was not entirely consumed: ", tok)
 	} else {
 		log.info("Finished parsing")
-		output: ^Block_Markup = cast(^Block_Markup)raw_output
-		fmt.println(mps__block_markup_to_string(output^))
+		output := cast(^Page)raw_output
+		fmt.println(mps__page_to_string(output^))
 	}
 
 	log.info(

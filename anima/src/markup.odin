@@ -7,19 +7,22 @@ import "core:time"
 import "core:strings"
 
 // {{{ Page
-// TODO: description, filename, aliases, created_at, changelog, feeds, tags, 
-// assets, imports, (anima) comments
+// TODO: assets?, imports, (anima) comments
 Page :: struct {
   compact:   bool, // Whether the page should not contain the post layout
   public:    bool, // Whether the page should be included in the sitemap
-  published: bool, // Whether the article should not be a draft
 
-  description:  Block_Markup,
-  created_at:   Timestamp,       // When was the file created?
-  published_at: Timestamp,       // When was the file created?
-  filename:     Contiguous_Text, // Overrides the last segment of the path
+  filename:    Contiguous_Text, // Overrides the last segment of the path
+  description: Inline_Markup,
+  content:     Block_Markup,
+
+  created_at:   time.Time, // When was the file created?
+  published_at: time.Time, // When was the file created?
+
+  // We don't bother defining sitemap-specific types since those options are
+  // seldom used in practice.
   changefreq:   Contiguous_Text, // Override the change frequency for the page
-  priority:     f32,             // Assign a priority to the sitemap entry
+  priority:     Contiguous_Text, // Assign a priority to the sitemap entry
 
   tags:      Exparr(Tag),
   changelog: Exparr(Change),
@@ -31,17 +34,76 @@ Page :: struct {
   aliases:   Exparr(Contiguous_Text), // Locations to redirect from
 }
 
-Change :: struct {
-  at:      Timestamp, 
-  Message: Inline_Markup,
-}
-
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   page.links.allocator     = allocator
   page.icons.allocator     = allocator
   page.headings.allocator  = allocator
   page.footnotes.allocator = allocator
   return page
+}
+
+codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
+  ctext := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+  timestamp := codec__timestamp(k)
+
+  feeds_payload   := codec__exparr(k, codec__at(k, "feed",   codec__feed(k)))
+  tags_payload    := codec__exparr(k, codec__at(k, "tag",    codec__tag(k)))
+  changes_payload := codec__exparr(k, codec__at(k, "change", codec__change(k)))
+  aliases_payload := codec__exparr(k, codec__at(k, "alias",  ctext))
+
+  feeds   := codec__field(k, "feeds",     Page, feeds_payload)
+  tags    := codec__field(k, "tags",      Page, tags_payload)
+  changes := codec__field(k, "changelog", Page, changes_payload)
+  aliases := codec__field(k, "aliases",   Page, aliases_payload)
+
+  content     := codec__field(k, "content", Page, codec__block_markup(k))
+  description := codec__field_at(k, "description", Page, codec__once(k, imarkup))
+  filename    := codec__field_at(k, "filename", Page, codec__once(k, ctext))
+
+  created   := codec__field_at(k, "created_at",   Page, codec__once(k, timestamp))
+  published := codec__field_at(k, "published_at", Page, codec__once(k, timestamp))
+
+  priority   := codec__field_at(k, "priority",   Page, codec__once(k, ctext))
+  changefreq := codec__field_at(k, "changefreq", Page, codec__once(k, ctext))
+
+  compact := codec__flag_at(k, "compact", Page)
+  public  := codec__flag_at(k, "public", Page)
+
+  inner_loop := codec__sum(
+    k, Page,
+    content, feeds, tags, aliases, public, description, compact, created,
+    published, filename, changefreq, priority, changes,
+  )
+
+  lens :: proc(kit: ^Lens_Kit) {
+    switch kit.mode {
+    case .Project:
+      if mem.check_zero_ptr(kit.outer, size_of(Page)) {
+        (cast(^Page)kit.outer)^ = page__make(kit.allocator)
+      }
+
+      kit.document = kit.inner
+      mem.copy(kit.inner, kit.outer, size_of(Page))
+    case .Inject:
+      mem.copy(kit.outer, kit.inner, size_of(Page))
+    }
+  }
+
+  return codec__focus(k, Page, codec__loop(k, inner_loop), lens)
+}
+// }}}
+// {{{ Changelog entries
+Change :: struct {
+  at:      time.Time, 
+  message: Inline_Markup,
+}
+
+codec__change :: proc(k: ^Codec_Kit) -> Typed_Codec(Change) {
+	at := codec__field_at(k, "at", Change, codec__once(k, codec__timestamp(k)))
+  message := codec__field(k, "message", Change, codec__inline_markup(k))
+
+  return codec__loop(k, codec__sum(k, Change, at, message))
 }
 // }}}
 // {{{ Page filtering
@@ -54,6 +116,7 @@ Page_Filter__Not   :: distinct ^Page_Filter__Atom // NOT
 
 Page_Filter__Tag   :: distinct Tag  // Pages having this tag
 Page_Filter__Local :: distinct Unit // The current page
+Page_Filter__Public :: distinct Unit // The page is visible
 
 // NOTE: nil is equivalent to Page_Filter__Local
 Page_Filter__Atom :: union {
@@ -62,6 +125,7 @@ Page_Filter__Atom :: union {
   Page_Filter__Not,
   Page_Filter__Tag,
   Page_Filter__Local,
+  Page_Filter__Public,
 }
 
 @(private = "file")
@@ -76,6 +140,7 @@ codec__page_filter__atom :: proc(
       many := codec__page_filter__many(k)
 
       local := codec__const(k, "local", Page_Filter__Local{})
+      public := codec__const(k, "public", Page_Filter__Public{})
       not := codec__trans_at(k, "not", Page_Filter__Not, codec__ref(k, atom))
       all := codec__trans_at(k, "all", Page_Filter__All, many)
       any := codec__trans_at(k, "any", Page_Filter__Any, many)
@@ -85,6 +150,7 @@ codec__page_filter__atom :: proc(
         k,
         Page_Filter__Atom,
         codec__variant(k, Page_Filter__Atom, local),
+        codec__variant(k, Page_Filter__Atom, public),
         codec__variant(k, Page_Filter__Atom, not),
         codec__variant(k, Page_Filter__Atom, all),
         codec__variant(k, Page_Filter__Atom, any),
@@ -178,10 +244,27 @@ codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
 // }}}
 // {{{ Feed definitions
 Def__Feed :: struct {
-  id:           string, // TODO: consider making the whole path configurable?
-  description:  Inline_Markup,
-  advertise_on: Page_Filter__All, // Which pages should this appear on?
-  elements:     Page_Filter__All, // What posts should this include?
+  id:          Contiguous_Text,
+  description: Inline_Markup,
+
+  members: Page_Filter__All, // What posts should this include?
+  under:   Page_Filter__All, // Which pages should this appear on?
+}
+
+@(private = "file")
+codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
+  Self :: Def__Feed
+
+  ctext := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+  filter := codec__page_filter__all(k)
+
+	id := codec__field_at(k, "id", Self, ctext)
+	desc := codec__field(k, "description", Self, imarkup)
+	under := codec__field_at(k, "under", Self, codec__once(k, filter))
+	members := codec__field_at(k, "members", Self, codec__once(k, filter))
+
+  return codec__loop(k, codec__sum(k, Self, id, under, members, desc))
 }
 // }}}
 // {{{ Heading
@@ -242,14 +325,9 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
 // }}}
-// {{{ Timestamp
-Timestamp :: struct {
-  compact: bool, // Shortens the output
-  time:    time.Time
-}
-
+// {{{ Inline_Markup__Timestamp
 @(private = "file")
-codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
+codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^time.Time)kit.outer
     inner := cast(^Contiguous_Text)kit.inner
@@ -262,13 +340,13 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
         return
       }
 
-			// Try to tack an empty timestamp at the end
-			as_date_string := fmt.aprintf("%vT00:00:00+00:00",
-				as_string,
-				allocator = kit.temp_allocator,
-			)
+      // Try to tack an empty timestamp at the end
+      as_date_string := fmt.aprintf("%vT00:00:00+00:00",
+        as_string,
+        allocator = kit.temp_allocator,
+      )
 
-			date, date_consumed := time.iso8601_to_time_utc(as_date_string)
+      date, date_consumed := time.iso8601_to_time_utc(as_date_string)
 
       if date_consumed > 0 {
         outer^ = date
@@ -279,21 +357,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
     }
   }
 
-  codec :: proc(k: ^Codec_Kit) -> Typed_Codec(Timestamp) {
-    time_payload := codec__focus(
-      k,
-      time.Time,
-      codec__contiguous_text(k),
-      lens
-    )
-
-    time := codec__field(k, "time", Timestamp, codec__once(k, time_payload))
-    compact := codec__flag_at(k, "compact", Timestamp)
-
-    return codec__loop(k, codec__sum(k, Timestamp, time, compact))
-  }
-
-  return codec__memo(k, "timestamp", codec)
+  return codec__focus(k, time.Time, codec__contiguous_text(k), lens)
 }
 // }}}
 // {{{ Contiguous text
@@ -359,8 +423,13 @@ Inline_Markup__Link :: struct {
 	label: Inline_Markup,
 }
 
-Inline_Markup__Date :: distinct Timestamp
-Inline_Markup__Datetime :: distinct Timestamp
+Inline_Markup__Timestamp :: struct {
+  compact: bool, // Shortens the output
+  time: time.Time,
+}
+
+Inline_Markup__Date :: distinct Inline_Markup__Timestamp
+Inline_Markup__Datetime :: distinct Inline_Markup__Timestamp
 
 // Using distinct runs into circular types issue (for no reason)
 Inline_Markup :: struct {
@@ -386,6 +455,19 @@ Inline_Markup__Atom :: union {
 // }}}
 // {{{ Inline Codecs
 @(private = "file")
+codec__inline_markup__timestamp :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Inline_Markup__Timestamp) {
+  Self :: Inline_Markup__Timestamp
+
+  time_payload := codec__timestamp(k)
+  time := codec__field(k, "time", Self, codec__once(k, time_payload))
+  compact := codec__flag_at(k, "compact", Self)
+
+  return codec__loop(k, codec__sum(k, Self, time, compact))
+}
+
+@(private = "file")
 codec__inline_markup__atom :: proc(
   k: ^Codec_Kit
 ) -> Typed_Codec(Inline_Markup__Atom) {
@@ -409,7 +491,7 @@ codec__inline_markup__atom :: proc(
   link_sum := codec__sum(k, Link, link_label, link_id)
   link := codec__at(k, "link", codec__loop(k, link_sum))
 
-  timestamp := codec__timestamp(k)
+  timestamp := codec__inline_markup__timestamp(k)
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
   datetime := codec__trans_at(k, "datetime", Inline_Markup__Datetime, timestamp)
 

@@ -299,6 +299,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       inner_instance := instance
       inner_instance.codec = inner.inner
       inner_instance.output = inner_output
+      inner_instance.document = kit.document
 
       consumed = codec__eval_instance(inner_instance)
       if consumed {
@@ -420,7 +421,9 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 }
 
 @(private = "package")
-codec__eval :: proc(parser: ^Parser, codec: ^Codec, document: rawptr) -> (output: rawptr, ok: bool) {
+codec__eval :: proc(
+  parser: ^Parser, codec: ^Codec, document: rawptr = nil
+) -> (output: rawptr, ok: bool) {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
 	defer virtual.arena_temp_ignore(temp_output)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
