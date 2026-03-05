@@ -547,16 +547,29 @@ pretty_error :: proc(error: Parsing_Error) -> string {
   builder: strings.Builder
   strings.builder_init_none(&builder, context.temp_allocator)
 
-  fmt.sbprint(&builder, "(")
   switch inner in error.loc {
   case ^File:
     fmt.sbprintf(&builder, "%v", inner.name)
   case Token:
     pos := inner.from
-    fmt.sbprintf(&builder, "%v:%v:%v", pos.file.name, pos.line, pos.col)
+    fmt.sbprintf(&builder, "%v(%v:%v)", pos.file.name, pos.line, pos.col)
+  case Source_Range:
+    from := inner[0]
+    to   := inner[1]   
+    log.assert(from.file == to.file)
+
+    fmt.sbprintf(
+      &builder,
+      "%v(%v:%v-%v:%v)",
+      from.file.name,
+      from.line,
+      from.col,
+      to.line,
+      to.col,
+    )
   }
 
-  fmt.sbprint(&builder, "): ")
+  fmt.sbprint(&builder, ": ")
   fmt.sbprint(&builder, error.msg)
 
   return strings.to_string(builder)

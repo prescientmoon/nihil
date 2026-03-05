@@ -22,8 +22,13 @@ Indented_Token :: struct {
 	indentation: uint,
 }
 
+// This is technically wasting some memory by storing the file pointer twice and
+// whatnot, but it does not matter in the grand scheme of things.
 @(private = "package")
-Error_Location :: union { Token, ^File, }
+Source_Range :: [2]Source_Loc
+
+@(private = "package")
+Error_Location :: union { Token, ^File, Source_Range }
 
 @(private = "package")
 Parsing_Error :: struct {
@@ -129,6 +134,10 @@ parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 }
 // }}}
 // {{{ Token handling
+parser__get_pos :: proc(parser: Parser) -> Source_Loc {
+  return exparr__get(parser.tokens, parser.token).from
+}
+
 parser__advance :: proc(parser: ^Parser) {
 	parser.token += 1
 }
@@ -301,6 +310,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		inner.lens(&kit)
     log.assert(!kit.consumed, ".Project cannot be marked as consuming")
 
+    pos__pre := parser__get_pos(instance.parser^)
     if kit.errors.len == 0 {
       inner_instance := instance
       inner_instance.codec = inner.inner
@@ -317,16 +327,11 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       if kit.errors.len == 0 do return kit.consumed
     }
 
-    // HACK: Try to go slightly backwards. Fixing this would require tracking
-    // the tokens consumed by each codec instance. This is very much doable,
-    // but I'm too lazy to implement it right now.
-    tok_ix := instance.parser.token
-    if tok_ix > 0 do tok_ix -= 1
-    tok := exparr__get(instance.parser.tokens, tok_ix)
-
+    pos__post := parser__get_pos(instance.parser^)
+    loc := Source_Range{pos__pre, pos__post}
     for i in 0..<kit.errors.len {
       msg := exparr__get(kit.errors, i)^
-      parser__error(instance.parser, tok.token, msg)
+      parser__error(instance.parser, loc, msg)
     }
 
     return consumed
@@ -490,7 +495,7 @@ codec__eval :: proc(
 
 	instance.completed_codecs = codec__make_completed_state(instance)
 
-  file := exparr__get(parser.tokens, 0).from.file
+  file := parser__get_pos(parser^).file
 	_ = codec__eval_instance(instance)
   codec__check_flags(file, instance)
 
