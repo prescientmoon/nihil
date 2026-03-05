@@ -7,8 +7,17 @@ import "core:mem/virtual"
 
 main :: proc() {
   context.allocator = mem.panic_allocator()
-	context.logger = log.create_console_logger(allocator=context.temp_allocator)
-  defer log.destroy_console_logger(context.logger, allocator=context.temp_allocator)
+
+  system_arena: virtual.Arena
+  system_allocator := virtual.arena_allocator(&system_arena)
+	err := virtual.arena_init_static(&system_arena)
+	assert(err == nil)
+
+	context.logger = log.create_console_logger(allocator=system_allocator)
+  defer log.destroy_console_logger(context.logger, allocator=system_allocator)
+
+  formatters__init(system_allocator)
+  defer formatters__deinit(system_allocator)
 
 	stats: Statistics
 
@@ -38,8 +47,15 @@ main :: proc() {
 		}
 	} else {
 		log.info("Finished parsing")
-		output := cast(^Page)raw_output
-		fmt.println(mps__page_to_string(output^))
+		page := cast(^Page)raw_output
+		fmt.println(mps__page_to_string(page^))
+
+    site: Site
+    site.pages.allocator = context.temp_allocator
+    exparr__push(&site.pages, page^)
+    xml__make(&site.xml, &stats)
+    site.base_url = "https://moonythm.dev"
+    fmt.println(site__sitemap(&site))
 	}
 
 	log.info(

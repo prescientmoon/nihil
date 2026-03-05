@@ -43,6 +43,21 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   return page
 }
 
+
+page__last_updated :: proc(page: Page) -> (t: time.Time) {
+  tmax :: proc(a, b: time.Time) -> time.Time {
+    return time.Time{max(a._nsec, b._nsec)}
+  }
+
+  t = tmax(page.created_at, page.published_at)
+  for i in 0..<page.changelog.len {
+    change := exparr__get(page.changelog, i)
+    t = tmax(t, change.at)
+  }
+
+  return t
+}
+
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)

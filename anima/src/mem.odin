@@ -26,9 +26,12 @@ mem__offset :: proc(ptr: rawptr, offset: uintptr) -> rawptr {
 }
 
 mem__nz :: mem__non_zero
-mem__non_zero :: proc(v: $T) -> bool {
+mem__non_zero :: proc(v: $T) -> bool { return !mem__is_zero(v) }
+
+mem__iz :: mem__is_zero
+mem__is_zero :: proc(v: $T) -> bool {
   v := v
-  return !mem.check_zero(mem.ptr_to_bytes(&v))
+  return mem.check_zero(mem.ptr_to_bytes(&v))
 }
 
 // This doesn't really belong here, yet I have nowhere else to place it :3

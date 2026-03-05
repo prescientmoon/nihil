@@ -103,3 +103,7 @@ exparr__push_exparr :: proc(
 		exparr__push(exparr, exparr__get(elements, i)^)
 	}
 }
+
+epxarr__clear :: proc(exparr: ^Exparr($V, $FCE)) {
+  exparr.len = 0
+}

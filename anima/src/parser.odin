@@ -52,17 +52,19 @@ Parser :: struct {
 
 @(private = "package")
 parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
+  log.assert(mem__iz(parser^))
+
 	parser.statistics = statistics
 	err := virtual.arena_init_static(&parser.error_arena)
-	assert(err == nil)
+	log.assert(err == nil)
 	err = virtual.arena_init_static(&parser.codec_output_stack)
-	assert(err == nil)
+	log.assert(err == nil)
 	err = virtual.arena_init_static(&parser.codec_state_stack)
-	assert(err == nil)
+	log.assert(err == nil)
 	err = virtual.arena_init_static(&parser.internal_arena)
-	assert(err == nil)
+	log.assert(err == nil)
 	err = virtual.arena_init_static(&parser.output_arena)
-	assert(err == nil)
+	log.assert(err == nil)
 
 	parser.tokens.allocator = virtual.arena_allocator(&parser.internal_arena)
 	parser.stack.allocator = virtual.arena_allocator(&parser.internal_arena)

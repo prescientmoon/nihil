@@ -112,13 +112,15 @@ Codec_Kit :: struct {
 codec__kit__make :: proc(
   kit: ^Codec_Kit, statistics: ^Statistics, doc_type: typeid
 ) {
+  log.assert(mem__iz(kit^))
+
   kit.document_type = doc_type
 	kit.statistics = statistics
 
 	err := virtual.arena_init_static(&kit.codec_arena)
-	assert(err == nil)
+	log.assert(err == nil)
 	err = virtual.arena_init_static(&kit.memo_arena)
-	assert(err == nil)
+	log.assert(err == nil)
 
 	kit.memoized.allocator = virtual.arena_allocator(&kit.memo_arena)
 }
