@@ -19,48 +19,15 @@ main :: proc() {
   formatters__init(system_allocator)
   defer formatters__deinit(system_allocator)
 
-	stats: Statistics
+  site: Site
+  content_root := "/home/moon/projects/personal/nihil/anima"
+  site__make(&site, "https://moonythm.dev", content_root)
+  site__collect(&site)
 
-	kit: Codec_Kit
-	codec__kit__make(&kit, &stats, Page)
-  defer codec__kit__destroy(&kit)
-
-	parser: Parser
-	parser__make(&parser, &stats)
-  defer parser__destroy(&parser)
-
-  file := File {
-    source = #load("./example.anima", string),
-    name   = "internal"
+  for i in 0..<site.errors.len {
+    err := exparr__get(site.errors, i)^
+    fmt.eprintln(pretty_error(err))
   }
 
-	ok := parser__lex(&parser, &file)
-	assert(ok, "Failed to lex file")
-
-	codec := codec__page(&kit)
-	raw_output, _ := codec__eval(&parser, codec)
-
-	if parser.errors.len > 0 {
-		for i in 0 ..< parser.errors.len {
-			err := exparr__get(parser.errors, i)^
-      fmt.println(pretty_error(err))
-		}
-	} else {
-		log.info("Finished parsing")
-		page := cast(^Page)raw_output
-		fmt.println(mps__page_to_string(page^))
-
-    site: Site
-    site.pages.allocator = context.temp_allocator
-    exparr__push(&site.pages, page^)
-    xml__make(&site.xml, &stats)
-    site.base_url = "https://moonythm.dev"
-    fmt.println(site__sitemap(&site))
-	}
-
-	log.info(
-    stats,
-    parser.output_arena.total_used,
-    parser.internal_arena.total_used,
-  )
+	log.info(site.statistics)
 }

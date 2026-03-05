@@ -33,6 +33,10 @@ Page :: struct {
   feeds:     Exparr(Def__Feed),
 	footnotes: Exparr(Def__Footnote),
   aliases:   Exparr(Contiguous_Text), // Locations to redirect from
+
+  // These attributes are not part of the markup itself
+  source_path: Path__Absolute,
+  site_path:   Path__Relative,
 }
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
@@ -224,7 +228,7 @@ codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
 	scope := codec__field_at(k, "scope", Self, filter, ONCE)
 
   inner_loop := codec__loop(k, codec__sum(k, Self, id, path, scope))
-	return codec__remote_push(k, "icons", inner_loop)
+	return codec__remote_push(k, "icons", Page, inner_loop)
 }
 // }}}
 // {{{ Link definitions
@@ -244,7 +248,7 @@ codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   target := codec__field_at(k, "target", Def__Link, ctext, ONCE)
   label := codec__field(k, "label", Def__Link, imarkup, REQUIRED)
   inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
-	return codec__remote_push(k, "links", inner_loop)
+	return codec__remote_push(k, "links", Page, inner_loop)
 }
 // }}}
 // {{{ Footnote definitions
@@ -261,7 +265,7 @@ codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
 	id := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
   content := codec__field(k, "content", Def__Footnote, bmarkup, REQUIRED)
   inner_loop := codec__loop(k, codec__sum(k, Def__Footnote, content, id))
-	return codec__remote_push(k, "footnotes", inner_loop)
+	return codec__remote_push(k, "footnotes", Page, inner_loop)
 }
 // }}}
 // {{{ Feed definitions
@@ -318,7 +322,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
   content := codec__field(k, "content", Heading, imarkup, REQUIRED)
   looped := codec__loop(k, codec__sum(k, Heading, content, id))
   with_level := codec__focus(k, Heading, looped, lens, rawptr(uintptr(level)))
-	return codec__remote_push(k, "headings", with_level)
+	return codec__remote_push(k, "headings", Page, with_level)
 }
 // }}}
 // {{{ Table

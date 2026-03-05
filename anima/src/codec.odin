@@ -102,19 +102,14 @@ Memoized_Codec :: struct {
 }
 
 Codec_Kit :: struct {
-  document_type: typeid,
 	codec_arena:   virtual.Arena,
 	memo_arena:    virtual.Arena,
 	memoized:      Exparr(Memoized_Codec),
 	statistics:    ^Statistics,
 }
 
-codec__kit__make :: proc(
-  kit: ^Codec_Kit, statistics: ^Statistics, doc_type: typeid
-) {
-  log.assert(mem__iz(kit^))
-
-  kit.document_type = doc_type
+codec__kit__make :: proc(kit: ^Codec_Kit, statistics: ^Statistics) {
+  log.assert(mem__is_zero(kit^))
 	kit.statistics = statistics
 
 	err := virtual.arena_init_static(&kit.codec_arena)
@@ -362,9 +357,9 @@ codec__spaced_exparr :: proc(
 
 // Saves the structure inside an exparr field of the document type.
 codec__remote_push :: proc(
-  kit: ^Codec_Kit, field_name: string, inner: Typed_Codec($T) 
+  kit: ^Codec_Kit, field_name: string, $Document: typeid, inner: Typed_Codec($T) 
 ) -> Typed_Codec(^T) {
-  field := get_field_of_type(kit.document_type, Exparr(T), field_name)
+  field := get_field_of_type(Document, Exparr(T), field_name)
 
   lens :: proc(kit: ^Lens_Kit) {
 		field := cast(^Exparr(T))mem__offset(kit.document, uintptr(kit.user_data))

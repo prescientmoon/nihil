@@ -28,7 +28,7 @@ Indented_Token :: struct {
 Source_Range :: [2]Source_Loc
 
 @(private = "package")
-Error_Location :: union { Token, ^File, Source_Range }
+Error_Location :: union { Token, ^File, Source_Range, Path__Absolute }
 
 @(private = "package")
 Parsing_Error :: struct {
@@ -82,6 +82,18 @@ parser__destroy :: proc(parser: ^Parser) {
 	virtual.arena_destroy(&parser.output_arena)
 }
 
+@(private = "package")
+parser__clear :: proc(parser: ^Parser) {
+  exparr__clear(&parser.errors)
+  exparr__clear(&parser.tokens)
+  exparr__clear(&parser.stack)
+  virtual.arena_free_all(&parser.codec_output_stack)
+  virtual.arena_free_all(&parser.codec_state_stack)
+
+	exparr__push(&parser.stack, Surrounding_Apparition{})
+  parser.token = 0
+}
+
 parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
 	exparr__push(&parser.errors, Parsing_Error{loc, msg})
 }
@@ -98,6 +110,8 @@ parser__errorf :: proc(
 @(private = "package")
 parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 	log.assert(parser.tokens.len == 0, "Cannot lex inside a non-clean parser")
+  parser.token = 0
+
 	lexer := lexer__make(file, &parser.output_arena) or_return
 
 	for {
@@ -477,9 +491,9 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
 }
 
 @(private = "package")
-codec__eval :: proc(
+parser__eval :: proc(
   parser: ^Parser, codec: ^Codec, document: rawptr = nil
-) -> (output: rawptr, ok: bool) {
+) -> (output: rawptr) {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
 	defer virtual.arena_temp_ignore(temp_output)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
@@ -499,14 +513,14 @@ codec__eval :: proc(
 
   file := parser__get_pos(parser^).file
 	_ = codec__eval_instance(instance)
-  codec__check_flags(file, instance)
 
 	tok := exparr__get(parser.tokens, parser.token)
   if tok.kind != .Eof {
     parser__error(parser, tok.token, "Unexpected token. Expected end of file.")
-
   }
 
-	return output, true
+  if parser.errors.len == 0 do codec__check_flags(file, instance)
+
+	return output
 }
 // }}}

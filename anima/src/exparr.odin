@@ -104,6 +104,6 @@ exparr__push_exparr :: proc(
 	}
 }
 
-epxarr__clear :: proc(exparr: ^Exparr($V, $FCE)) {
+exparr__clear :: proc(exparr: ^Exparr($V, $FCE)) {
   exparr.len = 0
 }

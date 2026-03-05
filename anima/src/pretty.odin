@@ -548,6 +548,8 @@ pretty_error :: proc(error: Parsing_Error) -> string {
   strings.builder_init_none(&builder, context.temp_allocator)
 
   switch inner in error.loc {
+  case Path__Absolute: 
+    fmt.sbprintf(&builder, "%v", string(inner))
   case ^File:
     fmt.sbprintf(&builder, "%v", inner.name)
   case Token:

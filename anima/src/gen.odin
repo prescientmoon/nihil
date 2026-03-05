@@ -1,17 +1,81 @@
 package anima
 
+import "core:os"
 import "core:fmt"
 import "core:log"
 import "core:time"
 import "core:strings"
 import "core:mem/virtual"
 
+// {{{ Site
 Site :: struct {
+  // The base url the site will be accessible at. The string should preferably 
+  // not end in a trailing slash.
   base_url: string,
-  pages: Exparr(Page),
-  xml:   Xml_Gen,
+
+  // The root of the directory containing the source files to generate the
+  // website out of.
+  content_root: Path__Absolute,
+
+  // Stores the source of all the files that have been read. Due to the design
+  // of the parser/lexer, these sources need to be kept around, as various 
+  // strings are allowed to point into them. In the future, I might change the 
+  // code to clone the relevant strings, although that's not worth worrying
+  // about for now.
+  //
+  // Other things stored here include the errors encountered along the way,
+  // and the list of pages.
+  forever_arena: virtual.Arena,
+
+  statistics: Statistics,
+  errors:     Exparr(Parsing_Error),
+  pages:      Exparr(Page),
+  xml:        Xml_Gen,
+  codec_kit:  Codec_Kit,
+  page_codec: Typed_Codec(Page),
+  parser:     Parser,
 }
 
+site__make :: proc(site: ^Site, base_url: string, content_root: string) {
+  log.assert(mem__iz(site^))
+
+  site.base_url     = base_url
+  site.content_root = Path__Absolute(content_root)
+
+	err := virtual.arena_init_static(&site.forever_arena)
+	log.assert(err == nil)
+  site.pages.allocator = virtual.arena_allocator(&site.forever_arena)
+  site.errors.allocator = virtual.arena_allocator(&site.forever_arena)
+
+	codec__kit__make(&site.codec_kit, &site.statistics)
+	parser__make(&site.parser, &site.statistics)
+  site.page_codec = codec__page(&site.codec_kit)
+  xml__make(&site.xml, &site.statistics)
+}
+
+site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  clone, err := strings.clone(str, allocator)
+  log.assert(err == nil)
+  return Path__Absolute(clone)
+}
+
+site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
+	exparr__push(&site.errors, Parsing_Error{loc, msg})
+}
+
+site__errorf :: proc(
+  site: ^Site, loc: Error_Location, format: string, args: ..any
+) {
+	allocator := virtual.arena_allocator(&site.forever_arena)
+	msg := fmt.aprintf(format, ..args, allocator = allocator)
+	site__error(site, loc, msg)
+}
+// }}}
+// {{{ Path
+Path__Absolute :: distinct string
+Path__Relative :: distinct string
+// }}}
 // {{{ XML
 Xml_Gen :: struct {
   statistics:     ^Statistics,
@@ -25,7 +89,7 @@ Xml_Gen :: struct {
 }
 
 xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
-  log.assert(mem__iz(gen^))
+  log.assert(mem__is_zero(gen^))
   gen.statistics = statistics
 	err := virtual.arena_init_static(&gen.internal_arena)
 	log.assert(err == nil)
@@ -41,7 +105,7 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
 
 xml__clear :: proc(gen: ^Xml_Gen) {
   strings.builder_reset(&gen.builder)
-  epxarr__clear(&gen.tag_stack)
+  exparr__clear(&gen.tag_stack)
   gen.stage = .Content
   virtual.arena_free_all(&gen.internal_arena)
   virtual.arena_free_all(&gen.builder_arena)
@@ -63,6 +127,7 @@ xml__ensure_content :: proc(gen: ^Xml_Gen) {
 }
 
 xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
+  gen.statistics.xml_attrs += 1
   // TODO: escaping
   log.assert(gen.stage == .Attributes)
   fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, value)
@@ -99,6 +164,7 @@ xml__ctext :: proc(gen: ^Xml_Gen, ctext: Contiguous_Text) {
 xml__tag_begin :: proc(
   gen: ^Xml_Gen, name: string, single: bool = false
 ) -> bool {
+  gen.statistics.xml_tags += 1
   xml__ensure_content(gen)
   exparr__push(&gen.tag_stack, name)
   fmt.sbprintf(&gen.builder, "<%v", name)
@@ -148,16 +214,88 @@ site__sitemap :: proc(site: ^Site) -> string {
         xml__stringf(g, "%v", str)
       }
 
-      if mem__nz(page.priority) {
+      if mem__non_zero(page.priority) {
         if xml__tag_begin(g, "priority") do xml__ctext(g, page.priority)
       }
 
-      if mem__nz(page.changefreq) {
+      if mem__non_zero(page.changefreq) {
         if xml__tag_begin(g, "changefreq") do xml__ctext(g, page.changefreq)
       }
     }
   }
 
   return xml__save(g)
+}
+// }}}
+// {{{ Path collection
+site__collect :: proc(site: ^Site) {
+  collect_under :: proc(site: ^Site, directory: Path__Absolute) {
+    site.statistics.directories_visited += 1
+    file, err := os.open(string(directory))
+
+    if err != nil {
+      site__errorf(site, directory, "Failed to read directory: %v", err)
+      return
+    }
+
+    iter := os.read_directory_iterator_create(file)
+    defer os.read_directory_iterator_destroy(&iter)
+
+    for info in os.read_directory_iterator(&iter) {
+      if spath, err := os.read_directory_iterator_error(&iter); err != nil {
+        path := site__path(site, spath)
+        site__errorf(site, path, "Failed to read file: %v", err)
+        continue
+      }
+
+      path := site__path(site, info.fullpath)
+
+      // NOTE: we do not handle symlinks
+      #partial switch info.type {
+      case .Directory:
+        collect_under(site, path)
+      case .Regular: 
+        ext := os.base(info.fullpath)
+        if ext == "page.anima" {
+          allocator := virtual.arena_allocator(&site.forever_arena)
+          bytes, err := os.read_entire_file_from_path(info.fullpath, allocator)
+
+          if err != nil {
+            site__errorf(site, path, "Failed to read page: %v", err)
+            continue
+          }
+
+          site.statistics.pages += 1
+          page: ^Page
+
+          file := new(File, allocator)
+          file.source = string(bytes)
+
+          fullpath, clone_err := strings.clone(info.fullpath, allocator)
+          log.assert(clone_err == nil)
+          file.name = fullpath
+
+          if parser__lex(&site.parser, file) {
+            page = cast(^Page)parser__eval(&site.parser, site.page_codec)
+          }
+
+          if site.parser.errors.len > 0 {
+            exparr__push_exparr(&site.errors, site.parser.errors)
+          } else {
+            exparr__push(&site.pages, page^)
+          }
+
+          parser__clear(&site.parser)
+        }
+      }
+    }
+
+    if spath, err := os.read_directory_iterator_error(&iter); err != nil {
+      path := Path__Absolute(spath)
+      site__errorf(site, path, "Failed to read directory: %v", err)
+    }
+  }
+
+  collect_under(site, site.content_root)
 }
 // }}}
