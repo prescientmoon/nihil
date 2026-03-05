@@ -299,10 +299,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
     kit.errors.allocator = kit.temp_allocator
 
 		inner.lens(&kit)
-    log.assert(
-      !kit.ignore_consumption,
-      "ignore_consumption can only be set on .Inject"
-    )
+    log.assert(!kit.consumed, ".Project cannot be marked as consuming")
 
     if kit.errors.len == 0 {
       inner_instance := instance
@@ -313,10 +310,11 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       consumed = codec__eval_instance(inner_instance)
       if consumed {
         kit.mode = .Inject
+        kit.consumed = consumed
         inner.lens(&kit)
       }
 
-      if kit.errors.len == 0 do return consumed && !kit.ignore_consumption
+      if kit.errors.len == 0 do return kit.consumed
     }
 
     // HACK: Try to go slightly backwards. Fixing this would require tracking

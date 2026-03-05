@@ -79,7 +79,7 @@ Lens_Kit :: struct{
 	mode: enum { Inject, Project },
 
   // Can be used to ignore consumption of trivial things like whitespace.
-  ignore_consumption: bool,
+  consumed: bool,
 }
 
 lens__error :: proc(kit: ^Lens_Kit, msg: string) {
@@ -344,7 +344,7 @@ codec__spaced_exparr :: proc(
       inner := cast(^Maybe(T))kit.inner
       if outer.allocator == {} do outer.allocator = kit.allocator
       if value, ok := inner.(T); ok do exparr__push(outer, value)
-      else do kit.ignore_consumption = true
+      else do kit.consumed = false
     }
   }
 

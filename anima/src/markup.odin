@@ -349,7 +349,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
     case .Inject:
       as_string := contiguous_text__concat(inner^, kit.temp_allocator)
       if as_string == "" {
-        kit.ignore_consumption = true
+        kit.consumed = false
         return
       }
 
@@ -563,7 +563,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
           if found_substantial {
             mem.copy(kit.outer, kit.inner, size_of(Inline_Markup))
           } else {
-            kit.ignore_consumption = true
+            kit.consumed = false
           }
         }
       }
