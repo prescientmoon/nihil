@@ -5,12 +5,15 @@ import "core:mem/virtual"
 import "core:strings"
 import "core:unicode/utf8"
 
-File_Id :: distinct uint
+File :: struct {
+  name:   string,
+  source: string
+}
 
 // This is a bit fatter than we could get away with, but it doesn't really 
 // matter, and having everything in one place makes a lot of stuff easier.
 Source_Loc :: struct {
-  file:  File_Id,
+  file:  ^File,
 	index: uint,
 	line:  uint,
 	col:   uint,
@@ -57,11 +60,11 @@ Lexer :: struct {
 }
 
 lexer__make :: proc(
-  source: string, out_arena: ^virtual.Arena
+  file: ^File, out_arena: ^virtual.Arena,
 ) -> (lexer: Lexer, ok: bool) {
 	lexer = Lexer {
-		source = source,
-		pos = Source_Loc{line = 1, col = 0, index = 0},
+		source = file.source,
+		pos = Source_Loc{file = file, line = 1, col = 0, index = 0},
 		curr = 0,
 		next_index = 0,
 	}

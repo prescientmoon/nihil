@@ -403,13 +403,13 @@ mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
 // {{{ Tokens
 // Prints every token in a file
 @(private = "package")
-mps_tokens :: proc(mps: ^Markup_Printer_State, source: string) {
+mps_tokens :: proc(mps: ^Markup_Printer_State, file: ^File) {
 	arena: virtual.Arena
 	err := virtual.arena_init_growing(&arena)
 	log.assert(err == nil)
 	defer virtual.arena_destroy(&arena)
 
-	lexer, ok := lexer__make(source, &arena)
+	lexer, ok := lexer__make(file, &arena)
 	allocator := virtual.arena_allocator(&arena)
 
 	if ok {
@@ -537,5 +537,28 @@ mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
   {mps__deeper(mps, "under"); mps__page_filter__many(mps, feed.under)}
 
   mps__inline_markup(mps, feed.description)
+}
+// }}}
+
+// Other ad-hoc pretty printers
+// {{{ Parsing errors
+@(private="package")
+pretty_error :: proc(error: Parsing_Error) -> string {
+  builder: strings.Builder
+  strings.builder_init_none(&builder, context.temp_allocator)
+
+  fmt.sbprint(&builder, "(")
+  switch inner in error.loc {
+  case ^File:
+    fmt.sbprintf(&builder, "%v", inner.name)
+  case Token:
+    pos := inner.from
+    fmt.sbprintf(&builder, "%v:%v:%v", pos.file.name, pos.line, pos.col)
+  }
+
+  fmt.sbprint(&builder, "): ")
+  fmt.sbprint(&builder, error.msg)
+
+  return strings.to_string(builder)
 }
 // }}}

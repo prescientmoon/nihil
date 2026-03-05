@@ -20,7 +20,12 @@ main :: proc() {
 	parser__make(&parser, &stats)
   defer parser__destroy(&parser)
 
-	ok := parser__lex(&parser, #load("./example.anima", string))
+  file := File {
+    source = #load("./example.anima", string),
+    name   = "internal"
+  }
+
+	ok := parser__lex(&parser, &file)
 	assert(ok, "Failed to lex file")
 
 	codec := codec__page(&kit)
@@ -29,8 +34,8 @@ main :: proc() {
 	tok := exparr__get(parser.tokens, parser.token)
 	if parser.errors.len > 0 {
 		for i in 0 ..< parser.errors.len {
-			err := exparr__get(parser.errors, i)
-			log.error(err.msg, err.tok)
+			err := exparr__get(parser.errors, i)^
+      fmt.println(pretty_error(err))
 		}
 	} else if tok.kind != .Eof {
 		log.error("File was not entirely consumed: ", tok)

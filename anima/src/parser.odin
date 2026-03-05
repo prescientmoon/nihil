@@ -22,8 +22,12 @@ Indented_Token :: struct {
 	indentation: uint,
 }
 
+@(private = "package")
+Error_Location :: union { Token, ^File, }
+
+@(private = "package")
 Parsing_Error :: struct {
-	tok: Token,
+  loc: Error_Location,
 	msg: string,
 }
 
@@ -71,23 +75,23 @@ parser__destroy :: proc(parser: ^Parser) {
 	virtual.arena_destroy(&parser.output_arena)
 }
 
-parser__error :: proc(parser: ^Parser, tok: Token, msg: string) {
-	exparr__push(&parser.errors, Parsing_Error{tok, msg})
+parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
+	exparr__push(&parser.errors, Parsing_Error{loc, msg})
 }
 
 parser__errorf :: proc(
-  parser: ^Parser, tok: Token, format: string, args: ..any
+  parser: ^Parser, loc: Error_Location, format: string, args: ..any
 ) {
 	allocator := virtual.arena_allocator(&parser.error_arena)
 	msg := fmt.aprintf(format, ..args, allocator = allocator)
-	parser__error(parser, tok, msg)
+	parser__error(parser, loc, msg)
 }
 // }}}
 // {{{ Lexing
 @(private = "package")
-parser__lex :: proc(parser: ^Parser, source: string) -> (ok: bool) {
+parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 	log.assert(parser.tokens.len == 0, "Cannot lex inside a non-clean parser")
-	lexer := lexer__make(source, &parser.output_arena) or_return
+	lexer := lexer__make(file, &parser.output_arena) or_return
 
 	for {
     tok: Token
@@ -295,6 +299,11 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
     kit.errors.allocator = kit.temp_allocator
 
 		inner.lens(&kit)
+    log.assert(
+      !kit.ignore_consumption,
+      "ignore_consumption can only be set on .Inject"
+    )
+
     if kit.errors.len == 0 {
       inner_instance := instance
       inner_instance.codec = inner.inner
@@ -307,7 +316,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
         inner.lens(&kit)
       }
 
-      if kit.errors.len == 0 do return consumed
+      if kit.errors.len == 0 do return consumed && !kit.ignore_consumption
     }
 
     // HACK: Try to go slightly backwards. Fixing this would require tracking
@@ -319,7 +328,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
     for i in 0..<kit.errors.len {
       msg := exparr__get(kit.errors, i)^
-      parser__error(instance.parser, tok, msg)
+      parser__error(instance.parser, tok.token, msg)
     }
 
     return consumed
@@ -377,20 +386,22 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 				parser__errorf(
 					instance.parser,
 					last_tok,
-					"Unexpected token. I was looking for a '}' to close out the token at %v.",
+					"I don't know how to parse this token. Common causes:\n" +
+          "- missing closing brackets\n" +
+          "- trying to use a unique apparition more than once per scope",
 					next_tok.from,
 				)
 			}
 		}
 
-		// TODO: check "required" flags
+    codec__check_flags(tok, inner_instance)
 		return true
 	case Codec__Tracked:
 		inner_instance := instance
 		inner_instance.codec = inner.inner
 
 		is_completed := codec__is_completed(inner_instance)
-		if is_completed && inner.unique do return false
+		if is_completed && .Unique in inner.flags do return false
 
 		consumed = codec__eval_instance(inner_instance)
 		if !is_completed && consumed {
@@ -421,6 +432,40 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 }
 
 @(private = "package")
+codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
+  inner_instance := instance
+  switch inner in instance.codec.data {
+	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
+  case Codec__Focus: 
+    inner_instance.codec = inner.inner
+    codec__check_flags(loc, inner_instance)
+  case Codec__Loop: 
+    inner_instance.codec = cast(^Codec)inner
+    codec__check_flags(loc, inner_instance)
+  case Codec__Paragraph: 
+    inner_instance.codec = cast(^Codec)inner
+    codec__check_flags(loc, inner_instance)
+  case Codec__Sum: 
+    for &codec in inner {
+      inner_instance.codec = &codec
+      codec__check_flags(loc, inner_instance)
+    }
+  case Codec__Tracked:
+    inner_instance.codec = inner.inner
+    if .Required in inner.flags && !codec__is_completed(inner_instance) {
+      parser__errorf(
+        instance.parser,
+        loc,
+        "Apparition \"%v\" is required in this scope.",
+        inner.name,
+      )
+    } else {
+      codec__check_flags(loc, inner_instance)
+    }
+  }
+}
+
+@(private = "package")
 codec__eval :: proc(
   parser: ^Parser, codec: ^Codec, document: rawptr = nil
 ) -> (output: rawptr, ok: bool) {
@@ -441,8 +486,9 @@ codec__eval :: proc(
 
 	instance.completed_codecs = codec__make_completed_state(instance)
 
-	// TODO: check "required" flags
+  file_id := exparr__get(parser.tokens, 0).from.file
 	_ = codec__eval_instance(instance)
+  codec__check_flags(file_id, instance)
 	return output, true
 }
 // }}}

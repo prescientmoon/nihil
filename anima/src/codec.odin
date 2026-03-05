@@ -20,12 +20,19 @@ Codec__At :: struct {
 	inner: ^Codec,
 }
 
+// .Required => Must run at least once
+// .Unique   => Cannot run more than once
+Apparition_Flag  :: enum { Unique, Required }
+Apparition_Flags :: bit_set[Apparition_Flag]
+
+UNIQUE   : Apparition_Flags : { .Unique }
+REQUIRED : Apparition_Flags : { .Required }
+ONCE     : Apparition_Flags : REQUIRED | UNIQUE
+
 Codec__Tracked :: struct {
 	inner: ^Codec,
-
-  // NOTE: we could use a bitfield here in order to save some memory
-	required: bool, // Must run at least once
-	unique:   bool, // Cannot run more than once
+  name:  string, // This is useful for inclusion in error messages.
+  flags: Apparition_Flags,
 }
 
 Codec__Sum       :: distinct []Codec
@@ -64,12 +71,15 @@ Lens_Kit :: struct{
   document:  rawptr,
   user_data: rawptr,
 
-  // Codecs can crash at any point, reporting their errors here
+  // Codecs can crash at any point, reporting their errors here.
   errors:    Exparr(string),
 
   // Inject  => set the focus of the outer pointer to the inner pointer
   // Project => set the inner pointer to the focus of the outer pointer
 	mode: enum { Inject, Project },
+
+  // Can be used to ignore consumption of trivial things like whitespace.
+  ignore_consumption: bool,
 }
 
 lens__error :: proc(kit: ^Lens_Kit, msg: string) {
@@ -157,7 +167,8 @@ codec__loop :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
 }
 
 codec__at :: proc(
-  kit: ^Codec_Kit, name: string, inner: Typed_Codec($T)
+  kit: ^Codec_Kit, name: string, inner: Typed_Codec($T),
+  flags: Apparition_Flags = {}
 ) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
 	codec.data = Codec__At {
@@ -165,7 +176,11 @@ codec__at :: proc(
 		inner = inner.codec,
 	}
 
-	return codec
+  if flags != {} {
+    return codec__tracked(kit, codec, name, flags)
+  } else {
+    return codec
+  }
 }
 
 codec__focus :: proc(
@@ -419,8 +434,9 @@ codec__trans_at :: proc(
 	at: string,
 	$To: typeid,
 	inner: Typed_Codec($From),
+  flags: Apparition_Flags = {}
 ) -> Typed_Codec(To) {
-	return codec__at(kit, at, codec__transmute(kit, To, inner))
+	return codec__at(kit, at, codec__transmute(kit, To, inner), flags)
 }
 
 // Wrapper around codec__field and codec__at.
@@ -429,31 +445,27 @@ codec__field_at :: proc(
 	at: string,
 	$To: typeid,
 	inner: Typed_Codec($From),
+  flags: Apparition_Flags = {}
 ) -> Typed_Codec(To) {
-	return codec__at(kit, at, codec__field(kit, at, To, inner))
+	return codec__at(kit, at, codec__field(kit, at, To, inner), flags)
 }
 
 codec__tracked :: proc(
 	kit: ^Codec_Kit,
 	inner: Typed_Codec($T),
-	unique := false,
-	required := false,
+  name: string,
+  flags: Apparition_Flags
 ) -> Typed_Codec(T) {
-	log.assert(unique || required, "A tracked codec mustn't track nothing")
+	log.assert(flags != {}, "A tracked codec mustn't track nothing")
 
 	codec := codec__make(kit, T)
 	codec.data = Codec__Tracked {
 		inner    = inner,
-		required = required,
-		unique   = unique,
+    name     = name,
+    flags    = flags,
 	}
 
 	return codec
-}
-
-// Marks a codec as both unique and required.
-codec__once :: proc(kit: ^Codec_Kit, codec: Typed_Codec($T)) -> Typed_Codec(T) {
-	return codec__tracked(kit, codec, unique = true, required = true)
 }
 
 codec__para :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
@@ -463,7 +475,7 @@ codec__para :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(T) {
 }
 
 codec__flag :: proc(kit: ^Codec_Kit, name: string) -> Typed_Codec(bool) {
-  return codec__tracked(kit, codec__const(kit, name, true), unique = true)
+  return codec__tracked(kit, codec__const(kit, name, true), name, UNIQUE)
 }
 
 codec__flag_at :: proc(
