@@ -268,6 +268,7 @@ codec__field :: proc(
 	name: string,
 	$Outer: typeid,
 	inner: Typed_Codec($Inner),
+  flags: Apparition_Flags = {}
 ) -> Typed_Codec(Outer) {
 	field := get_field_of_type(Outer, Inner, name)
   lens :: proc(kit: ^Lens_Kit) {
@@ -278,7 +279,12 @@ codec__field :: proc(
     }
   }
 
-	return codec__focus(kit, Outer, inner, lens, rawptr(field.offset))
+  codec := codec__focus(kit, Outer, inner, lens, rawptr(field.offset))
+  if flags == {} {
+    return codec
+  } else {
+    return codec__tracked(kit, codec, name, flags)
+  }
 }
 
 codec__ref :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(^T) {
@@ -338,6 +344,7 @@ codec__spaced_exparr :: proc(
       inner := cast(^Maybe(T))kit.inner
       if outer.allocator == {} do outer.allocator = kit.allocator
       if value, ok := inner.(T); ok do exparr__push(outer, value)
+      else do kit.ignore_consumption = true
     }
   }
 
@@ -445,9 +452,11 @@ codec__field_at :: proc(
 	at: string,
 	$To: typeid,
 	inner: Typed_Codec($From),
-  flags: Apparition_Flags = {}
+  outer_flags: Apparition_Flags = {},
+  inner_flags: Apparition_Flags = ONCE
 ) -> Typed_Codec(To) {
-	return codec__at(kit, at, codec__field(kit, at, To, inner), flags)
+  intermediate := codec__field(kit, at, To, inner, inner_flags)
+	return codec__at(kit, at, intermediate, outer_flags)
 }
 
 codec__tracked :: proc(

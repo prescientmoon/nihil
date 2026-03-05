@@ -46,6 +46,7 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)
+  bmarkup := codec__block_markup(k)
   timestamp := codec__timestamp(k)
 
   feeds_payload   := codec__exparr(k, codec__at(k, "feed",   codec__feed(k)))
@@ -58,11 +59,11 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   changes := codec__field(k, "changelog", Page, changes_payload)
   aliases := codec__field(k, "aliases",   Page, aliases_payload)
 
-  content     := codec__field(k, "content", Page, codec__block_markup(k))
+  content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
   description := codec__field_at(k, "description", Page, imarkup, UNIQUE)
   filename    := codec__field_at(k, "filename", Page, ctext, UNIQUE)
 
-  created   := codec__field_at(k, "created_at", Page, timestamp, ONCE)
+  created   := codec__field_at(k, "created_at", Page, timestamp, ONCE, ONCE)
   published := codec__field_at(k, "published_at", Page, timestamp, UNIQUE)
 
   priority   := codec__field_at(k, "priority",   Page, ctext, UNIQUE)
@@ -101,8 +102,9 @@ Change :: struct {
 }
 
 codec__change :: proc(k: ^Codec_Kit) -> Typed_Codec(Change) {
+  imarkup := codec__inline_markup(k)
 	at := codec__field_at(k, "at", Change, codec__timestamp(k), ONCE)
-  message := codec__field(k, "message", Change, codec__inline_markup(k))
+  message := codec__field(k, "message", Change, imarkup, REQUIRED)
 
   return codec__loop(k, codec__sum(k, Change, at, message))
 }
@@ -202,7 +204,7 @@ codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
   ctext := codec__contiguous_text(k)
   filter := codec__page_filter__all(k)
 
-	id := codec__field(k, "id", Self, ctext)
+	id := codec__field(k, "id", Self, ctext, REQUIRED)
 	path := codec__field_at(k, "path", Self, ctext, ONCE)
 	scope := codec__field_at(k, "scope", Self, filter, ONCE)
 
@@ -221,9 +223,11 @@ Def__Link :: struct {
 @(private = "file")
 codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   ctext := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+
 	id := codec__field_at(k, "id", Def__Link, ctext, ONCE)
   target := codec__field_at(k, "target", Def__Link, ctext, ONCE)
-  label := codec__field(k, "label", Def__Link, codec__inline_markup(k))
+  label := codec__field(k, "label", Def__Link, imarkup, REQUIRED)
   inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
 	return codec__remote_push(k, "links", inner_loop)
 }
@@ -237,8 +241,10 @@ Def__Footnote :: struct {
 @(private = "file")
 codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
   ctext := codec__contiguous_text(k)
+  bmarkup := codec__block_markup(k)
+
 	id := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
-  content := codec__field(k, "content", Def__Footnote, codec__block_markup(k))
+  content := codec__field(k, "content", Def__Footnote, bmarkup, REQUIRED)
   inner_loop := codec__loop(k, codec__sum(k, Def__Footnote, content, id))
 	return codec__remote_push(k, "footnotes", inner_loop)
 }
@@ -261,7 +267,7 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
   filter := codec__page_filter__all(k)
 
 	id := codec__field_at(k, "id", Self, ctext)
-	desc := codec__field(k, "description", Self, imarkup)
+	desc := codec__field(k, "description", Self, imarkup, REQUIRED)
 	under := codec__field_at(k, "under", Self, filter, ONCE)
 	members := codec__field_at(k, "members", Self, filter, ONCE)
 
@@ -291,8 +297,10 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
   }
 
   ctext := codec__contiguous_text(k)
+  imarkup := codec__inline_markup(k)
+
 	id := codec__field_at(k, "id", Heading, ctext, UNIQUE)
-  content := codec__field(k, "content", Heading, codec__inline_markup(k))
+  content := codec__field(k, "content", Heading, imarkup, REQUIRED)
   looped := codec__loop(k, codec__sum(k, Heading, content, id))
   with_level := codec__focus(k, Heading, looped, lens, rawptr(uintptr(level)))
 	return codec__remote_push(k, "headings", with_level)
@@ -315,13 +323,16 @@ Table :: struct {
 
 @(private = "file")
 codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
-	cell_payload := codec__field(k, "content", Table__Cell, codec__inline_markup(k))
+  imarkup := codec__inline_markup(k)
+	cell_payload := codec__field(k, "content", Table__Cell, imarkup)
 	cell := codec__at(k, "cell", cell_payload)
 	row := codec__field(k, "cells", Table__Row, codec__spaced_exparr(k, cell))
 
-	caption := codec__field(k, "caption", Table, codec__inline_markup(k))
+	caption := codec__field(k, "caption", Table, imarkup)
 	header := codec__field_at(k, "header", Table, row, ONCE)
-	rows := codec__field(k, "rows", Table, codec__exparr(k, codec__at(k, "row", row)))
+
+  rows_payload := codec__exparr(k, codec__at(k, "row", row))
+	rows := codec__field(k, "rows", Table, rows_payload)
 
 	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
@@ -475,7 +486,7 @@ codec__inline_markup__timestamp :: proc(
 ) -> Typed_Codec(Inline_Markup__Timestamp) {
   Self :: Inline_Markup__Timestamp
 
-  time := codec__field(k, "time", Self, codec__timestamp(k))
+  time := codec__field(k, "time", Self, codec__timestamp(k), ONCE)
   compact := codec__flag_at(k, "compact", Self)
 
   return codec__loop(k, codec__sum(k, Self, time, compact))
@@ -500,7 +511,7 @@ codec__inline_markup__atom :: proc(
   fn := codec__trans_at(k, "fn", Inline_Markup__Fn, ctext)
 
   Link :: Inline_Markup__Link
-  link_id := codec__field(k, "id", Link, ctext)
+  link_id := codec__field(k, "id", Link, ctext, ONCE)
   link_label := codec__field_at(k, "label", Link, imarkup, UNIQUE)
   link_sum := codec__sum(k, Link, link_label, link_id)
   link := codec__at(k, "link", codec__loop(k, link_sum))
@@ -532,11 +543,36 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	return codec__memo(
 		kit,
 		"inline_markup",
-		proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
-			return codec__transmute(
-				kit,
+		proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
+      lens :: proc(kit: ^Lens_Kit) {
+        switch kit.mode {
+        case .Project:
+          mem.copy(kit.inner, kit.outer, size_of(Inline_Markup))
+        case .Inject:
+          inner := cast(^Exparr(Inline_Markup__Atom))kit.inner
+
+          found_substantial := false
+          for i in 0..<inner.len {
+            elem := exparr__get(inner^, i)
+            if _, ok := elem.(Inline_Markup__Space); !ok {
+              found_substantial = true
+              break
+            }
+          }
+
+          if found_substantial {
+            mem.copy(kit.outer, kit.inner, size_of(Inline_Markup))
+          } else {
+            kit.ignore_consumption = true
+          }
+        }
+      }
+
+			return codec__focus(
+				k,
 				Inline_Markup,
-				codec__exparr(kit, codec__inline_markup__atom(kit)),
+				codec__exparr(k, codec__inline_markup__atom(k)),
+        lens
 			)
 		},
 	)
@@ -616,10 +652,10 @@ Block_Markup :: struct {
 codec__block_markup__image :: proc(
   k: ^Codec_Kit
 ) -> Typed_Codec(Block_Markup__Image) {
-	source := codec__at(k, "source", codec__contiguous_text(k), ONCE)
-	source_ref := codec__field(k, "source", Block_Markup__Image, source)
-	alt := codec__inline_markup(k)
-	alt_ref := codec__field(k, "alt", Block_Markup__Image, alt)
+  ctext := codec__contiguous_text(k)
+	imarkup := codec__inline_markup(k)
+	source_ref := codec__field_at(k, "source", Block_Markup__Image, ctext, ONCE)
+	alt_ref := codec__field(k, "alt", Block_Markup__Image, imarkup, ONCE)
 	return codec__loop(k, codec__sum(k, Block_Markup__Image, source_ref, alt_ref))
 }
 
@@ -629,10 +665,9 @@ codec__block_markup__figure :: proc(
 ) -> Typed_Codec(Block_Markup__Figure) {
   imarkup := codec__inline_markup(k)
   bmarkup := codec__block_markup(k)
-	caption := codec__at(k, "caption", imarkup, ONCE)
-	caption_ref := codec__field(k, "caption", Block_Markup__Figure, caption)
-	content := codec__field(k, "content", Block_Markup__Figure, bmarkup)
-	return codec__loop(k, codec__sum(k, Block_Markup__Figure, caption_ref, content))
+	caption := codec__field_at(k, "caption", Block_Markup__Figure, imarkup, UNIQUE)
+	content := codec__field(k, "content", Block_Markup__Figure, bmarkup, ONCE)
+	return codec__loop(k, codec__sum(k, Block_Markup__Figure, caption, content))
 }
 
 @(private = "file")
@@ -648,7 +683,7 @@ codec__block_markup__aside :: proc(
   id       := codec__field_at(k, "id", Self, ctext, UNIQUE)
   icon     := codec__field_at(k, "char", Self, ctext, UNIQUE)
   title    := codec__field_at(k, "title", Self, imarkup, UNIQUE)
-	content  := codec__field(k, "content", Self, bmarkup)
+	content  := codec__field(k, "content", Self, bmarkup, ONCE)
   collapse := codec__flag_at(k, "collapse", Self)
 
 	return codec__loop(

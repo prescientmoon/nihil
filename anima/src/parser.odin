@@ -333,11 +333,13 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
     return consumed
 	case Codec__Sum:
+    tok := instance.parser.token
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
-			consumed = codec__eval_instance(inner_instance)
-			if consumed do return true
+
+			consumed := codec__eval_instance(inner_instance)
+      if consumed || instance.parser.token > tok do return consumed
 		}
 
 		return false
@@ -413,8 +415,12 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
 
-		for codec__eval_instance(inner_instance) {
-			consumed = true
+		tok := instance.parser.token
+		for {
+      consumed_now := codec__eval_instance(inner_instance)
+		  (consumed_now || instance.parser.token > tok) or_break
+      consumed ||= consumed_now
+		  tok = instance.parser.token
 		}
 
 		return consumed
@@ -456,7 +462,7 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
       parser__errorf(
         instance.parser,
         loc,
-        "Apparition \"%v\" is required in this scope.",
+        "Argument \"%v\" is required in this scope.",
         inner.name,
       )
     } else {
@@ -486,9 +492,16 @@ codec__eval :: proc(
 
 	instance.completed_codecs = codec__make_completed_state(instance)
 
-  file_id := exparr__get(parser.tokens, 0).from.file
+  file := exparr__get(parser.tokens, 0).from.file
 	_ = codec__eval_instance(instance)
-  codec__check_flags(file_id, instance)
+  codec__check_flags(file, instance)
+
+	tok := exparr__get(parser.tokens, parser.token)
+  if tok.kind != .Eof {
+    parser__error(parser, tok.token, "Unexpected token. Expected end of file.")
+
+  }
+
 	return output, true
 }
 // }}}

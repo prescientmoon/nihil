@@ -31,14 +31,11 @@ main :: proc() {
 	codec := codec__page(&kit)
 	raw_output, _ := codec__eval(&parser, codec)
 
-	tok := exparr__get(parser.tokens, parser.token)
 	if parser.errors.len > 0 {
 		for i in 0 ..< parser.errors.len {
 			err := exparr__get(parser.errors, i)^
       fmt.println(pretty_error(err))
 		}
-	} else if tok.kind != .Eof {
-		log.error("File was not entirely consumed: ", tok)
 	} else {
 		log.info("Finished parsing")
 		output := cast(^Page)raw_output
