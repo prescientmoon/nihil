@@ -20,14 +20,15 @@ main :: proc() {
   defer formatters__deinit(system_allocator)
 
   site: Site
-  content_root := "/home/moon/projects/personal/nihil/anima"
-  site__make(&site, "https://moonythm.dev", content_root)
+  content_root := "/home/moon/projects/personal/nihil/anima/src"
+  out_root := "/home/moon/projects/personal/nihil/anima/dist"
+  site__make(&site, "https://moonythm.dev", content_root, out_root)
   site__collect(&site)
-
-  for i in 0..<site.errors.len {
-    err := exparr__get(site.errors, i)^
-    fmt.eprintln(pretty_error(err))
-  }
+  site__check_errors(&site)
+  site__generate(&site)
+  site__check_errors(&site)
+  site__commit(&site)
+  site__check_errors(&site)
 
 	log.info(site.statistics)
 }

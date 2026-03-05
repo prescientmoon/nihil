@@ -8,4 +8,5 @@ Statistics :: struct {
   xml_attrs:           uint,
   pages:               uint,
   directories_visited: uint,
+  files_generated:     uint,
 }

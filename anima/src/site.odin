@@ -2,6 +2,7 @@ package anima
 
 import "core:os"
 import "core:fmt"
+import "core:mem"
 import "core:log"
 import "core:time"
 import "core:strings"
@@ -11,11 +12,15 @@ import "core:mem/virtual"
 Site :: struct {
   // The base url the site will be accessible at. The string should preferably 
   // not end in a trailing slash.
-  base_url: string,
+  base_url: URL,
 
   // The root of the directory containing the source files to generate the
   // website out of.
   content_root: Path__Absolute,
+
+  // The path to write the generated files to. Anything already present at said
+  // path will get nuked from orbit.
+  out_root: Path__Absolute,
 
   // Stores the source of all the files that have been read. Due to the design
   // of the parser/lexer, these sources need to be kept around, as various 
@@ -30,34 +35,37 @@ Site :: struct {
   statistics: Statistics,
   errors:     Exparr(Parsing_Error),
   pages:      Exparr(Page),
+  files:      Exparr(File_Gen_Entry),
   xml:        Xml_Gen,
   codec_kit:  Codec_Kit,
   page_codec: Typed_Codec(Page),
   parser:     Parser,
 }
 
-site__make :: proc(site: ^Site, base_url: string, content_root: string) {
+site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
   log.assert(mem__iz(site^))
 
-  site.base_url     = base_url
+  if !os.exists(content_root) {
+    fmt.eprintfln("Path %v not found", content_root)
+    os.exit(1)
+  }
+
+  site.base_url     = URL(base_url)
   site.content_root = Path__Absolute(content_root)
+  site.out_root     = Path__Absolute(out_root)
 
 	err := virtual.arena_init_static(&site.forever_arena)
 	log.assert(err == nil)
-  site.pages.allocator = virtual.arena_allocator(&site.forever_arena)
-  site.errors.allocator = virtual.arena_allocator(&site.forever_arena)
+
+  forever := virtual.arena_allocator(&site.forever_arena)
+  site.pages.allocator  = forever
+  site.errors.allocator = forever
+  site.files.allocator  = forever
 
 	codec__kit__make(&site.codec_kit, &site.statistics)
 	parser__make(&site.parser, &site.statistics)
   site.page_codec = codec__page(&site.codec_kit)
   xml__make(&site.xml, &site.statistics)
-}
-
-site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
-  allocator := virtual.arena_allocator(&site.forever_arena)
-  clone, err := strings.clone(str, allocator)
-  log.assert(err == nil)
-  return Path__Absolute(clone)
 }
 
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
@@ -71,10 +79,56 @@ site__errorf :: proc(
 	msg := fmt.aprintf(format, ..args, allocator = allocator)
 	site__error(site, loc, msg)
 }
+
+site__check_errors :: proc(site: ^Site) {
+  if site.errors.len > 0 {
+    for i in 0..<site.errors.len {
+      err := exparr__get(site.errors, i)^
+      fmt.eprintln(pretty_error(err))
+    }
+
+    os.exit(1)
+  }
+}
 // }}}
-// {{{ Path
+// {{{ Path & url handling
+URL :: distinct string
 Path__Absolute :: distinct string
 Path__Relative :: distinct string
+
+site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  clone, err := strings.clone(str, allocator)
+  log.assert(err == nil)
+  return Path__Absolute(clone)
+}
+
+site__relative_path :: proc(
+  site: ^Site, base, target: Path__Absolute
+) -> Path__Relative {
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  path, err := os.get_relative_path(string(base), string(target), allocator)
+  log.assertf(err == nil, "Path %v cannot be made relative to %v", target, base)
+  return Path__Relative(path)
+}
+
+// NOTE: we do not handle ".." segments
+site__absolute_path :: proc(
+  site: ^Site, base: Path__Absolute, target: Path__Relative
+) -> Path__Absolute {
+  if target == "." do return base
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  str := fmt.aprintf("%v/%v", string(base), string(target), allocator=allocator)
+  return Path__Absolute(str)
+}
+
+// NOTE: we do not handle ".." segments
+site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
+  if path == "." do return url
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  str := fmt.aprintf("%v/%v", string(url), string(path), allocator=allocator)
+  return URL(str)
+}
 // }}}
 // {{{ XML
 Xml_Gen :: struct {
@@ -188,10 +242,68 @@ xml__tag_end :: proc(gen: ^Xml_Gen) {
   gen.single = false
 }
 // }}}
+// {{{ File generation
+File_Gen_Entry :: struct {
+  path:     Path__Relative,
+  contents: string,
+}
+
+// Note that this will not generate the physical file right away. Instead, one
+// must call "site__commit" for that to take place.
+site__add_file :: proc(site: ^Site, path: Path__Relative, str: string) {
+  site.statistics.files_generated += 1
+  entry := File_Gen_Entry { path, str }
+  exparr__push(&site.files, entry)
+}
+
+// Commit the site's generated files to disk.
+site__commit :: proc(site: ^Site) {
+  // Nuke directory & contents if they exists
+  if os.exists(string(site.out_root)) {
+    // The following allocates, with no other way to override said allocation
+    context.allocator = virtual.arena_allocator(&site.forever_arena)
+    err := os.remove_all(string(site.out_root))
+    if err != nil {
+      site__errorf(site, site.out_root, "Failed to clean directory: %v", err)
+      return
+    }
+  }
+
+  // Create it again
+  err := os.make_directory_all(string(site.out_root))
+  if err != nil {
+    site__errorf(site, site.out_root, "Failed to create directory: %v", err)
+    return
+  }
+
+  for i in 0..<site.files.len {
+    entry := exparr__get(site.files, i)
+
+    full_path := site__absolute_path(site, site.out_root, entry.path)
+    dir, _ := os.split_path(string(full_path))
+
+    if !os.exists(dir) {
+      err := os.make_directory_all(dir)
+      if err != nil {
+        dir := Path__Absolute(dir)
+        site__errorf(site, dir, "Failed to create directory: %v", err)
+        continue
+      }
+    }
+
+    err = os.write_entire_file_from_string(string(full_path), entry.contents)
+    if err != nil {
+      site__errorf(site, full_path, "Failed to write file: %v", err)
+      continue
+    }
+  }
+}
+// }}}
 // {{{ Sitemap
 site__sitemap :: proc(site: ^Site) -> string {
   g := &site.xml
-  xml__clear(g)
+  defer xml__clear(g)
+
   xml__raw_string(
     g,
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -204,7 +316,9 @@ site__sitemap :: proc(site: ^Site) -> string {
       page.public or_continue
       xml__tag_begin(g, "url")
 
-      if xml__tag_begin(g, "loc") do xml__stringf(g, "%v", site.base_url)
+      if xml__tag_begin(g, "loc") {
+        xml__stringf(g, "%v", site__url_at(site, site.base_url, page.site_path))
+      }
 
       if xml__tag_begin(g, "last_mod") {
         allocator := virtual.arena_allocator(&g.internal_arena)
@@ -282,6 +396,13 @@ site__collect :: proc(site: ^Site) {
           if site.parser.errors.len > 0 {
             exparr__push_exparr(&site.errors, site.parser.errors)
           } else {
+            page.source_path = path
+            page.site_path = site__relative_path(
+              site,
+              site.content_root,
+              directory
+            )
+
             exparr__push(&site.pages, page^)
           }
 
@@ -297,5 +418,10 @@ site__collect :: proc(site: ^Site) {
   }
 
   collect_under(site, site.content_root)
+}
+// }}}
+// {{{ Site geenration
+site__generate :: proc(site: ^Site) {
+  site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
 }
 // }}}
