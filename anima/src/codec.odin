@@ -88,13 +88,9 @@ Lens_Kit :: struct{
   consumed: bool,
 }
 
-lens__error :: proc(kit: ^Lens_Kit, msg: string) {
-	exparr__push(&kit.errors, msg)
-}
-
 lens__errorf :: proc(kit: ^Lens_Kit, format: string, args: ..any) {
 	msg := fmt.aprintf(format, ..args, allocator = kit.error_allocator)
-	lens__error(kit, msg)
+	exparr__push(&kit.errors, msg)
 }
 // }}}
 // {{{ Typed codecs

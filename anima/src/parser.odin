@@ -31,7 +31,7 @@ Source_Range :: [2]Source_Loc
 Error_Location :: union { Token, ^File, Source_Range, Path__Absolute }
 
 @(private = "package")
-Parsing_Error :: struct {
+Error :: struct {
   loc: Error_Location,
 	msg: string,
 }
@@ -47,7 +47,7 @@ Parser :: struct {
 	tokens:             Exparr(Indented_Token, 10),
 	token:              uint, // The index of the current token
 	stack:              Exparr(Surrounding_Apparition, 4),
-	errors:             Exparr(Parsing_Error),
+	errors:             Exparr(Error),
 	statistics:         ^Statistics,
 }
 
@@ -96,7 +96,7 @@ parser__clear :: proc(parser: ^Parser) {
 }
 
 parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
-	exparr__push(&parser.errors, Parsing_Error{loc, msg})
+	exparr__push(&parser.errors, Error{loc, msg})
 }
 
 parser__errorf :: proc(

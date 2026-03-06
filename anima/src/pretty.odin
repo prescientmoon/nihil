@@ -526,7 +526,7 @@ mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
 // Other ad-hoc pretty printers
 // {{{ Parsing errors
 @(private="package")
-pretty_error :: proc(error: Parsing_Error) -> string {
+pretty_error :: proc(error: Error) -> string {
   builder: strings.Builder
   strings.builder_init_none(&builder, context.temp_allocator)
 

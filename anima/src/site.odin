@@ -33,7 +33,7 @@ Site :: struct {
   forever_arena: virtual.Arena,
 
   statistics: Statistics,
-  errors:     Exparr(Parsing_Error),
+  errors:     Exparr(Error),
   pages:      Exparr(Page),
   files:      Exparr(File_Gen_Entry),
   xml:        Xml_Gen,
@@ -69,7 +69,7 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 }
 
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
-	exparr__push(&site.errors, Parsing_Error{loc, msg})
+	exparr__push(&site.errors, Error{loc, msg})
 }
 
 site__errorf :: proc(
@@ -96,6 +96,7 @@ URL :: distinct string
 Path__Absolute :: distinct string
 Path__Relative :: distinct string
 
+@(private = "file")
 site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
   allocator := virtual.arena_allocator(&site.forever_arena)
   clone, err := strings.clone(str, allocator)
@@ -103,6 +104,7 @@ site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
   return Path__Absolute(clone)
 }
 
+@(private = "file")
 site__relative_path :: proc(
   site: ^Site, base, target: Path__Absolute
 ) -> Path__Relative {
@@ -113,6 +115,7 @@ site__relative_path :: proc(
 }
 
 // NOTE: we do not handle ".." segments
+@(private = "file")
 site__absolute_path :: proc(
   site: ^Site, base: Path__Absolute, target: Path__Relative
 ) -> Path__Absolute {
@@ -123,6 +126,7 @@ site__absolute_path :: proc(
 }
 
 // NOTE: we do not handle ".." segments
+@(private = "file")
 site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
   if path == "." do return url
   allocator := virtual.arena_allocator(&site.forever_arena)
@@ -130,12 +134,13 @@ site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
   return URL(str)
 }
 // }}}
-// {{{ XML
+// {{{ XML building
+// A builder that can be used to construct XML output in-order. That is, one 
+// must generate the attributes before the content for any given tag.
 Xml_Gen :: struct {
   statistics:     ^Statistics,
-  internal_arena: virtual.Arena,
-  builder_arena:  virtual.Arena,
-  output_arena:   virtual.Arena,
+  internal_arena: virtual.Arena, // Junk that needs not survive a clear
+  builder_arena:  virtual.Arena, // 
   builder:        strings.Builder,
   tag_stack:      Exparr(string),
   stage:          enum { Attributes, Content },
@@ -146,8 +151,6 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
   log.assert(mem__is_zero(gen^))
   gen.statistics = statistics
 	err := virtual.arena_init_static(&gen.internal_arena)
-	log.assert(err == nil)
-	err = virtual.arena_init_static(&gen.output_arena)
 	log.assert(err == nil)
 	err = virtual.arena_init_static(&gen.builder_arena)
 	log.assert(err == nil)
@@ -164,13 +167,6 @@ xml__clear :: proc(gen: ^Xml_Gen) {
   gen.stage = .Content
   virtual.arena_free_all(&gen.internal_arena)
   virtual.arena_free_all(&gen.builder_arena)
-}
-
-xml__save :: proc(gen: ^Xml_Gen) -> string {
-  allocator := virtual.arena_allocator(&gen.output_arena)
-  clone, err := strings.clone(strings.to_string(gen.builder), allocator)
-  log.assert(err == nil)
-  return clone
 }
 
 xml__ensure_content :: proc(gen: ^Xml_Gen) {
@@ -237,70 +233,100 @@ xml__tag_end :: proc(gen: ^Xml_Gen, name: string, single: bool) {
 
   gen.single = false
 }
+
+@(private="file")
+site__xml :: proc(site: ^Site) -> string {
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  clone, err := strings.clone(strings.to_string(site.xml.builder), allocator)
+  log.assert(err == nil)
+  return clone
+}
 // }}}
-// {{{ File generation
-File_Gen_Entry :: struct {
-  path:     Path__Relative,
-  contents: string,
-}
+// {{{ Path collection
+// This function recursively looks for page.anima files, parsing them and saving
+// the results in the given site struct. The process will not stop on the first
+// error.
+site__collect :: proc(site: ^Site) {
+  collect_under :: proc(site: ^Site, directory: Path__Absolute) {
+    site.statistics.directories_visited += 1
+    file, err := os.open(string(directory))
 
-// Note that this will not generate the physical file right away. Instead, one
-// must call "site__commit" for that to take place.
-site__add_file :: proc(site: ^Site, path: Path__Relative, str: string) {
-  site.statistics.files_generated += 1
-  entry := File_Gen_Entry { path, str }
-  exparr__push(&site.files, entry)
-}
-
-// Commit the site's generated files to disk.
-site__commit :: proc(site: ^Site) {
-  // Nuke directory & contents if they exists
-  if os.exists(string(site.out_root)) {
-    // The following allocates, with no other way to override said allocation
-    context.allocator = virtual.arena_allocator(&site.forever_arena)
-    err := os.remove_all(string(site.out_root))
     if err != nil {
-      site__errorf(site, site.out_root, "Failed to clean directory: %v", err)
+      site__errorf(site, directory, "Failed to read directory: %v", err)
       return
     }
-  }
 
-  // Create it again
-  err := os.make_directory_all(string(site.out_root))
-  if err != nil {
-    site__errorf(site, site.out_root, "Failed to create directory: %v", err)
-    return
-  }
+    iter := os.read_directory_iterator_create(file)
+    defer os.read_directory_iterator_destroy(&iter)
 
-  for i in 0..<site.files.len {
-    entry := exparr__get(site.files, i)
-
-    full_path := site__absolute_path(site, site.out_root, entry.path)
-    dir, _ := os.split_path(string(full_path))
-
-    if !os.exists(dir) {
-      err := os.make_directory_all(dir)
-      if err != nil {
-        dir := Path__Absolute(dir)
-        site__errorf(site, dir, "Failed to create directory: %v", err)
+    for info in os.read_directory_iterator(&iter) {
+      if spath, err := os.read_directory_iterator_error(&iter); err != nil {
+        path := site__path(site, spath)
+        site__errorf(site, path, "Failed to read file: %v", err)
         continue
+      }
+
+      path := site__path(site, info.fullpath)
+
+      // NOTE: we do not handle symlinks
+      #partial switch info.type {
+      case .Directory:
+        collect_under(site, path)
+      case .Regular: 
+        ext := os.base(info.fullpath)
+        if ext == "page.anima" {
+          allocator := virtual.arena_allocator(&site.forever_arena)
+          bytes, err := os.read_entire_file_from_path(info.fullpath, allocator)
+
+          if err != nil {
+            site__errorf(site, path, "Failed to read page: %v", err)
+            continue
+          }
+
+          site.statistics.pages += 1
+          page: ^Page
+
+          file := new(File, allocator)
+          file.source = string(bytes)
+
+          fullpath, clone_err := strings.clone(info.fullpath, allocator)
+          log.assert(clone_err == nil)
+          file.name = fullpath
+
+          if parser__lex(&site.parser, file) {
+            page = exparr__push(&site.pages, Page{})
+            parser__eval(&site.parser, site.page_codec, page)
+          }
+
+          if site.parser.errors.len > 0 {
+            exparr__push_exparr(&site.errors, site.parser.errors)
+          } else {
+            page.source_path = path
+            page.site_path = site__relative_path(
+              site,
+              site.content_root,
+              directory
+            )
+          }
+
+          parser__clear(&site.parser)
+        }
       }
     }
 
-    if os.exists(string(full_path)) {
-      site__errorf(site, full_path, "File already exists")
-      continue
-    }
-
-    err = os.write_entire_file_from_string(string(full_path), entry.contents)
-    if err != nil {
-      site__errorf(site, full_path, "Failed to write file: %v", err)
-      continue
+    if spath, err := os.read_directory_iterator_error(&iter); err != nil {
+      path := Path__Absolute(spath)
+      site__errorf(site, path, "Failed to read directory: %v", err)
     }
   }
+
+  collect_under(site, site.content_root)
 }
 // }}}
+
+// Generation
 // {{{ Sitemap
+@(private = "file")
 site__sitemap :: proc(site: ^Site) -> string {
   g := &site.xml
   defer xml__clear(g)
@@ -339,10 +365,11 @@ site__sitemap :: proc(site: ^Site) -> string {
     }
   }
 
-  return xml__save(g)
+  return site__xml(site)
 }
 // }}}
 // {{{ RSS feed
+@(private = "file")
 site__feed :: proc(
   site: ^Site, base: Page, feed: Def__Feed
 ) -> (path: Path__Relative, content: string) {
@@ -435,88 +462,74 @@ site__feed :: proc(
     }
   }
 
-  return feed_path, xml__save(g)
+  return feed_path, site__xml(site)
 }
 // }}}
-// {{{ Path collection
-site__collect :: proc(site: ^Site) {
-  collect_under :: proc(site: ^Site, directory: Path__Absolute) {
-    site.statistics.directories_visited += 1
-    file, err := os.open(string(directory))
+// {{{ Files
+@(private = "file")
+File_Gen_Entry :: struct {
+  path:     Path__Relative,
+  contents: string,
+}
 
+// Note that this will not generate the physical file right away. Instead, one
+// must call "site__commit" for that to take place.
+@(private = "file")
+site__add_file :: proc(site: ^Site, path: Path__Relative, str: string) {
+  site.statistics.files_generated += 1
+  entry := File_Gen_Entry { path, str }
+  exparr__push(&site.files, entry)
+}
+
+// Commit the site's generated files to disk.
+site__commit :: proc(site: ^Site) {
+  // Nuke directory & contents if they exists
+  if os.exists(string(site.out_root)) {
+    // The following allocates, with no other way to override said allocation
+    context.allocator = virtual.arena_allocator(&site.forever_arena)
+    err := os.remove_all(string(site.out_root))
     if err != nil {
-      site__errorf(site, directory, "Failed to read directory: %v", err)
+      site__errorf(site, site.out_root, "Failed to clean directory: %v", err)
       return
-    }
-
-    iter := os.read_directory_iterator_create(file)
-    defer os.read_directory_iterator_destroy(&iter)
-
-    for info in os.read_directory_iterator(&iter) {
-      if spath, err := os.read_directory_iterator_error(&iter); err != nil {
-        path := site__path(site, spath)
-        site__errorf(site, path, "Failed to read file: %v", err)
-        continue
-      }
-
-      path := site__path(site, info.fullpath)
-
-      // NOTE: we do not handle symlinks
-      #partial switch info.type {
-      case .Directory:
-        collect_under(site, path)
-      case .Regular: 
-        ext := os.base(info.fullpath)
-        if ext == "page.anima" {
-          allocator := virtual.arena_allocator(&site.forever_arena)
-          bytes, err := os.read_entire_file_from_path(info.fullpath, allocator)
-
-          if err != nil {
-            site__errorf(site, path, "Failed to read page: %v", err)
-            continue
-          }
-
-          site.statistics.pages += 1
-          page: ^Page
-
-          file := new(File, allocator)
-          file.source = string(bytes)
-
-          fullpath, clone_err := strings.clone(info.fullpath, allocator)
-          log.assert(clone_err == nil)
-          file.name = fullpath
-
-          if parser__lex(&site.parser, file) {
-            page = exparr__push(&site.pages, Page{})
-            parser__eval(&site.parser, site.page_codec, page)
-          }
-
-          if site.parser.errors.len > 0 {
-            exparr__push_exparr(&site.errors, site.parser.errors)
-          } else {
-            page.source_path = path
-            page.site_path = site__relative_path(
-              site,
-              site.content_root,
-              directory
-            )
-          }
-
-          parser__clear(&site.parser)
-        }
-      }
-    }
-
-    if spath, err := os.read_directory_iterator_error(&iter); err != nil {
-      path := Path__Absolute(spath)
-      site__errorf(site, path, "Failed to read directory: %v", err)
     }
   }
 
-  collect_under(site, site.content_root)
+  // Create it again
+  err := os.make_directory_all(string(site.out_root))
+  if err != nil {
+    site__errorf(site, site.out_root, "Failed to create directory: %v", err)
+    return
+  }
+
+  for i in 0..<site.files.len {
+    entry := exparr__get(site.files, i)
+
+    full_path := site__absolute_path(site, site.out_root, entry.path)
+    dir, _ := os.split_path(string(full_path))
+
+    if !os.exists(dir) {
+      err := os.make_directory_all(dir)
+      if err != nil {
+        dir := Path__Absolute(dir)
+        site__errorf(site, dir, "Failed to create directory: %v", err)
+        continue
+      }
+    }
+
+    if os.exists(string(full_path)) {
+      site__errorf(site, full_path, "File already exists")
+      continue
+    }
+
+    err = os.write_entire_file_from_string(string(full_path), entry.contents)
+    if err != nil {
+      site__errorf(site, full_path, "Failed to write file: %v", err)
+      continue
+    }
+  }
 }
 // }}}
-// {{{ Site geenration
+// {{{ Site
 site__generate :: proc(site: ^Site) {
   site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
   for i in 0..<site.pages.len {
