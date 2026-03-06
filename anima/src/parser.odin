@@ -43,6 +43,7 @@ Parser :: struct {
 	codec_state_stack:  virtual.Arena, // Temporary frames for completion tracking
   // TODO: ^merge parser.stack into the above
   // TODO: ^merge codec_output_stack into the above
+  // TODO: internal_arena => tokens (once the stack is removed from below)
 	output_arena:       virtual.Arena, // Output data
 	tokens:             Exparr(Indented_Token, 10),
 	token:              uint, // The index of the current token
@@ -74,10 +75,11 @@ parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
 
 @(private = "package")
 parser__destroy :: proc(parser: ^Parser) {
-	virtual.arena_destroy(&parser.codec_output_stack)
-	virtual.arena_destroy(&parser.codec_state_stack)
-	virtual.arena_destroy(&parser.internal_arena)
-	virtual.arena_destroy(&parser.output_arena)
+  s := parser.statistics
+  arena__destroy(&s.parser_codec_output_stack, &parser.codec_output_stack)
+	arena__destroy(&s.parser_codec_state_stack, &parser.codec_state_stack)
+	arena__destroy(&s.parser_internal_arena, &parser.internal_arena)
+	arena__destroy(&s.parser_output_arena, &parser.output_arena)
 }
 
 @(private = "package")
@@ -85,11 +87,24 @@ parser__clear :: proc(parser: ^Parser) {
   exparr__clear(&parser.errors)
   exparr__clear(&parser.tokens)
   exparr__clear(&parser.stack)
-  virtual.arena_free_all(&parser.codec_output_stack)
-  virtual.arena_free_all(&parser.codec_state_stack)
+
+  s := parser.statistics
+  arena__clear(&s.parser_codec_output_stack, &parser.codec_output_stack)
+  arena__clear(&s.parser_codec_state_stack, &parser.codec_state_stack)
 
 	exparr__push(&parser.stack, Surrounding_Apparition{})
   parser.token = 0
+}
+
+// Since the parser uses dynamic stacks, the usual arena stat tracking no longer
+// works (since the arena is always zeroed at the beginning/end). Instead, we
+// manually call this at key points.
+parser__update_arena_stats :: proc(parser: Parser) {
+  size := &parser.statistics.parser_codec_output_stack
+  size^ = max(size^, Bytes(parser.codec_output_stack.total_used))
+
+  size = &parser.statistics.parser_codec_state_stack
+  size^ = max(size^, Bytes(parser.codec_state_stack.total_used))
 }
 
 parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
@@ -312,11 +327,14 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		return true
 	case Codec__Focus:
 		temp := virtual.arena_temp_begin(&instance.parser.codec_output_stack)
+
 		defer if instance.scratch {
       virtual.arena_temp_ignore(temp)
     } else {
       virtual.arena_temp_end(temp)
     }
+
+    defer parser__update_arena_stats(instance.parser^)
 
     inner_alloc: mem.Allocator
     if instance.scratch {
@@ -388,6 +406,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
 		temp := virtual.arena_temp_begin(&instance.parser.codec_state_stack)
 		defer virtual.arena_temp_end(temp)
+    defer parser__update_arena_stats(instance.parser^)
 
 		elem: Surrounding_Apparition = {}
 
@@ -511,12 +530,9 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
 parser__eval :: proc(
   parser: ^Parser, codec: ^Codec, output: rawptr, document: rawptr = nil
 )  {
-	temp_output := virtual.arena_temp_begin(&parser.output_arena)
-	defer virtual.arena_temp_ignore(temp_output)
-	output_allocator := virtual.arena_allocator(&parser.output_arena)
-
 	temp_state := virtual.arena_temp_begin(&parser.codec_state_stack)
 	defer virtual.arena_temp_end(temp_state)
+  defer parser__update_arena_stats(parser^)
 
 	instance := Codec_Instance {
 		parser   = parser,

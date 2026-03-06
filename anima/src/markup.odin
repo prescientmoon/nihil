@@ -539,8 +539,8 @@ Inline_Markup__Link :: struct {
 }
 
 Inline_Markup__Timestamp :: struct {
-  compact: bool, // Shortens the output
   time: time.Time,
+  compact: bool, // Shortens the output
 }
 
 Inline_Markup__Date :: distinct Inline_Markup__Timestamp
@@ -548,10 +548,15 @@ Inline_Markup__Datetime :: distinct Inline_Markup__Timestamp
 
 // Using distinct runs into circular types issue (for no reason)
 Inline_Markup :: struct {
-	elements: Exparr(Inline_Markup__Atom),
+  // We store a pointer here to drastically reduce the size of the struct. We
+  // *could* change every usage site to ^Inline_Markup, but this is simpler for now
+	elements: ^Exparr(Inline_Markup__Atom),
 }
 
 // TODO: LaTeX
+// This currently takes up a whole 32B, which is a bit annoying. We could get
+// this as low as 16B by simply using pointers for a bunch of the branches. I
+// will bother doing so once the memory usage goes past 1MiB.
 Inline_Markup__Atom :: union {
 	Inline_Markup__Space,
 	Inline_Markup__Ellipsis,
@@ -563,9 +568,9 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Quote,
 	Inline_Markup__Icon,
 	Inline_Markup__Fn,
-	Inline_Markup__Link,
 	Inline_Markup__Date,
 	Inline_Markup__Datetime,
+	Inline_Markup__Link,
 }
 // }}}
 // {{{ Codecs
@@ -638,11 +643,11 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
         case .Project:
           mem.copy(kit.inner, kit.outer, size_of(Inline_Markup))
         case .Inject:
-          inner := cast(^Exparr(Inline_Markup__Atom))kit.inner
+          inner := cast(^^Exparr(Inline_Markup__Atom))kit.inner
 
           found_substantial := false
-          for i in 0..<inner.len {
-            elem := exparr__get(inner^, i)
+          for i in 0..<inner^.len {
+            elem := exparr__get(inner^^, i)
             if _, ok := elem.(Inline_Markup__Space); !ok {
               found_substantial = true
               break
@@ -660,7 +665,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 			return codec__focus(
 				k,
 				Inline_Markup,
-				codec__exparr(k, codec__inline_markup__atom(k)),
+        codec__ref(k, codec__exparr(k, codec__inline_markup__atom(k))),
         lens
 			)
 		},
@@ -712,6 +717,9 @@ Block_Markup__Thematic_Break :: distinct Unit
 Block_Markup__Index :: distinct Page_Filter__All
 
 // TODO: code, list
+// This currently takes up a fat 144B. If memory usage ever goes past 1MiB, I
+// will bother using pointers for the various branches, thus not wasting so much
+// space on padding.
 Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,

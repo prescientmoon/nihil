@@ -123,8 +123,8 @@ codec__kit__make :: proc(kit: ^Codec_Kit, statistics: ^Statistics) {
 }
 
 codec__kit__destroy :: proc(kit: ^Codec_Kit) {
-  virtual.arena_destroy(&kit.memo_arena)
-  virtual.arena_destroy(&kit.codec_arena)
+  arena__destroy(&kit.statistics.codec_arena, &kit.codec_arena)
+  arena__destroy(&kit.statistics.codec_memo_arena, &kit.memo_arena)
 }
 
 codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {

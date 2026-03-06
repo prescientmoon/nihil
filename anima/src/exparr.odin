@@ -12,6 +12,19 @@ import "core:log"
 //
 // The first chunk will have size 2^first_chunk_exp. The exponent will default
 // to 3, i.e. a first chunk of 8 elements.
+//
+// Memory-wise, an empty exparr currently eats up 64B. This could be lowered to
+// 40B by simply getting rid of the dynamic array. Getting it lower isn't
+// possible directly. Still, we could get the usage sites lower by introducing
+// an Expslice type and using that everywhere where the allocator is "implied". 
+// Such a slice would only need to eat up 16B in its simplest form. If we want
+// to keep the capacity of the chunk slice around as well (thus enabling us to 
+// turn an Expslice back into an Exparr by only providing back the allocator),
+// then that'd require 24B in total.
+//
+// These sizes are small in the grand scheme of things, but they can quickly add
+// up when used inside union branches for the various markup trees since, unless
+// boxed, padding gets introduced for the surrounding branches as well.
 Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 	allocator: runtime.Allocator,
 

@@ -237,7 +237,7 @@ mps__inline_markup__atom :: proc(
 
 mps__inline_markup :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup) {
 	for i in 0 ..< markup.elements.len {
-		inner := exparr__get(markup.elements, i)
+		inner := exparr__get(markup.elements^, i)
 		mps__inline_markup__atom(mps, inner^)
 	}
 }

@@ -41,6 +41,33 @@ formatters__init :: proc(allocator: mem.Allocator) {
   formatters^ = make(map[typeid]fmt.User_Formatter, allocator)
 	fmt.set_user_formatters(formatters)
 
+	// {{{ Bytes
+	fmt.register_user_formatter(
+		Bytes,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			bytes := cast(^Bytes)arg.data
+
+			switch verb {
+			case 'v':
+				units := [?]string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
+
+				unit_index := 0
+				size := f32(bytes^)
+
+				for size >= 1024 && unit_index < len(units) - 1 {
+					size /= 1024.0
+					unit_index += 1
+				}
+
+				fmt.wprintf(fi.writer, "%.2f%s", size, units[unit_index])
+
+				return true
+			case:
+				return false
+			}
+		},
+	)
+	// }}}
 	// {{{ RFC2822
 	fmt.register_user_formatter(
 		Rfc2822,

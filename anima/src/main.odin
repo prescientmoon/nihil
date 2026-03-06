@@ -13,7 +13,6 @@ main :: proc() {
   system_allocator := virtual.arena_allocator(&system_arena)
 	err := virtual.arena_init_static(&system_arena)
 	assert(err == nil)
-  defer virtual.arena_destroy(&system_arena)
 
 	context.logger = log.create_console_logger(allocator=system_allocator)
   defer log.destroy_console_logger(context.logger, allocator=system_allocator)
@@ -25,7 +24,7 @@ main :: proc() {
   content_root := "/home/moon/projects/personal/nihil/anima/src"
   out_root := "/home/moon/projects/personal/nihil/anima/dist"
   site__make(&site, "https://moonythm.dev", content_root, out_root)
-  defer site__destroy(&site)
+  site.statistics.system_arena = Bytes(system_arena.total_used)
 
   site__collect(&site)
   site__check_errors(&site)
@@ -33,6 +32,7 @@ main :: proc() {
   site__check_errors(&site)
   site__commit(&site)
   site__check_errors(&site)
+  site__destroy(&site)
 
-	log.info(site.statistics)
+	fmt.printfln("%#v", site.statistics)
 }

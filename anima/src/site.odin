@@ -72,7 +72,7 @@ site__destroy :: proc(site: ^Site) {
   xml__destroy(&site.xml)
   parser__destroy(&site.parser)
   codec__kit__destroy(&site.codec_kit)
-	virtual.arena_destroy(&site.forever_arena)
+  arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
 }
 
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
@@ -147,7 +147,7 @@ site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
 Xml_Gen :: struct {
   statistics:     ^Statistics,
   internal_arena: virtual.Arena, // Junk that needs not survive a clear
-  builder_arena:  virtual.Arena, // 
+  builder_arena:  virtual.Arena, // Backing storage for the builder below
   builder:        strings.Builder,
   tag_stack:      Exparr(string),
   stage:          enum { Attributes, Content },
@@ -168,8 +168,8 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
 }
 
 xml__destroy :: proc(gen: ^Xml_Gen) {
-	virtual.arena_destroy(&gen.internal_arena)
-	virtual.arena_destroy(&gen.builder_arena)
+	arena__destroy(&gen.statistics.xml_internal_arena, &gen.internal_arena)
+	arena__destroy(&gen.statistics.xml_builder_arena, &gen.builder_arena)
 }
 
 xml__clear :: proc(gen: ^Xml_Gen) {
@@ -177,8 +177,8 @@ xml__clear :: proc(gen: ^Xml_Gen) {
   gen.tag_stack = {}
   gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
   gen.stage = .Content
-  virtual.arena_free_all(&gen.internal_arena)
-  virtual.arena_free_all(&gen.builder_arena)
+  arena__clear(&gen.statistics.xml_internal_arena, &gen.internal_arena)
+  arena__clear(&gen.statistics.xml_builder_arena, &gen.builder_arena)
 }
 
 xml__ensure_content :: proc(gen: ^Xml_Gen) {
