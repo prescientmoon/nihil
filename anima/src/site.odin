@@ -415,8 +415,7 @@ site__feed :: proc(
 
         if page.published_at != {} {
           if xml__tag(g, "pubDate") {
-            // TODO
-            xml__string(g, " ")
+            xml__stringf(g, "%v", Rfc2822(page.published_at))
           }
         }
 
@@ -428,9 +427,10 @@ site__feed :: proc(
         }
       }
 
-      if xml__tag(g, "lastBuildDate") {
-        xml__string(g, " ")
-        // TODO
+      if last_update != {} {
+        if xml__tag(g, "lastBuildDate") {
+          xml__stringf(g, "%v", Rfc2822(last_update))
+        }
       }
     }
   }
