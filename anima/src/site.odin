@@ -68,6 +68,13 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
   xml__make(&site.xml, &site.statistics)
 }
 
+site__destroy :: proc(site: ^Site) {
+  xml__destroy(&site.xml)
+  parser__destroy(&site.parser)
+  codec__kit__destroy(&site.codec_kit)
+	virtual.arena_destroy(&site.forever_arena)
+}
+
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
 	exparr__push(&site.errors, Error{loc, msg})
 }
@@ -158,6 +165,11 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
   strings.builder_init_none(&gen.builder, builder_alloc)
   gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
   gen.stage = .Content
+}
+
+xml__destroy :: proc(gen: ^Xml_Gen) {
+	virtual.arena_destroy(&gen.internal_arena)
+	virtual.arena_destroy(&gen.builder_arena)
 }
 
 xml__clear :: proc(gen: ^Xml_Gen) {
@@ -391,12 +403,12 @@ site__feed :: proc(
     if xml__tag(g, "channel") {
       xml__attr(g, "xmlns:atom", "http://www.w3.org/2005/Atom")
       
-      // TODO: markup -> text
-      if xml__tag(g, "title") do xml__stringf(g, "Moonythm | %v", "feed.name")
+      name := strings.trim_space(feed.name)
+      if xml__tag(g, "title") do xml__stringf(g, "Moonythm | %v", name)
       if xml__tag(g, "link") do xml__stringf(g, "%v", site.base_url)
 
-      // TODO: markup -> text
-      if xml__tag(g, "description") do xml__stringf(g, "%v", "feed.description")
+      description := strings.trim_space(feed.description)
+      if xml__tag(g, "description") do xml__stringf(g, "%v", description)
       if xml__tag(g, "language") do xml__string(g, "en")
       if xml__tag(g, "generator") do xml__string(g, "anima")
       if xml__tag(g, "webMaster") {
@@ -429,9 +441,12 @@ site__feed :: proc(
         }
 
         if xml__tag(g, "description") {
-          // TODO: markup -> text
-          // TODO: what do we do when there's no description?
-          xml__stringf(g, "%v", "page.description")
+          if mem__iz(page.description) {
+            xml__string(g, ":3")
+          } else  {
+            // TODO: markup -> text
+            xml__stringf(g, "%v", "page.description")
+          }
         }
 
         if page.published_at != {} {

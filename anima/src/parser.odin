@@ -42,7 +42,7 @@ Parser :: struct {
 	codec_output_stack: virtual.Arena, // Temporary data for use by Codec__Focus
 	codec_state_stack:  virtual.Arena, // Temporary frames for completion tracking
   // TODO: ^merge parser.stack into the above
-	error_arena:        virtual.Arena, // Error messages
+  // TODO: ^merge codec_output_stack into the above
 	output_arena:       virtual.Arena, // Output data
 	tokens:             Exparr(Indented_Token, 10),
 	token:              uint, // The index of the current token
@@ -56,9 +56,7 @@ parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
   log.assert(mem__iz(parser^))
 
 	parser.statistics = statistics
-	err := virtual.arena_init_static(&parser.error_arena)
-	log.assert(err == nil)
-	err = virtual.arena_init_static(&parser.codec_output_stack)
+	err := virtual.arena_init_static(&parser.codec_output_stack)
 	log.assert(err == nil)
 	err = virtual.arena_init_static(&parser.codec_state_stack)
 	log.assert(err == nil)
@@ -69,7 +67,7 @@ parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
 
 	parser.tokens.allocator = virtual.arena_allocator(&parser.internal_arena)
 	parser.stack.allocator = virtual.arena_allocator(&parser.internal_arena)
-	parser.errors.allocator = virtual.arena_allocator(&parser.error_arena)
+	parser.errors.allocator = virtual.arena_allocator(&parser.output_arena)
 
 	exparr__push(&parser.stack, Surrounding_Apparition{})
 }
@@ -79,7 +77,6 @@ parser__destroy :: proc(parser: ^Parser) {
 	virtual.arena_destroy(&parser.codec_output_stack)
 	virtual.arena_destroy(&parser.codec_state_stack)
 	virtual.arena_destroy(&parser.internal_arena)
-	virtual.arena_destroy(&parser.error_arena)
 	virtual.arena_destroy(&parser.output_arena)
 }
 
@@ -102,7 +99,7 @@ parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
 parser__errorf :: proc(
   parser: ^Parser, loc: Error_Location, format: string, args: ..any
 ) {
-	allocator := virtual.arena_allocator(&parser.error_arena)
+	allocator := virtual.arena_allocator(&parser.output_arena)
 	msg := fmt.aprintf(format, ..args, allocator = allocator)
 	parser__error(parser, loc, msg)
 }
@@ -286,7 +283,14 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 	instance.parser.statistics.codec_evaluations += 1
 	switch inner in instance.codec.data {
 	case Codec__Space:
-		return parser__skip_spaces(instance)
+		consumed = parser__skip_spaces(instance)
+
+    if consumed {
+      size := reflect.size_of_typeid(instance.codec.type)
+      mem.copy(instance.output, inner, size)
+    }
+
+    return consumed
 	case Codec__Text:
 		log.assertf(
 			instance.codec.type == string,
@@ -331,7 +335,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       mode            = .Project,
       allocator       = inner_alloc,
       temp_allocator  = temp_alloc,
-      error_allocator = virtual.arena_allocator(&instance.parser.error_arena),
+      error_allocator = virtual.arena_allocator(&instance.parser.output_arena),
     }
 
     kit.errors.allocator = kit.temp_allocator
@@ -424,7 +428,6 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 					"I don't know how to parse this token. Common causes:\n" +
           "- missing closing brackets\n" +
           "- trying to use a unique apparition more than once per scope",
-					next_tok.from,
 				)
 			}
 		}

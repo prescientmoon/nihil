@@ -8,7 +8,7 @@ import "core:reflect"
 
 // {{{ The Codec type
 Codec__Text  :: distinct Unit
-Codec__Space :: distinct Unit
+Codec__Space :: distinct rawptr
 
 Codec__Constant :: struct {
 	name:  string,
@@ -135,9 +135,12 @@ codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
 	return {codec}
 }
 
-codec__space :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
+codec__space :: proc(kit: ^Codec_Kit, $T: typeid, value: T) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
-	codec.data = Codec__Space{}
+	codec.data = Codec__Space(
+    new_clone(value, virtual.arena_allocator(&kit.codec_arena))
+  )
+
 	return codec
 }
 
@@ -352,7 +355,7 @@ codec__spaced_exparr :: proc(
 	inner_sum := codec__sum(
 		kit,
 		Maybe(T),
-		codec__space(kit, Maybe(T)),
+		codec__space(kit, Maybe(T), nil),
 		codec__variant(kit, Maybe(T), inner),
 	)
 

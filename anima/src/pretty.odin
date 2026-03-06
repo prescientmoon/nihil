@@ -518,8 +518,8 @@ mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
   {mps__deeper(mps, "members"); mps__page_filter__many(mps, feed.members)}
   {mps__deeper(mps, "under"); mps__page_filter__many(mps, feed.under)}
 
-  {mps__deeper(mps, "name"); mps__inline_markup(mps, feed.name)}
-  {mps__deeper(mps, "description"); mps__inline_markup(mps, feed.description)}
+  mps__labeled_str(mps, "name", feed.name)
+  mps__labeled_str(mps, "description", feed.description)
 }
 // }}}
 

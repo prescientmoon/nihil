@@ -312,8 +312,8 @@ Def__Feed :: struct {
   // page (with absolute paths being considered relative to the website root) in
   // the future (if I feel the need for something like that).
   at:          string,
-  name:        Inline_Markup,
-  description: Inline_Markup,
+  name:        string,
+  description: string,
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
@@ -323,20 +323,20 @@ Def__Feed :: struct {
 codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
   Self :: Def__Feed
 
+  text := codec__text(k)
   ctext := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
   filter := codec__page_filter__all(k)
 
 	at := codec__field(k, "at", Self, ctext, REQUIRED)
-	name := codec__field_at(k, "name", Self, imarkup, REQUIRED)
-	desc := codec__field_at(k, "description", Self, imarkup, REQUIRED)
+	name := codec__field_at(k, "name", Self, text, REQUIRED)
+	desc := codec__field_at(k, "description", Self, text, REQUIRED)
 	under := codec__field_at(k, "under", Self, filter, ONCE, UNIQUE)
 	members := codec__field_at(k, "members", Self, filter, ONCE)
 
   return codec__loop(k, codec__sum(k, Self, at, under, members, name, desc))
 }
 // }}}
-// {{{ Heading
+// {{{ Headings
 Heading :: struct {
   id:      string,
   content: Inline_Markup,
@@ -368,7 +368,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
 	return codec__remote_push(k, "headings", Page, with_level)
 }
 // }}}
-// {{{ Table
+// {{{ Tables
 Table__Cell :: struct {
 	content: Inline_Markup,
 }
@@ -399,7 +399,7 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
 // }}}
-// {{{ Inline_Markup__Timestamp
+// {{{ Timestamps
 @(private = "file")
 codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
   lens :: proc(kit: ^Lens_Kit) {
@@ -447,10 +447,22 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
   )
 }
 // }}}
-// {{{ Contiguous text
+// {{{ Text
 // A sequence of text where all the whitespace in the source is discarded
 @(private = "file")
 codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+  return codec__text_impl(k, false)
+}
+
+@(private = "file")
+codec__text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+  return codec__text_impl(k, true)
+}
+
+@(private = "file")
+codec__text_impl :: proc(
+  k: ^Codec_Kit, $spaces: bool
+) -> Typed_Codec(string) {
   lens :: proc(kit: ^Lens_Kit) {
     inner := cast(^Exparr(string))kit.inner
     outer := cast(^string)kit.outer
@@ -468,7 +480,10 @@ codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
       builder.buf.allocator = runtime.panic_allocator()
 
       for i in 0..<inner.len {
-        strings.write_string(&builder, exparr__get(inner^, i)^)
+        chunk := exparr__get(inner^, i)^
+        size := len(builder.buf)
+        if chunk == " " && size > 0 && builder.buf[size - 1] == ' ' do continue
+        strings.write_string(&builder, chunk)
       }
 
       outer^ = strings.to_string(builder)
@@ -477,12 +492,20 @@ codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
 
 	return codec__memo(
 		k,
-		"contiguous_text",
+		"text" when spaces else "contiguous_text",
 		proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+      when spaces {
+        str   := codec__string(k)
+        space := codec__space(k, string, " ")
+        inner := codec__exparr(k, codec__sum(k, string, str, space))
+      } else {
+        inner := codec__spaced_exparr(k, codec__string(k))
+      }
+
 			return codec__focus(
 				k,
 				string,
-				codec__spaced_exparr(k, codec__string(k)),
+				inner,
         lens,
         scratch = true
 			)
@@ -490,7 +513,7 @@ codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
 	)
 }
 // }}}
-// {{{ Tag
+// {{{ Tags
 Tag :: distinct string
 
 @(private = "file")
@@ -499,7 +522,7 @@ codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
 }
 // }}}
 
-// {{{ Inline
+// {{{ Inline markup
 Inline_Markup__Space :: distinct Unit
 Inline_Markup__Ellipsis :: distinct Unit
 Inline_Markup__Text :: distinct string
@@ -545,7 +568,7 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Datetime,
 }
 // }}}
-// {{{ Inline Codecs
+// {{{ Codecs
 @(private = "file")
 codec__inline_markup__timestamp :: proc(
   k: ^Codec_Kit
@@ -565,7 +588,7 @@ codec__inline_markup__atom :: proc(
 	imarkup := codec__inline_markup(k)
 	ctext := codec__contiguous_text(k)
 
-	space := codec__space(k, Inline_Markup__Space)
+	space := codec__space(k, Inline_Markup__Space, Inline_Markup__Space{})
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
 	ellipsis := codec__const(k, "...", Inline_Markup__Ellipsis{})
 	emph := codec__trans_at(k, "_", Inline_Markup__Emph, imarkup)
@@ -645,7 +668,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 }
 // }}}
 
-// {{{ Block
+// {{{ Block markup
 Block_Markup__Paragraph :: distinct Inline_Markup
 
 Block_Markup__Image :: struct {
@@ -693,7 +716,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Paragraph,
 	Block_Markup__Image,
 	Block_Markup__Figure,
-	Block_Markup__List, // todo
+	Block_Markup__List,
 	Block_Markup__Blockquote,
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
@@ -713,7 +736,7 @@ Block_Markup :: struct {
 	elements: Exparr(Block_Markup__Atom),
 }
 // }}}
-// {{{ Block Codecs
+// {{{ Codecs
 @(private = "file")
 codec__block_markup__image :: proc(
   k: ^Codec_Kit
