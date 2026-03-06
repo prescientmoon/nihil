@@ -40,7 +40,8 @@ Parsing_Error :: struct {
 Parser :: struct {
 	internal_arena:     virtual.Arena, // Every other piece of internal data
 	codec_output_stack: virtual.Arena, // Temporary data for use by Codec__Focus
-	codec_state_stack:  virtual.Arena, // Temporary frames forcompletion tracking
+	codec_state_stack:  virtual.Arena, // Temporary frames for completion tracking
+  // TODO: ^merge parser.stack into the above
 	error_arena:        virtual.Arena, // Error messages
 	output_arena:       virtual.Arena, // Output data
 	tokens:             Exparr(Indented_Token, 10),
@@ -194,6 +195,7 @@ Codec_Instance :: struct {
 	codec:        ^Codec,
 	output:       rawptr,
 	in_paragraph: bool,
+  scratch:      bool, // Are we (possibly deep) inside a scratch focus codec?
 	document:     rawptr, // Top-level context any function can access
 
 	// The capacity for this list is computed at the start of the block, and its
@@ -306,18 +308,29 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		return true
 	case Codec__Focus:
 		temp := virtual.arena_temp_begin(&instance.parser.codec_output_stack)
-		defer virtual.arena_temp_end(temp)
-		allocator := virtual.arena_allocator(&instance.parser.codec_output_stack)
+		defer if instance.scratch {
+      virtual.arena_temp_ignore(temp)
+    } else {
+      virtual.arena_temp_end(temp)
+    }
 
-		inner_output := mem__reflected_new(inner.inner.type, allocator)
+    inner_alloc: mem.Allocator
+    if instance.scratch {
+      inner_alloc = virtual.arena_allocator(&instance.parser.codec_output_stack)
+    } else {
+      inner_alloc = virtual.arena_allocator(&instance.parser.output_arena)
+    }
+
+    temp_alloc := virtual.arena_allocator(&instance.parser.codec_output_stack)
+		inner_output := mem__reflected_new(inner.inner.type, temp_alloc)
     kit := Lens_Kit {
       outer           = instance.output,
       inner           = inner_output,
       user_data       = inner.user_data,
       document        = instance.document,
       mode            = .Project,
-      allocator       = virtual.arena_allocator(&instance.parser.output_arena),
-      temp_allocator  = allocator,
+      allocator       = inner_alloc,
+      temp_allocator  = temp_alloc,
       error_allocator = virtual.arena_allocator(&instance.parser.error_arena),
     }
 
@@ -332,6 +345,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       inner_instance.codec = inner.inner
       inner_instance.output = inner_output
       inner_instance.document = kit.document
+      inner_instance.scratch ||= inner.scratch
 
       consumed = codec__eval_instance(inner_instance)
       if consumed {

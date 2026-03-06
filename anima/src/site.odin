@@ -213,12 +213,6 @@ xml__stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
   xml__raw_stringf(gen, fstr, ..args)
 }
 
-xml__ctext :: proc(gen: ^Xml_Gen, ctext: Contiguous_Text) {
-  allocator := virtual.arena_allocator(&gen.internal_arena)
-  str := contiguous_text__concat(ctext, allocator)
-  xml__string(gen, str)
-}
-
 // We return a boolean such that this can be used with if statements.
 @(deferred_in=xml__tag_end)
 xml__tag :: proc(
@@ -336,11 +330,11 @@ site__sitemap :: proc(site: ^Site) -> string {
       }
 
       if mem__non_zero(page.priority) {
-        if xml__tag(g, "priority") do xml__ctext(g, page.priority)
+        if xml__tag(g, "priority") do xml__string(g, page.priority)
       }
 
       if mem__non_zero(page.changefreq) {
-        if xml__tag(g, "changefreq") do xml__ctext(g, page.changefreq)
+        if xml__tag(g, "changefreq") do xml__string(g, page.changefreq)
       }
     }
   }
@@ -429,7 +423,7 @@ site__feed :: proc(
         for j in 0..<page.tags.len {
           tag := exparr__get(page.tags, j)^
           xml__tag(g, "category")
-          xml__stringf(g, "%v", Contiguous_Text(tag))
+          xml__stringf(g, "%v", tag)
         }
       }
 

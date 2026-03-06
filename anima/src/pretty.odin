@@ -173,24 +173,6 @@ mps__page_to_string :: proc(page: Page) -> string {
 // }}}
 
 // Pretty printers -------------------------------------------------------------
-// {{{ Contiguous text
-mps__contiguous_text :: proc(
-  mps: ^Markup_Printer_State, text: Contiguous_Text
-) {
-	if text.len == 0 do mps__leaf_str(mps, "", allow_inline = true)
-	for i in 0 ..< text.len {
-		chunk := exparr__get(text, i)
-		mps__leaf_str(mps, chunk^, allow_inline = true)
-	}
-}
-
-mps__labeled_ctext :: proc(
-  mps: ^Markup_Printer_State, label: string, ctext: Contiguous_Text
-) {
-  str := contiguous_text__concat(ctext, context.temp_allocator)
-  mps__labeled_str(mps, label, str)
-}
-// }}}
 // {{{ Timestamp
 mps__labeled_timestamp :: proc(
   mps: ^Markup_Printer_State, label: string, timestamp: time.Time
@@ -228,12 +210,12 @@ mps__inline_markup__atom :: proc(
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
 	case Inline_Markup__Icon:
-    mps__labeled_ctext(mps, "icon", Contiguous_Text(inner))
+    mps__labeled_str(mps, "icon", string(inner))
 	case Inline_Markup__Fn:
-    mps__labeled_ctext(mps, "fn", Contiguous_Text(inner))
+    mps__labeled_str(mps, "fn", string(inner))
 	case Inline_Markup__Link:
 		mps__deeper(mps, "link")
-		mps__contiguous_text(mps, inner.id)
+		mps__leaf_str(mps, inner.id)
 		if inner.label.elements.len != 0 {
 			mps__deeper(mps, "label")
 			mps__inline_markup(mps, inner.label)
@@ -276,7 +258,7 @@ mps__block_markup__atom :: proc(
 	case Block_Markup__Image:
 		mps__deeper(mps, "image")
 
-    mps__labeled_ctext(mps, "source", inner.source)
+    mps__labeled_str(mps, "source", inner.source)
 
 		{mps__deeper(mps, "alt"); mps__inline_markup(mps, inner.alt)}
 	case Block_Markup__Description:
@@ -292,22 +274,22 @@ mps__block_markup__atom :: proc(
 	case ^Def__Link:
 		mps__deeper(mps, "deflink")
 
-    mps__labeled_ctext(mps, "id", inner.id)
-    mps__labeled_ctext(mps, "target", inner.target)
+    mps__labeled_str(mps, "id", inner.id)
+    mps__labeled_str(mps, "target", inner.target)
 
     if inner.label.elements.len != 0 do mps__inline_markup(mps, inner.label)
 	case ^Def__Icon:
 		mps__deeper(mps, "deficon")
 
-    mps__labeled_ctext(mps, "id", inner.id)
-    mps__labeled_ctext(mps, "path", inner.path)
+    mps__labeled_str(mps, "id", inner.id)
+    mps__labeled_str(mps, "path", inner.path)
 
 		mps__deeper(mps, "scope")
     mps__page_filter__many(mps, inner.scope)
 	case ^Def__Footnote:
 		mps__deeper(mps, "defnote")
 
-    mps__labeled_ctext(mps, "id", inner.id)
+    mps__labeled_str(mps, "id", inner.id)
     mps__block_markup(mps, inner.content)
 	case Block_Markup__Index:
 		mps__deeper(mps, "index")
@@ -317,12 +299,12 @@ mps__block_markup__atom :: proc(
 
 		if inner.collapse do mps__leaf(mps, "collapse")
 
-		if inner.id.len > 0 {
-      mps__labeled_ctext(mps, "id", inner.id)
+		if inner.id != {} {
+      mps__labeled_str(mps, "id", inner.id)
     }
 
-		if inner.char.len > 0 {
-      mps__labeled_ctext(mps, "char", inner.char)
+		if inner.char != {} {
+      mps__labeled_str(mps, "char", inner.char)
     }
 
 		if inner.title.elements.len > 0 {
@@ -335,9 +317,9 @@ mps__block_markup__atom :: proc(
 		mps__deeper(mps, "heading")
 		mps__labeled_str(mps, "level", fmt.tprint(inner.level))
 
-		if inner.id.len > 0 {
+		if inner.id != {} {
       mps__deeper(mps, "id")
-      mps__contiguous_text(mps, inner.id)
+      mps__leaf_str(mps, inner.id)
     }
 
     mps__inline_markup(mps, inner.content)
@@ -477,14 +459,14 @@ mps__page_filter__atom :: proc(
     mps__deeper(mps, "any")
     mps__page_filter__many(mps, inner)
   case Page_Filter__Tag:
-    mps__labeled_ctext(mps, "tag", Contiguous_Text(inner))
+    mps__labeled_str(mps, "tag", string(inner))
   }
 }
 // }}}
 // {{{ Page
 mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   timestamp :: mps__labeled_timestamp
-  ctext :: mps__labeled_ctext
+  str :: mps__labeled_str
 
   mps__deeper(mps, "page")
 
@@ -495,9 +477,9 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   if page.created_at   != {} do timestamp(mps, "created",   page.created_at)
   if page.published_at != {} do timestamp(mps, "published", page.published_at)
 
-  if mem__nz(page.filename)   do ctext(mps, "filename",   page.filename)
-  if mem__nz(page.priority)   do ctext(mps, "priority",   page.priority)
-  if mem__nz(page.changefreq) do ctext(mps, "changefreq", page.changefreq)
+  if mem__nz(page.filename)   do str(mps, "filename",   page.filename)
+  if mem__nz(page.priority)   do str(mps, "priority",   page.priority)
+  if mem__nz(page.changefreq) do str(mps, "changefreq", page.changefreq)
 
   if mem__nz(page.description) {
     mps__deeper(mps, "description")
@@ -516,13 +498,13 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   }
 
   for i in 0..<page.tags.len {
-    tag := Contiguous_Text(exparr__get(page.tags, i)^)
-    mps__labeled_ctext(mps, "tag", tag)
+    tag := string(exparr__get(page.tags, i)^)
+    mps__labeled_str(mps, "tag", tag)
   }
 
   for i in 0..<page.aliases.len {
     alias := exparr__get(page.aliases, i)^
-    mps__labeled_ctext(mps, "alias", alias)
+    mps__labeled_str(mps, "alias", alias)
   }
 
   mps__block_markup(mps, page.content)
@@ -531,7 +513,7 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
 mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
   mps__deeper(mps, "feed")
 
-  mps__labeled_ctext(mps, "at", feed.at)
+  mps__labeled_str(mps, "at", feed.at)
 
   {mps__deeper(mps, "members"); mps__page_filter__many(mps, feed.members)}
   {mps__deeper(mps, "under"); mps__page_filter__many(mps, feed.under)}

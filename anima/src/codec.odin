@@ -46,6 +46,12 @@ Codec__Focus :: struct {
 	inner:     ^Codec,
 	user_data: rawptr,
 	lens:      #type proc(kit: ^Lens_Kit),
+
+  // When true, the children are not given access to the output arena, and are 
+  // instead allocated on the dynamic stack. The stack cleanup for the children
+  // will then be delayed until this lens has finished running, thus the data
+  // can be processed/saved up in the output arena.
+  scratch: bool,
 }
 
 Codec :: struct {
@@ -186,12 +192,14 @@ codec__focus :: proc(
 	inner: Typed_Codec($Inner),
 	lens: proc(kit: ^Lens_Kit),
 	user_data: rawptr = nil,
+  scratch := false,
 ) -> Typed_Codec(Outer) {
 	codec := codec__make(kit, Outer)
 	codec.data = Codec__Focus {
 		inner     = inner,
 		lens      = lens,
 		user_data = user_data,
+    scratch   = scratch,
 	}
 
 	return codec

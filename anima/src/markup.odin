@@ -13,7 +13,7 @@ Page :: struct {
   compact:   bool, // Whether the page should not contain the post layout
   public:    bool, // Whether the page should be included in the sitemap
 
-  filename:    Contiguous_Text, // Overrides the last segment of the path
+  filename:    string, // Overrides the last segment of the path
   description: Inline_Markup,
   content:     Block_Markup,
 
@@ -22,8 +22,8 @@ Page :: struct {
 
   // We don't bother defining sitemap-specific types since those options are
   // seldom used in practice.
-  changefreq:   Contiguous_Text, // Override the change frequency for the page
-  priority:     Contiguous_Text, // Assign a priority to the sitemap entry
+  changefreq:   string, // Override the change frequency for the page
+  priority:     string, // Assign a priority to the sitemap entry
 
   tags:      Exparr(Tag),
   changelog: Exparr(Change),
@@ -32,7 +32,7 @@ Page :: struct {
 	icons:     Exparr(Def__Icon),
   feeds:     Exparr(Def__Feed),
 	footnotes: Exparr(Def__Footnote),
-  aliases:   Exparr(Contiguous_Text), // Locations to redirect from
+  aliases:   Exparr(string), // Locations to redirect from
 
   // These attributes are not part of the markup itself
   source_path: Path__Absolute,
@@ -150,15 +150,6 @@ Page_Filter__Atom :: union {
   Page_Filter__Public,
 }
 
-// An allocator is required for testing tag equality (since we must compact
-// strings). One could do this without one, but I am a bit lazy.
-//
-// I'm starting to think that Contiguous_Text is kind of bad... I should 
-// probably get rid of it and compact things eagerly to simplify things. The
-// additional memory cost should not be an issue in practice.
-//
-// With a bit of care (and a few chnages to the lens system), I could even make
-// the non-compacted text be allocated on the dynamic lens output stack.
 page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
   switch inner in filter {
   case Page_Filter__Not: 
@@ -175,13 +166,10 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
 
     return false
   case Page_Filter__Tag: 
-    tag := Contiguous_Text(inner)
-    goal := contiguous_text__concat(tag, context.temp_allocator)
-
+    goal := Tag(inner)
     for i in 0..<page.tags.len {
-      tag := Contiguous_Text(exparr__get(page.tags, i)^)
-      name := contiguous_text__concat(tag, context.temp_allocator)
-      if name == goal do return true
+      tag := exparr__get(page.tags, i)^
+      if goal == tag do return true
     }
 
     return false
@@ -260,8 +248,8 @@ codec__page_filter__all :: proc(
 // }}}
 // {{{ Icon definitions
 Def__Icon :: struct {
-  id:    Contiguous_Text,
-  path:  Contiguous_Text,
+  id:    string,
+  path:  string,
   scope: Page_Filter__All,
 }
 
@@ -282,8 +270,8 @@ codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
 // }}}
 // {{{ Link definitions
 Def__Link :: struct {
-	id:     Contiguous_Text,
-	target: Contiguous_Text, // url
+	id:     string,
+	target: string, // url
 	label:  Inline_Markup,
   scope:  Page_Filter__All, // Link definitions can affect other pages
 }
@@ -302,7 +290,7 @@ codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
 // }}}
 // {{{ Footnote definitions
 Def__Footnote :: struct {
-	id:      Contiguous_Text,
+	id:      string,
 	content: Block_Markup,
 }
 
@@ -323,7 +311,7 @@ Def__Feed :: struct {
   // the website. I might or might not support paths relative to the current
   // page (with absolute paths being considered relative to the website root) in
   // the future (if I feel the need for something like that).
-  at:          Contiguous_Text,
+  at:          string,
   name:        Inline_Markup,
   description: Inline_Markup,
 
@@ -350,7 +338,7 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
 // }}}
 // {{{ Heading
 Heading :: struct {
-  id:      Contiguous_Text,
+  id:      string,
   content: Inline_Markup,
   level:   uint,
 }
@@ -416,18 +404,17 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^time.Time)kit.outer
-    inner := cast(^Contiguous_Text)kit.inner
+    inner := cast(^string)kit.inner
     switch kit.mode {
     case .Project:
       log.assertf(outer^ == {}, "Timestamps must parse in one go %v", outer^)
     case .Inject:
-      as_string := contiguous_text__concat(inner^, kit.temp_allocator)
-      if as_string == "" {
+      if inner^ == "" {
         kit.consumed = false
         return
       }
 
-      datetime, datetime_consumed := time.iso8601_to_time_utc(as_string)
+      datetime, datetime_consumed := time.iso8601_to_time_utc(inner^)
 
       if datetime_consumed > 0 {
         outer^ = datetime
@@ -437,7 +424,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
       // Try to tack an empty timestamp at the end
       as_date_string := fmt.aprintf(
         "%vT00:00:00+00:00",
-        as_string,
+        inner^,
         allocator = kit.temp_allocator,
       )
 
@@ -448,7 +435,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
         return
       }
 
-      lens__errorf(kit, "Invalid timestamp: '%v'", as_string)
+      lens__errorf(kit, "Invalid timestamp: '%v'", inner)
     }
   }
 
@@ -462,44 +449,49 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
 // }}}
 // {{{ Contiguous text
 // A sequence of text where all the whitespace in the source is discarded
-Contiguous_Text :: distinct Exparr(string)
-
 @(private = "file")
-codec__contiguous_text :: proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
+codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+  lens :: proc(kit: ^Lens_Kit) {
+    inner := cast(^Exparr(string))kit.inner
+    outer := cast(^string)kit.outer
+
+    switch kit.mode {
+    case .Project:
+      inner.allocator = kit.temp_allocator
+      exparr__push(inner, outer^)
+    case .Inject:
+      size := 0
+      for i in 0..<inner.len do size += len(exparr__get(inner^, i))
+
+      // Allocate a string buffer, preventing further re-allocations
+      builder := strings.builder_make_len_cap(0, size, kit.allocator)
+      builder.buf.allocator = runtime.panic_allocator()
+
+      for i in 0..<inner.len {
+        strings.write_string(&builder, exparr__get(inner^, i)^)
+      }
+
+      outer^ = strings.to_string(builder)
+    }
+  }
+
 	return codec__memo(
-		kit,
+		k,
 		"contiguous_text",
-		proc(kit: ^Codec_Kit) -> Typed_Codec(Contiguous_Text) {
-      // TODO: disallow empty strings
-			return codec__transmute(
-				kit,
-				Contiguous_Text,
-				codec__spaced_exparr(kit, codec__string(kit)),
+		proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+			return codec__focus(
+				k,
+				string,
+				codec__spaced_exparr(k, codec__string(k)),
+        lens,
+        scratch = true
 			)
 		},
 	)
 }
-
-contiguous_text__concat :: proc(
-  ctext: Contiguous_Text, allocator: mem.Allocator
-) -> string {
-  size := 0
-  exparr := cast(Exparr(string))ctext
-  for i in 0..<exparr.len do size += len(exparr__get(exparr, i))
-
-  // Allocate a string buffer, preventing further re-allocations
-  builder := strings.builder_make_len_cap(0, size, allocator)
-  builder.buf.allocator = runtime.panic_allocator()
-
-  for i in 0..<exparr.len {
-    strings.write_string(&builder, exparr__get(exparr, i)^)
-  }
-
-  return strings.to_string(builder)
-}
 // }}}
 // {{{ Tag
-Tag :: distinct Contiguous_Text
+Tag :: distinct string
 
 @(private = "file")
 codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
@@ -516,10 +508,10 @@ Inline_Markup__Strong :: distinct Inline_Markup
 Inline_Markup__Strikethrough :: distinct Inline_Markup
 Inline_Markup__Mono :: distinct Inline_Markup
 Inline_Markup__Quote :: distinct Inline_Markup
-Inline_Markup__Icon :: distinct Contiguous_Text
-Inline_Markup__Fn :: distinct Contiguous_Text
+Inline_Markup__Icon :: distinct string
+Inline_Markup__Fn :: distinct string
 Inline_Markup__Link :: struct {
-	id:    Contiguous_Text,
+	id:    string,
 	label: Inline_Markup,
 }
 
@@ -658,7 +650,7 @@ Block_Markup__Paragraph :: distinct Inline_Markup
 
 Block_Markup__Image :: struct {
 	alt:    Inline_Markup,
-	source: Contiguous_Text,
+	source: string,
 }
 
 Block_Markup__Figure :: struct {
@@ -676,8 +668,8 @@ Block_Markup__List :: struct {
 }
 
 Block_Markup__Aside :: struct {
-  id:       Contiguous_Text,
-  char:     Contiguous_Text,
+  id:       string,
+  char:     string,
   content:  Block_Markup,
   title:    Inline_Markup,
 
@@ -686,8 +678,8 @@ Block_Markup__Aside :: struct {
 }
 
 Block_Markup__Code :: struct {
-  language: Contiguous_Text,
-  content:  Contiguous_Text,
+  language: string,
+  content:  string,
 }
 
 Block_Markup__Blockquote :: distinct Block_Markup
