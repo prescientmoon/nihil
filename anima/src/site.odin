@@ -425,6 +425,12 @@ site__feed :: proc(
           xml__attr(g, "isPermaLink", "true")
           xml__stringf(g, "%v", url)
         }
+
+        for j in 0..<page.tags.len {
+          tag := exparr__get(page.tags, j)^
+          xml__tag(g, "category")
+          xml__stringf(g, "%v", Contiguous_Text(tag))
+        }
       }
 
       if last_update != {} {

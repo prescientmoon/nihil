@@ -5,7 +5,8 @@ import "core:mem"
 import "core:io"
 import "core:time"
 
-@(rodata)
+// {{{ Date/time types & constants
+@(rodata, private="file")
 SHORT_WEEKDAY_NAMES := [time.Weekday]string{
   .Monday    = "Mon",
   .Tuesday   = "Tue",
@@ -16,7 +17,7 @@ SHORT_WEEKDAY_NAMES := [time.Weekday]string{
   .Sunday    = "Sun",
 }
 
-@(rodata)
+@(rodata, private="file")
 SHORT_MONTH_NAMES := [time.Month]string{
   .January   = "Jan",
   .February  = "Feb",
@@ -32,8 +33,8 @@ SHORT_MONTH_NAMES := [time.Month]string{
   .December  = "Dec",
 }
 
-// https://www.rfc-editor.org/rfc/rfc2822.html
-Rfc2822 :: distinct time.Time
+Rfc2822 :: distinct time.Time // https://www.rfc-editor.org/rfc/rfc2822.html
+// }}}
 
 formatters__init :: proc(allocator: mem.Allocator) {
   formatters := new(map[typeid]fmt.User_Formatter, allocator)
