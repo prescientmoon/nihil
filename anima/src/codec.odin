@@ -438,9 +438,12 @@ codec__trans_at :: proc(
 	at: string,
 	$To: typeid,
 	inner: Typed_Codec($From),
-  flags: Apparition_Flags = {}
+  outer_flags: Apparition_Flags = {},
+  inner_flags: Apparition_Flags = ONCE
 ) -> Typed_Codec(To) {
-	return codec__at(kit, at, codec__transmute(kit, To, inner), flags)
+  transmuted := codec__transmute(kit, To, inner)
+  intermediate := codec__tracked(kit, transmuted, at, inner_flags)
+	return codec__at(kit, at, intermediate, outer_flags)
 }
 
 // Wrapper around codec__field and codec__at.
@@ -462,7 +465,7 @@ codec__tracked :: proc(
   name: string,
   flags: Apparition_Flags
 ) -> Typed_Codec(T) {
-	log.assert(flags != {}, "A tracked codec mustn't track nothing")
+  if flags == {} do return inner
 
 	codec := codec__make(kit, T)
 	codec.data = Codec__Tracked {

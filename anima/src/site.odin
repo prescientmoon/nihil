@@ -159,7 +159,8 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
 
 xml__clear :: proc(gen: ^Xml_Gen) {
   strings.builder_reset(&gen.builder)
-  exparr__clear(&gen.tag_stack)
+  gen.tag_stack = {}
+  gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
   gen.stage = .Content
   virtual.arena_free_all(&gen.internal_arena)
   virtual.arena_free_all(&gen.builder_arena)
@@ -185,6 +186,11 @@ xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
   // TODO: escaping
   log.assert(gen.stage == .Attributes)
   fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, value)
+}
+
+xml__attrf :: proc(gen: ^Xml_Gen, name: string, fstr: string, args: ..any) {
+  allocator := virtual.arena_allocator(&gen.internal_arena)
+  xml__attr(gen, name, fmt.aprintf(fstr, ..args, allocator=allocator))
 }
 
 xml__raw_string :: proc(gen: ^Xml_Gen, value: string) {
@@ -214,8 +220,8 @@ xml__ctext :: proc(gen: ^Xml_Gen, ctext: Contiguous_Text) {
 }
 
 // We return a boolean such that this can be used with if statements.
-@(deferred_in=xml__tag_auto_end)
-xml__tag_begin :: proc(
+@(deferred_in=xml__tag_end)
+xml__tag :: proc(
   gen: ^Xml_Gen, name: string, single: bool = false
 ) -> bool {
   gen.statistics.xml_tags += 1
@@ -226,11 +232,7 @@ xml__tag_begin :: proc(
   return true
 }
 
-xml__tag_auto_end :: proc(gen: ^Xml_Gen, name: string, single: bool) {
-  xml__tag_end(gen)
-}
-
-xml__tag_end :: proc(gen: ^Xml_Gen) {
+xml__tag_end :: proc(gen: ^Xml_Gen, name: string, single: bool) {
   last := exparr__pop(&gen.tag_stack)
   if gen.single {
     fmt.sbprintf(&gen.builder, "/>")
@@ -291,6 +293,11 @@ site__commit :: proc(site: ^Site) {
       }
     }
 
+    if os.exists(string(full_path)) {
+      site__errorf(site, full_path, "File already exists")
+      continue
+    }
+
     err = os.write_entire_file_from_string(string(full_path), entry.contents)
     if err != nil {
       site__errorf(site, full_path, "Failed to write file: %v", err)
@@ -309,18 +316,18 @@ site__sitemap :: proc(site: ^Site) -> string {
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
   )
 
-  if xml__tag_begin(g, "urlset") {
+  if xml__tag(g, "urlset") {
     xml__attr(g, "xmlns", "http://www.sitemaps.org/schemas/sitemap/0.9")
     for i in 0..<site.pages.len {
       page := exparr__get(site.pages, i)
       page.public or_continue
-      xml__tag_begin(g, "url")
+      xml__tag(g, "url")
 
-      if xml__tag_begin(g, "loc") {
+      if xml__tag(g, "loc") {
         xml__stringf(g, "%v", site__url_at(site, site.base_url, page.site_path))
       }
 
-      if xml__tag_begin(g, "last_mod") {
+      if xml__tag(g, "last_mod") {
         allocator := virtual.arena_allocator(&g.internal_arena)
         at := page__last_updated(page^)
         str, ok := time.time_to_rfc3339(at, allocator=allocator)
@@ -329,16 +336,106 @@ site__sitemap :: proc(site: ^Site) -> string {
       }
 
       if mem__non_zero(page.priority) {
-        if xml__tag_begin(g, "priority") do xml__ctext(g, page.priority)
+        if xml__tag(g, "priority") do xml__ctext(g, page.priority)
       }
 
       if mem__non_zero(page.changefreq) {
-        if xml__tag_begin(g, "changefreq") do xml__ctext(g, page.changefreq)
+        if xml__tag(g, "changefreq") do xml__ctext(g, page.changefreq)
       }
     }
   }
 
   return xml__save(g)
+}
+// }}}
+// {{{ RSS feed
+site__feed :: proc(
+  site: ^Site, base: Page, feed: Def__Feed
+) -> (path: Path__Relative, content: string) {
+  g := &site.xml
+  defer xml__clear(g)
+
+  xml__raw_string(
+    g,
+    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+  )
+
+  forever := virtual.arena_allocator(&site.forever_arena)
+  feed_path_str := fmt.aprintf("%v.xml", feed.at, allocator=forever)
+  feed_path := Path__Relative(feed_path_str)
+  feed_url := site__url_at(site, site.base_url, feed_path)
+
+  if xml__tag(g, "rss") {
+    xml__attr(g, "version", "2.0")
+    if xml__tag(g, "channel") {
+      xml__attr(g, "xmlns:atom", "http://www.w3.org/2005/Atom")
+      
+      // TODO: markup -> text
+      if xml__tag(g, "title") do xml__stringf(g, "Moonythm | %v", "feed.name")
+      if xml__tag(g, "link") do xml__stringf(g, "%v", site.base_url)
+
+      // TODO: markup -> text
+      if xml__tag(g, "description") do xml__stringf(g, "%v", "feed.description")
+      if xml__tag(g, "language") do xml__string(g, "en")
+      if xml__tag(g, "generator") do xml__string(g, "anima")
+      if xml__tag(g, "webMaster") {
+        xml__string(g, "hi@moonythm.dev (prescientmoon)")
+      }
+
+      if xml__tag(g, "atom:link", true) {
+        xml__attrf(g, "href", "%v", feed_url)
+        xml__attr(g, "rel", "self")
+        xml__attr(g, "type", "application/rss+xml")
+      }
+
+      last_update: time.Time
+      for i in 0..<site.pages.len {
+        page := exparr__get(site.pages, i)
+        page_filter__all__eval(base, page^, feed.members) or_continue
+
+        last_update = time__max(last_update, page__last_updated(page^))
+
+        xml__tag(g, "item")
+        if xml__tag(g, "author") {
+          xml__string(g, "hi@moonythm.dev (prescientmoon)")
+        }
+
+        title := page__title(page^)
+        if xml__tag(g, "title") {
+          // TODO: markup -> text
+          if mem__is_zero(title) do xml__string(g, "???")
+          else do xml__stringf(g, "%v", "title.content")
+        }
+
+        if xml__tag(g, "description") {
+          // TODO: markup -> text
+          // TODO: what do we do when there's no description?
+          xml__stringf(g, "%v", "page.description")
+        }
+
+        if page.published_at != {} {
+          if xml__tag(g, "pubDate") {
+            // TODO
+            xml__string(g, " ")
+          }
+        }
+
+        url := site__url_at(site, site.base_url, page.site_path)
+        if xml__tag(g, "link") do xml__stringf(g, "%v", url)
+        if xml__tag(g, "guid") {
+          xml__attr(g, "isPermaLink", "true")
+          xml__stringf(g, "%v", url)
+        }
+      }
+
+      if xml__tag(g, "lastBuildDate") {
+        xml__string(g, " ")
+        // TODO
+      }
+    }
+  }
+
+  return feed_path, xml__save(g)
 }
 // }}}
 // {{{ Path collection
@@ -390,7 +487,8 @@ site__collect :: proc(site: ^Site) {
           file.name = fullpath
 
           if parser__lex(&site.parser, file) {
-            page = cast(^Page)parser__eval(&site.parser, site.page_codec)
+            page = exparr__push(&site.pages, Page{})
+            parser__eval(&site.parser, site.page_codec, page)
           }
 
           if site.parser.errors.len > 0 {
@@ -402,8 +500,6 @@ site__collect :: proc(site: ^Site) {
               site.content_root,
               directory
             )
-
-            exparr__push(&site.pages, page^)
           }
 
           parser__clear(&site.parser)
@@ -423,5 +519,13 @@ site__collect :: proc(site: ^Site) {
 // {{{ Site geenration
 site__generate :: proc(site: ^Site) {
   site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
+  for i in 0..<site.pages.len {
+    page := exparr__get(site.pages, i)
+    for j in 0..<page.feeds.len {
+      feed := exparr__get(page.feeds, j)
+      feed_path, feed_content := site__feed(site, page^, feed^)
+      site__add_file(site, feed_path, feed_content)
+    }
+  }
 }
 // }}}

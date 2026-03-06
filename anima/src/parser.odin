@@ -492,8 +492,8 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
 
 @(private = "package")
 parser__eval :: proc(
-  parser: ^Parser, codec: ^Codec, document: rawptr = nil
-) -> (output: rawptr) {
+  parser: ^Parser, codec: ^Codec, output: rawptr, document: rawptr = nil
+)  {
 	temp_output := virtual.arena_temp_begin(&parser.output_arena)
 	defer virtual.arena_temp_ignore(temp_output)
 	output_allocator := virtual.arena_allocator(&parser.output_arena)
@@ -501,7 +501,6 @@ parser__eval :: proc(
 	temp_state := virtual.arena_temp_begin(&parser.codec_state_stack)
 	defer virtual.arena_temp_end(temp_state)
 
-	output = mem__reflected_new(codec.type, output_allocator)
 	instance := Codec_Instance {
 		parser   = parser,
 		codec    = codec,
@@ -520,7 +519,5 @@ parser__eval :: proc(
   }
 
   if parser.errors.len == 0 do codec__check_flags(file, instance)
-
-	return output
 }
 // }}}

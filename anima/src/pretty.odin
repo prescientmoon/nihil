@@ -531,12 +531,13 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
 mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
   mps__deeper(mps, "feed")
 
-  mps__labeled_ctext(mps, "id", feed.id)
+  mps__labeled_ctext(mps, "at", feed.at)
 
   {mps__deeper(mps, "members"); mps__page_filter__many(mps, feed.members)}
   {mps__deeper(mps, "under"); mps__page_filter__many(mps, feed.under)}
 
-  mps__inline_markup(mps, feed.description)
+  {mps__deeper(mps, "name"); mps__inline_markup(mps, feed.name)}
+  {mps__deeper(mps, "description"); mps__inline_markup(mps, feed.description)}
 }
 // }}}
 

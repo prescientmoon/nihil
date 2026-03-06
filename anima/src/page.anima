@@ -44,7 +44,7 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 \index
   \tag echo
   \local
-  \not \all
+  \not \all!
     \tag thing
     \tag other-thing
     \any \tag me
@@ -56,17 +56,18 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
   \path /icons/lagrange.png
   \scope \local
 
-\feed 
-  \id toplevel
-
-  \members 
-    \tag under:/echoes
-
-  \under \any!
-    \tag under:/echoes
-    \tag at:/echoes
-
-  This is my feed!
+\tag foo
+\tag bar
+\feed not/toplevel \name{something} \description{oof} \under{}
+  \members \local
+\feed toplevel \name{something} \description{oof} \under{}
+  \members \tag{foo} \tag{bar} \tag{goo}
+\feed toplevel2 \name{something} \description{oof} \under{}
+  \members \tag{foo} \tag{bar}
+\feed toplevel3 \name{something} \description{oof} \under{}
+  \members \any \all{\tag{foo} \tag{bar} \tag{goo}} \local
+\feed toplevel4 \name{something} \description{oof} \under{}
+  \members \not{\tag{goo}}
 
 \alias something
 \tag wow

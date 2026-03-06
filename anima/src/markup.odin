@@ -47,19 +47,19 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   return page
 }
 
-
 page__last_updated :: proc(page: Page) -> (t: time.Time) {
-  tmax :: proc(a, b: time.Time) -> time.Time {
-    return time.Time{max(a._nsec, b._nsec)}
-  }
-
-  t = tmax(page.created_at, page.published_at)
+  t = time__max(page.created_at, page.published_at)
   for i in 0..<page.changelog.len {
     change := exparr__get(page.changelog, i)
-    t = tmax(t, change.at)
+    t = time__max(t, change.at)
   }
 
   return t
+}
+
+page__title :: proc(page: Page) -> Heading {
+  if page.headings.len == 0 do return {}
+  return exparr__get(page.headings, 0)^
 }
 
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
@@ -148,6 +148,55 @@ Page_Filter__Atom :: union {
   Page_Filter__Tag,
   Page_Filter__Local,
   Page_Filter__Public,
+}
+
+// An allocator is required for testing tag equality (since we must compact
+// strings). One could do this without one, but I am a bit lazy.
+//
+// I'm starting to think that Contiguous_Text is kind of bad... I should 
+// probably get rid of it and compact things eagerly to simplify things. The
+// additional memory cost should not be an issue in practice.
+//
+// With a bit of care (and a few chnages to the lens system), I could even make
+// the non-compacted text be allocated on the dynamic lens output stack.
+page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
+  switch inner in filter {
+  case Page_Filter__Not: 
+    if inner == nil do return false
+    return !page_filter__eval(base, page, inner^)
+  case Page_Filter__Public: return page.public
+  case Page_Filter__All: return page_filter__all__eval(base, page, inner)
+  case Page_Filter__Local: return page.site_path == base.site_path
+  case Page_Filter__Any: 
+    for i in 0..<inner.elements.len {
+      filter := exparr__get(inner.elements, i)^
+      if page_filter__eval(base, page, filter) do return true
+    }
+
+    return false
+  case Page_Filter__Tag: 
+    tag := Contiguous_Text(inner)
+    goal := contiguous_text__concat(tag, context.temp_allocator)
+
+    for i in 0..<page.tags.len {
+      tag := Contiguous_Text(exparr__get(page.tags, i)^)
+      name := contiguous_text__concat(tag, context.temp_allocator)
+      if name == goal do return true
+    }
+
+    return false
+  }
+
+  log.panic("impossible")
+}
+
+page_filter__all__eval :: proc(base, page: Page, all: Page_Filter__All) -> bool {
+  for i in 0..<all.elements.len {
+    filter := exparr__get(all.elements, i)^
+    if !page_filter__eval(base, page, filter) do return false
+  }
+
+  return true
 }
 
 @(private = "file")
@@ -270,7 +319,12 @@ codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
 // }}}
 // {{{ Feed definitions
 Def__Feed :: struct {
-  id:          Contiguous_Text,
+  // NOTE: this path is currently always assumed to be relative to the root of
+  // the website. I might or might not support paths relative to the current
+  // page (with absolute paths being considered relative to the website root) in
+  // the future (if I feel the need for something like that).
+  at:          Contiguous_Text,
+  name:        Inline_Markup,
   description: Inline_Markup,
 
   members: Page_Filter__All, // What posts should this include?
@@ -285,12 +339,13 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
   imarkup := codec__inline_markup(k)
   filter := codec__page_filter__all(k)
 
-	id := codec__field_at(k, "id", Self, ctext)
-	desc := codec__field(k, "description", Self, imarkup, REQUIRED)
-	under := codec__field_at(k, "under", Self, filter, ONCE)
+	at := codec__field(k, "at", Self, ctext, REQUIRED)
+	name := codec__field_at(k, "name", Self, imarkup, REQUIRED)
+	desc := codec__field_at(k, "description", Self, imarkup, REQUIRED)
+	under := codec__field_at(k, "under", Self, filter, ONCE, UNIQUE)
 	members := codec__field_at(k, "members", Self, filter, ONCE)
 
-  return codec__loop(k, codec__sum(k, Self, id, under, members, desc))
+  return codec__loop(k, codec__sum(k, Self, at, under, members, name, desc))
 }
 // }}}
 // {{{ Heading
