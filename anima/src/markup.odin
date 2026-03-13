@@ -287,11 +287,31 @@ codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
 	return codec__remote_push(k, "links", Page, inner_loop)
 }
+
+// This currently performs a linear search. In case performance ever becomes an
+// issue, I'll add a hashmap on top.
+//
+// TODO: ensure no link shadows an existing definition. This requires keeping
+// tack of spans when paring though... My idea for doing that is exposing the 
+// location of the parent apparition token to lenses.
+site__lookup_link :: proc(site: Site, page: Page, id: string) -> (result: ^Def__Link) {
+  for i in 0..<site.pages.len {
+    page := exparr__get(site.pages, i)
+    for j in 0..<page.links.len {
+      link := exparr__get(page.links, j)
+      (link.id == id) or_continue
+      return result
+    }
+  }
+
+  return nil
+}
 // }}}
 // {{{ Footnote definitions
 Def__Footnote :: struct {
 	id:      string,
 	content: Block_Markup,
+  index:   uint, // The page-local number used to display the footnote
 }
 
 @(private = "file")
@@ -531,11 +551,21 @@ Inline_Markup__Strong :: distinct Inline_Markup
 Inline_Markup__Strikethrough :: distinct Inline_Markup
 Inline_Markup__Mono :: distinct Inline_Markup
 Inline_Markup__Quote :: distinct Inline_Markup
-Inline_Markup__Icon :: distinct string
-Inline_Markup__Fn :: distinct string
+
+Inline_Markup__Icon :: struct {
+  id:  string,
+  def: ^Def__Icon, // Inserted after the fact
+}
+
+Inline_Markup__Fn :: struct {
+  id:  string,
+  def: ^Def__Footnote, // Inserted after the fact
+}
+
 Inline_Markup__Link :: struct {
 	id:    string,
 	label: Inline_Markup,
+  def:   ^Def__Link, // Inserted after the fact
 }
 
 Inline_Markup__Timestamp :: struct {
@@ -601,8 +631,12 @@ codec__inline_markup__atom :: proc(
 	strike := codec__trans_at(k, "~", Inline_Markup__Strikethrough, imarkup)
 	mono := codec__trans_at(k, "`", Inline_Markup__Mono, imarkup)
 	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
-  icon := codec__trans_at(k, "icon", Inline_Markup__Icon, ctext)
-  fn := codec__trans_at(k, "fn", Inline_Markup__Fn, ctext)
+
+  icon_id := codec__field(k, "id", Inline_Markup__Icon, ctext, ONCE)
+  icon := codec__at(k, "icon", icon_id)
+
+  fn_id := codec__field(k, "id", Inline_Markup__Fn, ctext, ONCE)
+  fn := codec__at(k, "fn", fn_id)
 
   Link :: Inline_Markup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
@@ -852,3 +886,70 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 	)
 }
 // }}}
+
+ELLIPSIS_SYMBOL :: '…'
+QUOTE_EN_LEFT   :: '“'
+QUOTE_EN_RIGHT  :: '”'
+
+// Inserted in the page when errors are encountered
+ERROR_TEXT  :: "🚨 ERROR 🚨"
+
+// Conversion
+inline_markup__atom__to_text :: proc(
+  site: ^Site, page: Page, atom: Inline_Markup__Atom
+) {
+  switch inner in atom {
+  case Inline_Markup__Icon, nil:
+  case Inline_Markup__Space:
+    fmt.sbprint(&site.txt, " ")
+  case Inline_Markup__Ellipsis:
+    fmt.sbprint(&site.txt, ELLIPSIS_SYMBOL)
+  case Inline_Markup__Text:
+    fmt.sbprint(&site.txt, string(inner))
+  case Inline_Markup__Emph:
+    fmt.sbprint(&site.txt, "_")
+    inline_markup__to_text(site, page, Inline_Markup(inner))
+    fmt.sbprint(&site.txt, "_")
+  case Inline_Markup__Strong:
+    fmt.sbprint(&site.txt, "*")
+    inline_markup__to_text(site, page, Inline_Markup(inner))
+    fmt.sbprint(&site.txt, "*")
+  case Inline_Markup__Strikethrough:
+    fmt.sbprint(&site.txt, "~")
+    inline_markup__to_text(site, page, Inline_Markup(inner))
+    fmt.sbprint(&site.txt, "~")
+  case Inline_Markup__Mono:
+    fmt.sbprint(&site.txt, "`")
+    inline_markup__to_text(site, page, Inline_Markup(inner))
+    fmt.sbprint(&site.txt, "`")
+  case Inline_Markup__Quote:
+    fmt.sbprint(&site.txt, QUOTE_EN_LEFT)
+    inline_markup__to_text(site, page, Inline_Markup(inner))
+    fmt.sbprint(&site.txt, QUOTE_EN_RIGHT)
+  case Inline_Markup__Link:
+    if mem__non_zero(inner.label) {
+      inline_markup__to_text(site, page, inner.label)
+    } else if inner.def != nil {
+      inline_markup__to_text(site, page, inner.def.label)
+    } else {
+      fmt.sbprint(&site.txt, ERROR_TEXT)
+    }
+  case Inline_Markup__Fn:
+    if inner.def != nil {
+      fmt.sbprintf(&site.txt, "[^%v]", inner.def.index)
+    } else {
+      fmt.sbprint(&site.txt, ERROR_TEXT)
+    }
+  case Inline_Markup__Date: // TODO
+    fmt.sbprint(&site.txt, ERROR_TEXT)
+  case Inline_Markup__Datetime: // TODO
+    fmt.sbprint(&site.txt, ERROR_TEXT)
+  }
+}
+
+inline_markup__to_text :: proc(site: ^Site, page: Page, im: Inline_Markup) {
+  for i in 0..<im.elements.len {
+    chunk := exparr__get(im.elements^, i)^
+    inline_markup__atom__to_text(site, page, chunk)
+  }
+}

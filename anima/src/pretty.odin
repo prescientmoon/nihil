@@ -210,9 +210,9 @@ mps__inline_markup__atom :: proc(
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
 	case Inline_Markup__Icon:
-    mps__labeled_str(mps, "icon", string(inner))
+    mps__labeled_str(mps, "icon", inner.id)
 	case Inline_Markup__Fn:
-    mps__labeled_str(mps, "fn", string(inner))
+    mps__labeled_str(mps, "fn", inner.id)
 	case Inline_Markup__Link:
 		mps__deeper(mps, "link")
 		mps__leaf_str(mps, inner.id)

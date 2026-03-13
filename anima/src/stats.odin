@@ -22,6 +22,7 @@ Statistics :: struct {
   codec_arena:               Bytes,
   xml_internal_arena:        Bytes,
   xml_builder_arena:         Bytes,
+  txt_builder_arena:         Bytes,
   parser_internal_arena:     Bytes,
   parser_output_arena:       Bytes,
   parser_codec_output_stack: Bytes,

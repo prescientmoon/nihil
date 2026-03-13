@@ -37,6 +37,7 @@ Site :: struct {
   pages:      Exparr(Page),
   files:      Exparr(File_Gen_Entry),
   xml:        Xml_Gen,
+  txt:        Virtual_String_Builder,
   codec_kit:  Codec_Kit,
   page_codec: Typed_Codec(Page),
   parser:     Parser,
@@ -66,10 +67,12 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 	parser__make(&site.parser, &site.statistics)
   site.page_codec = codec__page(&site.codec_kit)
   xml__make(&site.xml, &site.statistics)
+  vsb__make(&site.txt)
 }
 
 site__destroy :: proc(site: ^Site) {
   xml__destroy(&site.xml)
+  vsb__destroy(&site.statistics.txt_builder_arena, &site.txt)
   parser__destroy(&site.parser)
   codec__kit__destroy(&site.codec_kit)
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
@@ -96,6 +99,19 @@ site__check_errors :: proc(site: ^Site) {
 
     os.exit(1)
   }
+}
+
+@(private="file")
+site__txt__clear :: proc(site: ^Site) {
+  vsb__clear(&site.statistics.txt_builder_arena, &site.txt)
+}
+
+@(private="file")
+site__txt :: proc(site: ^Site) -> string {
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  clone, err := strings.clone(strings.to_string(site.txt), allocator)
+  log.assert(err == nil)
+  return clone
 }
 // }}}
 // {{{ Path & url handling
@@ -141,14 +157,36 @@ site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
   return URL(str)
 }
 // }}}
+// {{{ Virtual-arena based string builders
+Virtual_String_Builder :: struct {
+  using builder: strings.Builder,
+  arena:   virtual.Arena,
+}
+
+vsb__make :: proc(vsb: ^Virtual_String_Builder) {
+  log.assert(mem__is_zero(vsb^))
+	err := virtual.arena_init_static(&vsb.arena)
+	log.assert(err == nil)
+  builder_alloc := virtual.arena_allocator(&vsb.arena)
+  strings.builder_init_none(&vsb.builder, builder_alloc)
+}
+
+vsb__destroy :: proc(bytes: ^Bytes, vsb: ^Virtual_String_Builder) {
+	arena__destroy(bytes, &vsb.arena)
+}
+
+vsb__clear :: proc(bytes: ^Bytes, vsb: ^Virtual_String_Builder) {
+  strings.builder_reset(&vsb.builder)
+  arena__clear(bytes, &vsb.arena)
+}
+// }}}
 // {{{ XML building
 // A builder that can be used to construct XML output in-order. That is, one 
 // must generate the attributes before the content for any given tag.
 Xml_Gen :: struct {
   statistics:     ^Statistics,
   internal_arena: virtual.Arena, // Junk that needs not survive a clear
-  builder_arena:  virtual.Arena, // Backing storage for the builder below
-  builder:        strings.Builder,
+  builder:        Virtual_String_Builder,
   tag_stack:      Exparr(string),
   stage:          enum { Attributes, Content },
   single:         bool,
@@ -159,26 +197,22 @@ xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
   gen.statistics = statistics
 	err := virtual.arena_init_static(&gen.internal_arena)
 	log.assert(err == nil)
-	err = virtual.arena_init_static(&gen.builder_arena)
-	log.assert(err == nil)
-  builder_alloc := virtual.arena_allocator(&gen.builder_arena)
-  strings.builder_init_none(&gen.builder, builder_alloc)
   gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
   gen.stage = .Content
+  vsb__make(&gen.builder)
 }
 
 xml__destroy :: proc(gen: ^Xml_Gen) {
 	arena__destroy(&gen.statistics.xml_internal_arena, &gen.internal_arena)
-	arena__destroy(&gen.statistics.xml_builder_arena, &gen.builder_arena)
+	vsb__destroy(&gen.statistics.xml_builder_arena, &gen.builder)
 }
 
 xml__clear :: proc(gen: ^Xml_Gen) {
-  strings.builder_reset(&gen.builder)
   gen.tag_stack = {}
   gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
   gen.stage = .Content
   arena__clear(&gen.statistics.xml_internal_arena, &gen.internal_arena)
-  arena__clear(&gen.statistics.xml_builder_arena, &gen.builder_arena)
+  vsb__clear(&gen.statistics.xml_builder_arena, &gen.builder)
 }
 
 xml__ensure_content :: proc(gen: ^Xml_Gen) {
@@ -435,17 +469,22 @@ site__feed :: proc(
 
         title := page__title(page^)
         if xml__tag(g, "title") {
-          // TODO: markup -> text
-          if mem__is_zero(title) do xml__string(g, "???")
-          else do xml__stringf(g, "%v", "title.content")
+          if mem__is_zero(title) {
+            xml__string(g, ERROR_TEXT)
+          } else {
+            defer site__txt__clear(site)
+            inline_markup__to_text(site, page^, title.content)
+            xml__string(g, site__txt(site))
+          }
         }
 
         if xml__tag(g, "description") {
           if mem__iz(page.description) {
             xml__string(g, ":3")
           } else  {
-            // TODO: markup -> text
-            xml__stringf(g, "%v", "page.description")
+            defer site__txt__clear(site)
+            inline_markup__to_text(site, page^, page.description)
+            xml__string(g, site__txt(site))
           }
         }
 

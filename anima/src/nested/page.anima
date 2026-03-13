@@ -56,32 +56,6 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
   \path /icons/lagrange.png
   \scope \local
 
-\tag foo
-\tag bar
-\feed not/toplevel \name{something} \description{oof} \under{}
-  \members \local
-
-\feed toplevel
-  \name Moonythm's RSS feed 
-  \description All my articles! 
-
-  \members 
-    \tag foo 
-    \tag bar 
-    \not \tag goobar
-    \public
-
-  \under \any!
-    \local
-    \tag bar
-
-\feed toplevel2 \name{something} \description{oof} \under{}
-  \members \tag{foo} \tag{bar}
-\feed toplevel3 \name{something} \description{oof} \under{}
-  \members \any \all{\tag{foo} \tag{bar} \tag{goo}} \local
-\feed toplevel4 \name{something} \description{oof} \under{}
-  \members \not{\tag{goo}}
-
 \alias something
 \tag wow
 \compact \public
@@ -93,7 +67,12 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 \priority 0.7
 
 \description
-  This is \*{merely} an example page: \link{example}.
+  This is merely an example page
 
 \change \at 2026-03-04T21:38:11+01:00
   I added changelog support!
+
+\tag foo
+\tag bar
+\tag goo
+\tag goobar
