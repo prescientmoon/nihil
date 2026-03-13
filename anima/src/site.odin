@@ -472,9 +472,9 @@ site__feed :: proc(
           if mem__is_zero(title) {
             xml__string(g, ERROR_TEXT)
           } else {
-            defer site__txt__clear(site)
-            inline_markup__to_text(site, page^, title.content)
-            xml__string(g, site__txt(site))
+            xml__stringf(g, "%v",
+              inline_markup__formatter(site, page, &title.content)
+            )
           }
         }
 
@@ -482,9 +482,9 @@ site__feed :: proc(
           if mem__iz(page.description) {
             xml__string(g, ":3")
           } else  {
-            defer site__txt__clear(site)
-            inline_markup__to_text(site, page^, page.description)
-            xml__string(g, site__txt(site))
+            xml__stringf(g, "%v",
+              inline_markup__formatter(site, page, &page.description)
+            )
           }
         }
 

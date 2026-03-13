@@ -895,61 +895,76 @@ QUOTE_EN_RIGHT  :: '”'
 ERROR_TEXT  :: "🚨 ERROR 🚨"
 
 // Conversion
-inline_markup__atom__to_text :: proc(
-  site: ^Site, page: Page, atom: Inline_Markup__Atom
+inline_markup__atom__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
 ) {
   switch inner in atom {
   case Inline_Markup__Icon, nil:
   case Inline_Markup__Space:
-    fmt.sbprint(&site.txt, " ")
+    fmt.wprint(fi.writer, " ")
   case Inline_Markup__Ellipsis:
-    fmt.sbprint(&site.txt, ELLIPSIS_SYMBOL)
+    fmt.wprint(fi.writer, ELLIPSIS_SYMBOL)
   case Inline_Markup__Text:
-    fmt.sbprint(&site.txt, string(inner))
+    fmt.wprint(fi.writer, string(inner))
   case Inline_Markup__Emph:
-    fmt.sbprint(&site.txt, "_")
-    inline_markup__to_text(site, page, Inline_Markup(inner))
-    fmt.sbprint(&site.txt, "_")
+    fmt.wprint(fi.writer, "_")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "_")
   case Inline_Markup__Strong:
-    fmt.sbprint(&site.txt, "*")
-    inline_markup__to_text(site, page, Inline_Markup(inner))
-    fmt.sbprint(&site.txt, "*")
+    fmt.wprint(fi.writer, "*")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "*")
   case Inline_Markup__Strikethrough:
-    fmt.sbprint(&site.txt, "~")
-    inline_markup__to_text(site, page, Inline_Markup(inner))
-    fmt.sbprint(&site.txt, "~")
+    fmt.wprint(fi.writer, "~")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "~")
   case Inline_Markup__Mono:
-    fmt.sbprint(&site.txt, "`")
-    inline_markup__to_text(site, page, Inline_Markup(inner))
-    fmt.sbprint(&site.txt, "`")
+    fmt.wprint(fi.writer, "`")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "`")
   case Inline_Markup__Quote:
-    fmt.sbprint(&site.txt, QUOTE_EN_LEFT)
-    inline_markup__to_text(site, page, Inline_Markup(inner))
-    fmt.sbprint(&site.txt, QUOTE_EN_RIGHT)
+    fmt.wprint(fi.writer, QUOTE_EN_LEFT)
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, QUOTE_EN_RIGHT)
   case Inline_Markup__Link:
     if mem__non_zero(inner.label) {
-      inline_markup__to_text(site, page, inner.label)
+      inline_markup__fmt(fi, site, page, inner.label)
     } else if inner.def != nil {
-      inline_markup__to_text(site, page, inner.def.label)
+      inline_markup__fmt(fi, site, page, inner.def.label)
     } else {
-      fmt.sbprint(&site.txt, ERROR_TEXT)
+      fmt.wprint(fi.writer, ERROR_TEXT)
     }
   case Inline_Markup__Fn:
     if inner.def != nil {
-      fmt.sbprintf(&site.txt, "[^%v]", inner.def.index)
+      fmt.wprintf(fi.writer, "[^%v]", inner.def.index)
     } else {
-      fmt.sbprint(&site.txt, ERROR_TEXT)
+      fmt.wprint(fi.writer, ERROR_TEXT)
     }
   case Inline_Markup__Date: // TODO
-    fmt.sbprint(&site.txt, ERROR_TEXT)
+    fmt.wprint(fi.writer, ERROR_TEXT)
   case Inline_Markup__Datetime: // TODO
-    fmt.sbprint(&site.txt, ERROR_TEXT)
+    fmt.wprint(fi.writer, ERROR_TEXT)
   }
 }
 
-inline_markup__to_text :: proc(site: ^Site, page: Page, im: Inline_Markup) {
+inline_markup__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
+) {
   for i in 0..<im.elements.len {
     chunk := exparr__get(im.elements^, i)^
-    inline_markup__atom__to_text(site, page, chunk)
+    inline_markup__atom__fmt(fi, site, page, chunk)
   }
+}
+
+inline_markup__formatter :: proc(
+  site: ^Site, page: ^Page, im: ^Inline_Markup
+) -> Frozen {
+  return fmt__freeze3(
+    site, 
+    page, 
+    im,
+    proc(fi: ^fmt.Info, site: ^Site, page: ^Page, im: ^Inline_Markup) {
+      inline_markup__fmt(fi, site^, page^, im^)
+    },
+  )
 }
