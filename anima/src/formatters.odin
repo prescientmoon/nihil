@@ -6,6 +6,13 @@ import "core:io"
 import "core:time"
 import "core:container/small_array"
 
+ELLIPSIS_SYMBOL :: '…'
+QUOTE_EN_LEFT   :: '“'
+QUOTE_EN_RIGHT  :: '”'
+
+// Inserted in the page when errors are encountered
+ERROR_TEXT  :: "🚨 ERROR 🚨"
+
 // {{{ Date/time types & constants
 @(rodata, private="file")
 SHORT_WEEKDAY_NAMES := [time.Weekday]string{
@@ -36,7 +43,8 @@ SHORT_MONTH_NAMES := [time.Month]string{
 
 Rfc2822 :: distinct time.Time // https://www.rfc-editor.org/rfc/rfc2822.html
 // }}}
-// {{{ Frozen formatters
+// {{{ Formatter freezing
+// Function pointer war crimes!
 Frozen :: struct {
 	formatter: rawptr,
   user_data: small_array.Small_Array(4, rawptr),

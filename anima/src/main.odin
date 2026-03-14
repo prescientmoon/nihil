@@ -28,6 +28,8 @@ main :: proc() {
 
   site__collect(&site)
   site__check_errors(&site)
+  site__check(&site)
+  site__check_errors(&site)
   site__generate(&site)
   site__check_errors(&site)
   site__commit(&site)

@@ -294,6 +294,8 @@ mps__block_markup__atom :: proc(
 	case Block_Markup__Index:
 		mps__deeper(mps, "index")
     mps__page_filter__many(mps, Page_Filter__All(inner))
+	case Block_Markup__Code:
+		mps__leaf(mps, "code")
 	case Block_Markup__Aside:
 		mps__deeper(mps, "aside")
 
@@ -358,16 +360,15 @@ mps__block_markup__atom :: proc(
 		if inner.block do mps__leaf(mps, "block")
 		else do mps__leaf(mps, "inline")
 
-		switch elements in inner.elements {
-		case Exparr(Inline_Markup):
-			for i in 0 ..< elements.len {
+    if inner.block {
+			for i in 0 ..< inner.bmarkup.len {
 				mps__deeper(mps, "item")
-				mps__inline_markup(mps, exparr__get(elements, i)^)
+				mps__block_markup(mps, exparr__get(inner.bmarkup, i)^)
 			}
-		case Exparr(Block_Markup):
-			for i in 0 ..< elements.len {
+    } else {
+			for i in 0 ..< inner.imarkup.len {
 				mps__deeper(mps, "item")
-				mps__block_markup(mps, exparr__get(elements, i)^)
+				mps__inline_markup(mps, exparr__get(inner.imarkup, i)^)
 			}
 		}
 	case:

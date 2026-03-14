@@ -114,6 +114,46 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   return codec__focus(k, Page, codec__loop(k, inner_loop), lens)
 }
 // }}}
+// {{{ Checking
+page__check :: proc(site: ^Site, page: ^Page) {
+  inline_markup__check(site, page^, &page.description)
+  block_markup__check(site, page^, &page.content)
+
+  // TODO: chech for duplicate tags
+  // TODO: check for duplicate element IDs across  pages
+  // TODO: check for duplicate across paths across pages
+  // TODO: check for unused footnotes
+  // TODO: check for duplicate footnotes
+
+  for i in 0..<page.footnotes.len {
+    footnotes := exparr__get(page.footnotes, i)
+    block_markup__check(site, page^, &footnotes.content)
+  }
+
+  level: uint = 0
+  for i in 0..<page.headings.len {
+    heading := exparr__get(page.headings, i)
+
+    if heading.level > level + 1 {
+      site__errorf(
+        site,
+        page.source_path,
+        "Heading increases level by more than 1"
+      )
+    }
+
+    // TODO: generate ID
+    // 1. genertate text
+    // 2. replace " "  with "-"
+    // 3. make eveything lowercase
+    // 4. only keep alphanumeric characters
+
+    level = heading.level
+  }
+}
+
+// }}}
+
 // {{{ Changelog entries
 Change :: struct {
   at:      time.Time, 
@@ -179,6 +219,10 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
 }
 
 page_filter__all__eval :: proc(base, page: Page, all: Page_Filter__All) -> bool {
+  if all.elements.len == 0 {
+    return page_filter__eval(base, page, Page_Filter__Local{})
+  }
+
   for i in 0..<all.elements.len {
     filter := exparr__get(all.elements, i)^
     if !page_filter__eval(base, page, filter) do return false
@@ -286,25 +330,6 @@ codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   label := codec__field(k, "label", Def__Link, imarkup, REQUIRED)
   inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
 	return codec__remote_push(k, "links", Page, inner_loop)
-}
-
-// This currently performs a linear search. In case performance ever becomes an
-// issue, I'll add a hashmap on top.
-//
-// TODO: ensure no link shadows an existing definition. This requires keeping
-// tack of spans when paring though... My idea for doing that is exposing the 
-// location of the parent apparition token to lenses.
-site__lookup_link :: proc(site: Site, page: Page, id: string) -> (result: ^Def__Link) {
-  for i in 0..<site.pages.len {
-    page := exparr__get(site.pages, i)
-    for j in 0..<page.links.len {
-      link := exparr__get(page.links, j)
-      (link.id == id) or_continue
-      return result
-    }
-  }
-
-  return nil
 }
 // }}}
 // {{{ Footnote definitions
@@ -706,6 +731,175 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	)
 }
 // }}}
+// {{{ Formatting
+// Conversion
+inline_markup__atom__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
+) {
+  switch inner in atom {
+  case Inline_Markup__Icon, nil:
+  case Inline_Markup__Space:
+    fmt.wprint(fi.writer, " ")
+  case Inline_Markup__Ellipsis:
+    fmt.wprint(fi.writer, ELLIPSIS_SYMBOL)
+  case Inline_Markup__Text:
+    fmt.wprint(fi.writer, string(inner))
+  case Inline_Markup__Emph:
+    fmt.wprint(fi.writer, "_")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "_")
+  case Inline_Markup__Strong:
+    fmt.wprint(fi.writer, "*")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "*")
+  case Inline_Markup__Strikethrough:
+    fmt.wprint(fi.writer, "~")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "~")
+  case Inline_Markup__Mono:
+    fmt.wprint(fi.writer, "`")
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, "`")
+  case Inline_Markup__Quote:
+    fmt.wprint(fi.writer, QUOTE_EN_LEFT)
+    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    fmt.wprint(fi.writer, QUOTE_EN_RIGHT)
+  case Inline_Markup__Link:
+    if mem__non_zero(inner.label) {
+      inline_markup__fmt(fi, site, page, inner.label)
+    } else if inner.def != nil {
+      inline_markup__fmt(fi, site, page, inner.def.label)
+    } else {
+      fmt.wprint(fi.writer, ERROR_TEXT)
+    }
+  case Inline_Markup__Fn:
+    if inner.def != nil {
+      fmt.wprintf(fi.writer, "[^%v]", inner.def.index)
+    } else {
+      fmt.wprint(fi.writer, ERROR_TEXT)
+    }
+  case Inline_Markup__Date: // TODO
+    fmt.wprint(fi.writer, ERROR_TEXT)
+  case Inline_Markup__Datetime: // TODO
+    fmt.wprint(fi.writer, ERROR_TEXT)
+  }
+}
+
+inline_markup__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
+) {
+  for i in 0..<im.elements.len {
+    chunk := exparr__get(im.elements^, i)^
+    inline_markup__atom__fmt(fi, site, page, chunk)
+  }
+}
+
+inline_markup__formatter :: proc(
+  site: ^Site, page: ^Page, im: ^Inline_Markup
+) -> Frozen {
+  return fmt__freeze3(
+    site, 
+    page, 
+    im,
+    proc(fi: ^fmt.Info, site: ^Site, page: ^Page, im: ^Inline_Markup) {
+      inline_markup__fmt(fi, site^, page^, im^)
+    },
+  )
+}
+// }}}
+// {{{ Checking
+inline_markup__check :: proc(site: ^Site, page: Page, im: ^Inline_Markup) {
+  for i in 0..<im.elements.len {
+    chunk := exparr__get(im.elements^, i)
+    inline_markup__atom__check(site, page, chunk)
+  }
+}
+
+inline_markup__atom__check :: proc(
+  site: ^Site, page: Page, atom: ^Inline_Markup__Atom
+) {
+  switch &inner in atom {
+  case nil:
+  case Inline_Markup__Space:
+  case Inline_Markup__Ellipsis:
+  case Inline_Markup__Text:
+  case Inline_Markup__Date: 
+  case Inline_Markup__Datetime: 
+  case Inline_Markup__Emph:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Inline_Markup__Strong:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Inline_Markup__Strikethrough:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Inline_Markup__Mono:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Inline_Markup__Quote:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Inline_Markup__Link:
+    log.assert(inner.def == nil)
+
+    if mem__non_zero(inner.label) {
+      inline_markup__check(site, page, &inner.label)
+    }
+
+    for i in 0..<site.pages.len {
+      defsite := exparr__get(site.pages, i)
+      for j in 0..<defsite.links.len {
+        link := exparr__get(defsite.links, j)
+        (link.id == inner.id) or_continue
+        page_filter__all__eval(defsite^, page, link.scope) or_continue
+        inner.def = link
+        return
+      }
+    }
+
+    // TODO: better error spans
+    site__errorf(
+      site,
+      page.source_path,
+      "Link '%v' is not in scope.",
+      inner.id
+    )
+  case Inline_Markup__Fn:
+    log.assert(inner.def == nil)
+    for j in 0..<page.footnotes.len {
+      footnote := exparr__get(page.footnotes, j)
+      (footnote.id == inner.id) or_continue
+      inner.def = footnote
+      return
+    }
+
+    // TODO: better error spans
+    site__errorf(
+      site,
+      page.source_path,
+      "Footnote '%v' is not in scope.",
+      inner.id
+    )
+  case Inline_Markup__Icon:
+    log.assert(inner.def == nil)
+    for i in 0..<site.pages.len {
+      defsite := exparr__get(site.pages, i)
+      for j in 0..<defsite.icons.len {
+        icon := exparr__get(defsite.icons, j)
+        (icon.id == inner.id) or_continue
+        page_filter__all__eval(defsite^, page, icon.scope) or_continue
+        inner.def = icon
+        return
+      }
+    }
+
+    // TODO: better error spans
+    site__errorf(
+      site,
+      page.source_path,
+      "Icon '%v' is not in scope.",
+      inner.id
+    )
+  }
+}
+
+// }}}
 
 // {{{ Block markup
 Block_Markup__Paragraph :: distinct Inline_Markup
@@ -723,9 +917,9 @@ Block_Markup__Figure :: struct {
 Block_Markup__List :: struct {
 	ordered:  bool,
 	block:    bool,
-	elements: union #no_nil {
-		Exparr(Inline_Markup),
-		Exparr(Block_Markup),
+	using elements: struct #raw_union {
+		imarkup: Exparr(Inline_Markup),
+    bmarkup: Exparr(Block_Markup),
 	},
 }
 
@@ -765,6 +959,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Thematic_Break,
   Block_Markup__Index,
   Block_Markup__Aside,
+  Block_Markup__Code,
 	Table,
 
   // References to data saved in the parent Page structure
@@ -886,85 +1081,54 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 	)
 }
 // }}}
-
-ELLIPSIS_SYMBOL :: '…'
-QUOTE_EN_LEFT   :: '“'
-QUOTE_EN_RIGHT  :: '”'
-
-// Inserted in the page when errors are encountered
-ERROR_TEXT  :: "🚨 ERROR 🚨"
-
-// Conversion
-inline_markup__atom__fmt :: proc(
-  fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
-) {
-  switch inner in atom {
-  case Inline_Markup__Icon, nil:
-  case Inline_Markup__Space:
-    fmt.wprint(fi.writer, " ")
-  case Inline_Markup__Ellipsis:
-    fmt.wprint(fi.writer, ELLIPSIS_SYMBOL)
-  case Inline_Markup__Text:
-    fmt.wprint(fi.writer, string(inner))
-  case Inline_Markup__Emph:
-    fmt.wprint(fi.writer, "_")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, "_")
-  case Inline_Markup__Strong:
-    fmt.wprint(fi.writer, "*")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, "*")
-  case Inline_Markup__Strikethrough:
-    fmt.wprint(fi.writer, "~")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, "~")
-  case Inline_Markup__Mono:
-    fmt.wprint(fi.writer, "`")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, "`")
-  case Inline_Markup__Quote:
-    fmt.wprint(fi.writer, QUOTE_EN_LEFT)
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, QUOTE_EN_RIGHT)
-  case Inline_Markup__Link:
-    if mem__non_zero(inner.label) {
-      inline_markup__fmt(fi, site, page, inner.label)
-    } else if inner.def != nil {
-      inline_markup__fmt(fi, site, page, inner.def.label)
-    } else {
-      fmt.wprint(fi.writer, ERROR_TEXT)
-    }
-  case Inline_Markup__Fn:
-    if inner.def != nil {
-      fmt.wprintf(fi.writer, "[^%v]", inner.def.index)
-    } else {
-      fmt.wprint(fi.writer, ERROR_TEXT)
-    }
-  case Inline_Markup__Date: // TODO
-    fmt.wprint(fi.writer, ERROR_TEXT)
-  case Inline_Markup__Datetime: // TODO
-    fmt.wprint(fi.writer, ERROR_TEXT)
+// {{{ Checking
+block_markup__check :: proc(site: ^Site, page: Page, bm: ^Block_Markup) {
+  for i in 0..<bm.elements.len {
+    chunk := exparr__get(bm.elements, i)
+    block_markup__atom__check(site, page, chunk)
   }
 }
 
-inline_markup__fmt :: proc(
-  fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
+block_markup__atom__check :: proc(
+  site: ^Site, page: Page, atom: ^Block_Markup__Atom
 ) {
-  for i in 0..<im.elements.len {
-    chunk := exparr__get(im.elements^, i)^
-    inline_markup__atom__fmt(fi, site, page, chunk)
+  switch &inner in atom {
+  case nil:
+  case Block_Markup__Code:
+  case Block_Markup__Description:
+  case Block_Markup__Table_Of_Contents:
+  case Block_Markup__Index:
+  case Block_Markup__Thematic_Break:
+  case ^Def__Link:
+  case ^Def__Footnote:
+  case ^Def__Icon:
+  case ^Heading:
+  case Block_Markup__Paragraph:
+    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
+  case Block_Markup__Image:
+    // TODO: do something about the source path?
+    inline_markup__check(site, page, &inner.alt)
+  case Block_Markup__Figure:
+    inline_markup__check(site, page, &inner.caption)
+    block_markup__check(site, page, &inner.content)
+  case Block_Markup__List:
+    if inner.block {
+    	for i in 0 ..< inner.bmarkup.len {
+    		block_markup__check(site, page, exparr__get(inner.bmarkup, i))
+    	}
+    } else {
+    	for i in 0 ..< inner.imarkup.len {
+    		inline_markup__check(site, page, exparr__get(inner.imarkup, i))
+    	}
+    }
+  case Block_Markup__Aside:
+    inline_markup__check(site, page, &inner.title)
+    block_markup__check(site, page, &inner.content)
+  case Block_Markup__Blockquote:
+    block_markup__check(site, page, cast(^Block_Markup)&inner)
+  case Table:
+    // TODO
   }
 }
 
-inline_markup__formatter :: proc(
-  site: ^Site, page: ^Page, im: ^Inline_Markup
-) -> Frozen {
-  return fmt__freeze3(
-    site, 
-    page, 
-    im,
-    proc(fi: ^fmt.Info, site: ^Site, page: ^Page, im: ^Inline_Markup) {
-      inline_markup__fmt(fi, site^, page^, im^)
-    },
-  )
-}
+// }}}
