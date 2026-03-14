@@ -639,11 +639,11 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Strikethrough,
 	Inline_Markup__Mono,
 	Inline_Markup__Quote,
-	Inline_Markup__Icon,
-	Inline_Markup__Fn,
 	Inline_Markup__Date,
 	Inline_Markup__Datetime,
-	Inline_Markup__Link,
+	^Inline_Markup__Icon,
+	^Inline_Markup__Fn,
+	^Inline_Markup__Link,
 }
 // }}}
 // {{{ Codecs
@@ -676,16 +676,17 @@ codec__inline_markup__atom :: proc(
 	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
 
   icon_id := codec__field(k, "id", Inline_Markup__Icon, ctext, ONCE)
-  icon := codec__at(k, "icon", codec__loc(k, icon_id))
+  icon := codec__ref(k, codec__at(k, "icon", codec__loc(k, icon_id)))
 
   fn_id := codec__field(k, "id", Inline_Markup__Fn, ctext, ONCE)
-  fn := codec__at(k, "fn", codec__loc(k, fn_id))
+  fn := codec__ref(k, codec__at(k, "fn", codec__loc(k, fn_id)))
 
   Link :: Inline_Markup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
   link_label := codec__field_at(k, "label", Link, imarkup, UNIQUE)
   link_sum := codec__sum(k, Link, link_label, link_id)
-  link := codec__at(k, "link", codec__loc(k, codec__loop(k, link_sum)))
+  link_payload := codec__loc(k, codec__loop(k, link_sum))
+  link := codec__ref(k, codec__at(k, "link", link_payload))
 
   timestamp := codec__inline_markup__timestamp(k)
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
@@ -755,7 +756,7 @@ inline_markup__atom__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
 ) {
   switch inner in atom {
-  case Inline_Markup__Icon, nil:
+  case ^Inline_Markup__Icon, nil:
   case Inline_Markup__Space:
     fmt.wprint(fi.writer, " ")
   case Inline_Markup__Ellipsis:
@@ -782,7 +783,7 @@ inline_markup__atom__fmt :: proc(
     fmt.wprint(fi.writer, QUOTE_EN_LEFT)
     inline_markup__fmt(fi, site, page, Inline_Markup(inner))
     fmt.wprint(fi.writer, QUOTE_EN_RIGHT)
-  case Inline_Markup__Link:
+  case ^Inline_Markup__Link:
     if mem__non_zero(inner.label) {
       inline_markup__fmt(fi, site, page, inner.label)
     } else if inner.def != nil {
@@ -790,7 +791,7 @@ inline_markup__atom__fmt :: proc(
     } else {
       fmt.wprint(fi.writer, ERROR_TEXT)
     }
-  case Inline_Markup__Fn:
+  case ^Inline_Markup__Fn:
     if inner.def != nil {
       fmt.wprintf(fi.writer, "[^%v]", inner.def.index)
     } else {
@@ -861,7 +862,7 @@ inline_markup__atom__check :: proc(
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Inline_Markup__Quote:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Inline_Markup__Link:
+  case ^Inline_Markup__Link:
     log.assert(inner.def == nil)
 
     if mem__non_zero(inner.label) {
@@ -885,7 +886,7 @@ inline_markup__atom__check :: proc(
       "Link '%v' is not in scope.",
       inner.id
     )
-  case Inline_Markup__Fn:
+  case ^Inline_Markup__Fn:
     log.assert(inner.def == nil)
     for j in 0..<page.footnotes.len {
       footnote := exparr__get(page.footnotes, j)
@@ -900,7 +901,7 @@ inline_markup__atom__check :: proc(
       "Footnote '%v' is not in scope.",
       inner.id
     )
-  case Inline_Markup__Icon:
+  case ^Inline_Markup__Icon:
     log.assert(inner.def == nil)
     for i in 0..<site.pages.len {
       defsite := exparr__get(site.pages, i)

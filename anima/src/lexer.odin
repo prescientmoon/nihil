@@ -26,7 +26,7 @@ Token :: struct {
 	kind:    Token_Kind,
 }
 
-Token_Kind :: enum {
+Token_Kind :: enum u8 {
 	None = 0,
 	Space,      // One or more spaces
 	Newline,    // Newlines (\r is not kept around at the moment)

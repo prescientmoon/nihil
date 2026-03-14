@@ -209,11 +209,11 @@ mps__inline_markup__atom :: proc(
 	case Inline_Markup__Quote:
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
-	case Inline_Markup__Icon:
+	case ^Inline_Markup__Icon:
     mps__labeled_str(mps, "icon", inner.id)
-	case Inline_Markup__Fn:
+	case ^Inline_Markup__Fn:
     mps__labeled_str(mps, "fn", inner.id)
-	case Inline_Markup__Link:
+	case ^Inline_Markup__Link:
 		mps__deeper(mps, "link")
 		mps__leaf_str(mps, inner.id)
 		if inner.label.elements.len != 0 {
