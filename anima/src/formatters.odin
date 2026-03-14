@@ -42,6 +42,11 @@ SHORT_MONTH_NAMES := [time.Month]string{
 }
 
 Rfc2822 :: distinct time.Time // https://www.rfc-editor.org/rfc/rfc2822.html
+
+Date__Pretty ::      distinct time.Time
+Date__Compact ::     distinct time.Time
+Datetime__Pretty ::  distinct time.Time
+Datetime__Compact :: distinct time.Time
 // }}}
 // {{{ Formatter freezing
 // Function pointer war crimes!
@@ -98,29 +103,23 @@ formatters__init :: proc(allocator: mem.Allocator) {
 	fmt.set_user_formatters(formatters)
 
 	// {{{ Bytes
-	fmt.register_user_formatter(
-		Bytes,
-		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+	fmt.register_user_formatter(Bytes, proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 			bytes := cast(^Bytes)arg.data
+      (verb == 'v') or_return
 
-			switch verb {
-			case 'v':
-				units := [?]string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
+      units := [?]string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
 
-				unit_index := 0
-				size := f32(bytes^)
+      unit_index := 0
+      size := f32(bytes^)
 
-				for size >= 1024 && unit_index < len(units) - 1 {
-					size /= 1024.0
-					unit_index += 1
-				}
+      for size >= 1024 && unit_index < len(units) - 1 {
+        size /= 1024.0
+        unit_index += 1
+      }
 
-				fmt.wprintf(fi.writer, "%.2f%s", size, units[unit_index])
+      fmt.wprintf(fi.writer, "%.2f%s", size, units[unit_index])
 
-				return true
-			case:
-				return false
-			}
+      return true
 		},
 	)
 	// }}}
@@ -129,28 +128,110 @@ formatters__init :: proc(allocator: mem.Allocator) {
 		Rfc2822,
 		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
 
-			switch verb {
-			case 'v':
-        hour, min, sec := time.clock_from_time(ts)
+      hour, min, sec := time.clock_from_time(ts)
 
-        fmt.wprintf(
-          fi.writer,
-          "%v, %02i %v %04i %02i:%02i:%02i +0000",
-          SHORT_WEEKDAY_NAMES[time.weekday(ts)],
-          time.day(ts),
-          SHORT_MONTH_NAMES[time.month(ts)],
-          time.year(ts),
-          hour,
-          min,
-          sec,
-        )
+      fmt.wprintf(
+        fi.writer,
+        "%v, %02i %v %04i %02i:%02i:%02i +0000",
+        SHORT_WEEKDAY_NAMES[time.weekday(ts)],
+        time.day(ts),
+        SHORT_MONTH_NAMES[time.month(ts)],
+        time.year(ts),
+        hour,
+        min,
+        sec,
+      )
 
-				return true
-			case:
-				return false
-			}
+      return true
 		},
+	)
+	// }}}
+	// {{{ Date__Pretty
+	fmt.register_user_formatter(
+		Date__Pretty,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
+
+      fmt.wprintf(
+        fi.writer,
+        "%v, %02i %v %04i",
+        SHORT_WEEKDAY_NAMES[time.weekday(ts)],
+        time.day(ts),
+        SHORT_MONTH_NAMES[time.month(ts)],
+        time.year(ts),
+      )
+
+      return true
+    },
+	)
+	// }}}
+	// {{{ Date__Compact
+	fmt.register_user_formatter(
+		Date__Compact,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
+
+      fmt.wprintf(
+        fi.writer,
+        "%04i/%02i/%02i",
+        time.year(ts),
+        time.month(ts),
+        time.day(ts),
+      )
+
+      return true
+    },
+	)
+	// }}}
+	// {{{ Datetime__Pretty
+	fmt.register_user_formatter(
+		Datetime__Pretty,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
+
+      hour, min, _ := time.clock_from_time(ts)
+
+      fmt.wprintf(
+        fi.writer,
+        "%v, %02i %v %04i at %02i:%02i",
+        SHORT_WEEKDAY_NAMES[time.weekday(ts)],
+        time.day(ts),
+        SHORT_MONTH_NAMES[time.month(ts)],
+        time.year(ts),
+        hour,
+        min
+      )
+
+      return true
+    },
+	)
+	// }}}
+	// {{{ Datetime__Compact
+	fmt.register_user_formatter(
+		Datetime__Compact,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
+
+      hour, min, _ := time.clock_from_time(ts)
+
+      fmt.wprintf(
+        fi.writer,
+        "%04i/%02i/%02i %02i:%02i",
+        time.year(ts),
+        time.month(ts),
+        time.day(ts),
+        hour,
+        min
+      )
+
+      return true
+    },
 	)
 	// }}}
 	// {{{ Frozen
@@ -158,32 +239,28 @@ formatters__init :: proc(allocator: mem.Allocator) {
 		Frozen,
 		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 			frozen := (cast(^Frozen)arg.data)^
+      (verb == 'v') or_return
 
-			switch verb {
-			case 'v':
-        d := frozen.user_data.data
-        switch frozen.user_data.len {
-        case 0:
-          f := cast(proc(fi: ^fmt.Info))frozen.formatter
-          f(fi)
-        case 1:
-          f := cast(proc(fi: ^fmt.Info, a1: rawptr))frozen.formatter
-          f(fi, d[0])
-        case 2:
-          f := cast(proc(fi: ^fmt.Info, a1, a2: rawptr))frozen.formatter
-          f(fi, d[0], d[1])
-        case 3:
-          f := cast(proc(fi: ^fmt.Info, a1, a2, a3: rawptr))frozen.formatter
-          f(fi, d[0], d[1], d[2])
-        case 4:
-          f := cast(proc(fi: ^fmt.Info, a1, a2, a3, a4: rawptr))frozen.formatter
-          f(fi, d[0], d[1], d[2], d[3])
-        }
+      d := frozen.user_data.data
+      switch frozen.user_data.len {
+      case 0:
+        f := cast(proc(fi: ^fmt.Info))frozen.formatter
+        f(fi)
+      case 1:
+        f := cast(proc(fi: ^fmt.Info, a1: rawptr))frozen.formatter
+        f(fi, d[0])
+      case 2:
+        f := cast(proc(fi: ^fmt.Info, a1, a2: rawptr))frozen.formatter
+        f(fi, d[0], d[1])
+      case 3:
+        f := cast(proc(fi: ^fmt.Info, a1, a2, a3: rawptr))frozen.formatter
+        f(fi, d[0], d[1], d[2])
+      case 4:
+        f := cast(proc(fi: ^fmt.Info, a1, a2, a3, a4: rawptr))frozen.formatter
+        f(fi, d[0], d[1], d[2], d[3])
+      }
 
-				return true
-			case:
-				return false
-			}
+      return true
 		},
 	)
 	// }}}

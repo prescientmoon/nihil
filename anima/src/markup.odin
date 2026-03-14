@@ -794,10 +794,18 @@ inline_markup__atom__fmt :: proc(
     } else {
       fmt.wprint(fi.writer, ERROR_TEXT)
     }
-  case Inline_Markup__Date: // TODO
-    fmt.wprint(fi.writer, ERROR_TEXT)
-  case Inline_Markup__Datetime: // TODO
-    fmt.wprint(fi.writer, ERROR_TEXT)
+  case Inline_Markup__Date:
+    if inner.compact {
+      fmt.wprintf(fi.writer, "%v", Date__Compact(inner.time))
+    } else {
+      fmt.wprintf(fi.writer, "%v", Date__Pretty(inner.time))
+    }
+  case Inline_Markup__Datetime:
+    if inner.compact {
+      fmt.wprintf(fi.writer, "%v", Datetime__Compact(inner.time))
+    } else {
+      fmt.wprintf(fi.writer, "%v", Datetime__Pretty(inner.time))
+    }
   }
 }
 

@@ -94,7 +94,11 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 \priority 0.7
 
 \description
-  This is \*{merely} an example page: \link{example}.
+  This is \*{merely} an example page: \link{example}. Here's a date:
+  \date{2026-03-04T21:38:11+01:00}, and compact: 
+  \date{\compact 2026-03-04T21:38:11+01:00}, and as a datetime
+  \datetime{2026-03-04T21:38:11+01:00}, and compact again:
+  \datetime{\compact 2026-03-04T21:38:11+01:00}, and that's all!
 
 \change \at 2026-03-04T21:38:11+01:00
   I added changelog support!
