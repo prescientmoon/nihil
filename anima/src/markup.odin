@@ -135,7 +135,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
     if heading.level > level + 1 {
       site__errorf(
         site,
-        page.source_path,
+        heading.loc,
         "Heading increases level by more than 1"
       )
     }
@@ -384,6 +384,7 @@ Heading :: struct {
   id:      string,
   content: Inline_Markup,
   level:   uint,
+  loc:     Source_Loc,
 }
 
 @(private = "file")
@@ -396,8 +397,8 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
     switch kit.mode {
     case .Project: inner^ = outer^
     case .Inject:
-      outer.level = uint(uintptr(kit.user_data))
       outer^ = inner^
+      outer.level = uint(uintptr(kit.user_data))
     }
   }
 
@@ -408,7 +409,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
   content := codec__field(k, "content", Heading, imarkup, REQUIRED)
   looped := codec__loop(k, codec__sum(k, Heading, content, id))
   with_level := codec__focus(k, Heading, looped, lens, rawptr(uintptr(level)))
-	return codec__remote_push(k, "headings", Page, with_level)
+	return codec__remote_push(k, "headings", Page, codec__loc(k, with_level))
 }
 // }}}
 // {{{ Tables
@@ -593,17 +594,20 @@ Inline_Markup__Quote :: distinct Inline_Markup
 
 Inline_Markup__Icon :: struct {
   id:  string,
+  loc: Source_Loc,
   def: ^Def__Icon, // Inserted after the fact
 }
 
 Inline_Markup__Fn :: struct {
   id:  string,
+  loc: Source_Loc,
   def: ^Def__Footnote, // Inserted after the fact
 }
 
 Inline_Markup__Link :: struct {
 	id:    string,
 	label: Inline_Markup,
+  loc:   Source_Loc,
   def:   ^Def__Link, // Inserted after the fact
 }
 
@@ -672,16 +676,16 @@ codec__inline_markup__atom :: proc(
 	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
 
   icon_id := codec__field(k, "id", Inline_Markup__Icon, ctext, ONCE)
-  icon := codec__at(k, "icon", icon_id)
+  icon := codec__at(k, "icon", codec__loc(k, icon_id))
 
   fn_id := codec__field(k, "id", Inline_Markup__Fn, ctext, ONCE)
-  fn := codec__at(k, "fn", fn_id)
+  fn := codec__at(k, "fn", codec__loc(k, fn_id))
 
   Link :: Inline_Markup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
   link_label := codec__field_at(k, "label", Link, imarkup, UNIQUE)
   link_sum := codec__sum(k, Link, link_label, link_id)
-  link := codec__at(k, "link", codec__loop(k, link_sum))
+  link := codec__at(k, "link", codec__loc(k, codec__loop(k, link_sum)))
 
   timestamp := codec__inline_markup__timestamp(k)
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
@@ -875,10 +879,9 @@ inline_markup__atom__check :: proc(
       }
     }
 
-    // TODO: better error spans
     site__errorf(
       site,
-      page.source_path,
+      inner.loc,
       "Link '%v' is not in scope.",
       inner.id
     )
@@ -891,10 +894,9 @@ inline_markup__atom__check :: proc(
       return
     }
 
-    // TODO: better error spans
     site__errorf(
       site,
-      page.source_path,
+      inner.loc,
       "Footnote '%v' is not in scope.",
       inner.id
     )
@@ -911,10 +913,9 @@ inline_markup__atom__check :: proc(
       }
     }
 
-    // TODO: better error spans
     site__errorf(
       site,
-      page.source_path,
+      inner.loc,
       "Icon '%v' is not in scope.",
       inner.id
     )
@@ -1061,8 +1062,8 @@ codec__block_markup__atom :: proc(
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
 
 	h1 := codec__at(k, "#", codec__heading(k, 1))
-	h2 := codec__at(k, "#", codec__heading(k, 2))
-	h3 := codec__at(k, "#", codec__heading(k, 3))
+	h2 := codec__at(k, "##", codec__heading(k, 2))
+	h3 := codec__at(k, "###", codec__heading(k, 3))
 
   filter__all := codec__page_filter__all(k)
 	index := codec__trans_at(k, "index", Block_Markup__Index, filter__all)
@@ -1105,6 +1106,7 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 // }}}
 // {{{ Checking
 block_markup__check :: proc(site: ^Site, page: Page, bm: ^Block_Markup) {
+  if bm == nil do return
   for i in 0..<bm.elements.len {
     chunk := exparr__get(bm.elements, i)
     block_markup__atom__check(site, page, chunk)

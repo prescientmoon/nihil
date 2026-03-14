@@ -77,6 +77,9 @@ Lens_Kit :: struct{
   document:  rawptr,
   user_data: rawptr,
 
+  // Can be used to keep track of locations in the resulting markup.
+  surrounded_at: Source_Loc,
+
   // Codecs can crash at any point, reporting their errors here.
   errors:    Exparr(string),
 
@@ -498,5 +501,27 @@ codec__flag_at :: proc(
   kit: ^Codec_Kit, at: string, $T: typeid
 ) -> Typed_Codec(T) {
   return codec__field(kit, at, T, codec__flag(kit, at))
+}
+
+// Endows a codec with the ability to keep track of the location of its
+// apparition. The location is stored at the given field.
+codec__loc :: proc(
+  kit: ^Codec_Kit, inner: Typed_Codec($T), at := "loc"
+) -> Typed_Codec(T) {
+	field := get_field_of_type(T, Source_Loc, at)
+
+  lens :: proc(kit: ^Lens_Kit) {
+    switch kit.mode {
+    case .Project: 
+      loc := cast(^Source_Loc)mem__offset(kit.outer, uintptr(kit.user_data))
+      loc^ = kit.surrounded_at
+
+      mem.copy(kit.inner, kit.outer, size_of(T))
+    case .Inject:
+      mem.copy(kit.outer, kit.inner, size_of(T))
+    }
+  }
+
+	return codec__focus(kit, T, inner, lens, rawptr(field.offset))
 }
 // }}}

@@ -536,6 +536,8 @@ pretty_error :: proc(error: Error) -> string {
     fmt.sbprintf(&builder, "%v", string(inner))
   case ^File:
     fmt.sbprintf(&builder, "%v", inner.name)
+  case Source_Loc:
+    fmt.sbprintf(&builder, "%v(%v:%v)", inner.file.name, inner.line, inner.col)
   case Token:
     pos := inner.from
     fmt.sbprintf(&builder, "%v(%v:%v)", pos.file.name, pos.line, pos.col)

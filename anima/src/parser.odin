@@ -10,8 +10,8 @@ import "core:reflect"
 // {{{ The parser type
 Surrounding_Apparition :: struct {
 	indentation: uint,
-	kind:        enum {
-		Indented,
+  loc:         Source_Loc,
+	kind:        enum { Indented,
 		Bracketed,
 		Ambient,
 	},
@@ -28,7 +28,13 @@ Indented_Token :: struct {
 Source_Range :: [2]Source_Loc
 
 @(private = "package")
-Error_Location :: union { Token, ^File, Source_Range, Path__Absolute }
+Error_Location :: union {
+  Path__Absolute,
+  ^File,
+  Source_Loc,
+  Token,
+  Source_Range,
+}
 
 @(private = "package")
 Error :: struct {
@@ -353,6 +359,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       mode            = .Project,
       allocator       = inner_alloc,
       temp_allocator  = temp_alloc,
+      surrounded_at   = exparr__last(instance.parser.stack).loc,
       error_allocator = virtual.arena_allocator(&instance.parser.output_arena),
     }
 
@@ -408,7 +415,9 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		defer virtual.arena_temp_end(temp)
     defer parser__update_arena_stats(instance.parser^)
 
-		elem: Surrounding_Apparition = {}
+		elem: Surrounding_Apparition = {
+      loc = tok.from
+    }
 
 		next_tok := parser__get_token(instance)
 		#partial switch next_tok.kind {
