@@ -443,6 +443,22 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 
 	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
+
+table__check :: proc(site: ^Site, page: Page, table: ^Table) {
+  inline_markup__check(site, page, &table.caption)
+  table__row__check(site, page, &table.header)
+  for i in 0..<table.rows.len {
+    table__row__check(site, page, exparr__get(table.rows, i))
+  }
+}
+
+table__row__check :: proc(site: ^Site, page: Page, row: ^Table__Row) {
+  for i in 0..<row.cells.len {
+    cell := exparr__get(row.cells, i)
+    mem__non_zero(cell.content.elements) or_continue
+    inline_markup__check(site, page, &cell.content)
+  }
+}
 // }}}
 // {{{ Timestamps
 @(private = "file")
@@ -1127,7 +1143,7 @@ block_markup__atom__check :: proc(
   case Block_Markup__Blockquote:
     block_markup__check(site, page, cast(^Block_Markup)&inner)
   case Table:
-    // TODO
+    table__check(site, page, &inner)
   }
 }
 
