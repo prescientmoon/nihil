@@ -37,7 +37,6 @@ Site :: struct {
   pages:      Exparr(Page),
   files:      Exparr(File_Gen_Entry),
   xml:        Xml_Gen,
-  txt:        Virtual_String_Builder,
   codec_kit:  Codec_Kit,
   page_codec: Typed_Codec(Page),
   parser:     Parser,
@@ -67,12 +66,10 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 	parser__make(&site.parser, &site.statistics)
   site.page_codec = codec__page(&site.codec_kit)
   xml__make(&site.xml, &site.statistics)
-  vsb__make(&site.txt)
 }
 
 site__destroy :: proc(site: ^Site) {
   xml__destroy(&site.xml)
-  vsb__destroy(&site.statistics.txt_builder_arena, &site.txt)
   parser__destroy(&site.parser)
   codec__kit__destroy(&site.codec_kit)
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
@@ -99,19 +96,6 @@ site__check_errors :: proc(site: ^Site) {
 
     os.exit(1)
   }
-}
-
-@(private="file")
-site__txt__clear :: proc(site: ^Site) {
-  vsb__clear(&site.statistics.txt_builder_arena, &site.txt)
-}
-
-@(private="file")
-site__txt :: proc(site: ^Site) -> string {
-  allocator := virtual.arena_allocator(&site.forever_arena)
-  clone, err := strings.clone(strings.to_string(site.txt), allocator)
-  log.assert(err == nil)
-  return clone
 }
 // }}}
 // {{{ Checking 
@@ -242,6 +226,8 @@ site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
 }
 // }}}
 // {{{ Virtual-arena based string builders
+// I used to use this in more than one place, but I no longer do. I might remove
+// this in the future (or well, simply inline its definition into Xml_Gen.
 Virtual_String_Builder :: struct {
   using builder: strings.Builder,
   arena:   virtual.Arena,
@@ -265,8 +251,8 @@ vsb__clear :: proc(bytes: ^Bytes, vsb: ^Virtual_String_Builder) {
 }
 // }}}
 // {{{ XML building
-// A builder that can be used to construct XML output in-order. That is, one 
-// must generate the attributes before the content for any given tag.
+// A builder that can be used to construct XML output in-order. In particular,
+// one must generate the attributes before the content for any given tag.
 Xml_Gen :: struct {
   statistics:     ^Statistics,
   internal_arena: virtual.Arena, // Junk that needs not survive a clear
@@ -672,10 +658,27 @@ site__generate :: proc(site: ^Site) {
   site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
   for i in 0..<site.pages.len {
     page := exparr__get(site.pages, i)
+
     for j in 0..<page.feeds.len {
       feed := exparr__get(page.feeds, j)
       feed_path, feed_content := site__feed(site, page^, feed^)
       site__add_file(site, feed_path, feed_content)
+    }
+
+    // Add guard pages to page aliases, thus erroring out on path conflicts.
+    for j in 0..<page.aliases.len {
+      alias := exparr__get(page.aliases, j)^
+
+      forever := virtual.arena_allocator(&site.forever_arena)
+      alias_path_str := fmt.aprintf("%v/index.html", alias, allocator=forever)
+      alias_path := Path__Relative(alias_path_str)
+
+      // TODO: prettier message
+      site__add_file(
+        site,
+        alias_path,
+        "If you're seeing this, something went wrong."
+      )
     }
   }
 }

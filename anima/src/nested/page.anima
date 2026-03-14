@@ -56,7 +56,7 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
   \path /icons/lagrange.png
   \scope \local
 
-\alias something
+\alias super/duper/nested/something///
 \tag wow
 \compact \public
 

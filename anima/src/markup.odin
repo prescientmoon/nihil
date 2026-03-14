@@ -121,8 +121,6 @@ page__check :: proc(site: ^Site, page: ^Page) {
 
   // TODO: chech for duplicate tags
   // TODO: check for duplicate element IDs across  pages
-  // TODO: check for duplicate across paths across pages
-  // TODO: check for unused footnotes
   // TODO: check for duplicate footnotes
 
   for i in 0..<page.footnotes.len {
@@ -1130,7 +1128,6 @@ block_markup__atom__check :: proc(
   case Block_Markup__Paragraph:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Block_Markup__Image:
-    // TODO: do something about the source path?
     inline_markup__check(site, page, &inner.alt)
   case Block_Markup__Figure:
     inline_markup__check(site, page, &inner.caption)
