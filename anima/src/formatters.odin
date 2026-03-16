@@ -42,6 +42,7 @@ SHORT_MONTH_NAMES := [time.Month]string{
 }
 
 Rfc2822 :: distinct time.Time // https://www.rfc-editor.org/rfc/rfc2822.html
+Rfc3339 :: distinct time.Time
 
 Date__Pretty ::      distinct time.Time
 Date__Compact ::     distinct time.Time
@@ -123,7 +124,7 @@ formatters__init :: proc(allocator: mem.Allocator) {
 		},
 	)
 	// }}}
-	// {{{ RFC2822
+	// {{{ Rfc2822
 	fmt.register_user_formatter(
 		Rfc2822,
 		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
@@ -139,6 +140,30 @@ formatters__init :: proc(allocator: mem.Allocator) {
         time.day(ts),
         SHORT_MONTH_NAMES[time.month(ts)],
         time.year(ts),
+        hour,
+        min,
+        sec,
+      )
+
+      return true
+		},
+	)
+	// }}}
+	// {{{ Rfc3339
+	fmt.register_user_formatter(
+		Rfc3339,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			ts := (cast(^time.Time)arg.data)^
+      (verb == 'v') or_return
+
+      hour, min, sec := time.clock_from_time(ts)
+
+      fmt.wprintf(
+        fi.writer,
+        "%04i-%02i-%02iT%02i:%02i:%02iZ",
+        time.year(ts),
+        time.month(ts),
+        time.day(ts),
         hour,
         min,
         sec,

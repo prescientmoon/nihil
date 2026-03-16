@@ -1,3 +1,6 @@
+\title The title of this page :3
+
+\---
 \> \---
 
 Here's a paragraph!
@@ -29,7 +32,7 @@ It can still be broken off though!
 Markup can contain references to things like links: \link{example}. One can even
 override their default labels: \link{example \label meow}. Such references can
 also look into the future. For example, here's a reference to a not-yet-defined
-footnote: \fn{example}.
+footnote\fn{example}.
 
 \defnote \id example
   Hello there!
@@ -40,7 +43,8 @@ Other block elements do this as well!
 
 I'm typing this out at \datetime{2026-02-28T18:17:52+01:00}. Here it is
 as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
-\date{\compact 2026-02-28T18:17:52+01:00}.
+
+\> \embed-description
 
 \index
   \tag echo
@@ -102,3 +106,21 @@ as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
 
 \change \at 2026-03-04T21:38:11+01:00
   I added changelog support!
+
+\# Heading
+\## Deeper Heading
+\### Deeper Deeper Heading
+\## Deeper Heading 2
+\## Deeper Heading 3
+\### Deeper Deeper Heading 2
+\# Heading 2
+
+\toc
+
+\---
+
+
+We have \*{strong}, \_{emph}, \~{stikethrough}, \"{quotes}, \`{mono}, \...
+
+\icon{lagrange}
+oienrsot

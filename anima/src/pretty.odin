@@ -325,6 +325,10 @@ mps__block_markup__atom :: proc(
     }
 
     mps__inline_markup(mps, inner.content)
+	case Block_Markup__Section:
+		mps__deeper(mps, "section")
+    mps__block_markup__atom(mps, inner.heading)
+    mps__block_markup(mps, inner.content)
 	case Table:
 		mps__deeper(mps, "table")
 
@@ -481,6 +485,11 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   if mem__nz(page.filename)   do str(mps, "filename",   page.filename)
   if mem__nz(page.priority)   do str(mps, "priority",   page.priority)
   if mem__nz(page.changefreq) do str(mps, "changefreq", page.changefreq)
+
+  if mem__nz(page.title) {
+    mps__deeper(mps, "title")
+    mps__inline_markup(mps, page.title)
+  }
 
   if mem__nz(page.description) {
     mps__deeper(mps, "description")

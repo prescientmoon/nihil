@@ -326,21 +326,32 @@ xml__stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
 }
 
 // We return a boolean such that this can be used with if statements.
-@(deferred_in=xml__tag_end)
+@(deferred_in=xml__tag_end_auto)
 xml__tag :: proc(
-  gen: ^Xml_Gen, name: string, single: bool = false
+  gen: ^Xml_Gen, name: string, single := false, auto_close := true
 ) -> bool {
+  log.assert(name != {})
+  log.assert(!single || auto_close) // single implies auto_close
   gen.statistics.xml_tags += 1
   xml__ensure_content(gen)
   exparr__push(&gen.tag_stack, name)
   fmt.sbprintf(&gen.builder, "<%v", name)
   gen.stage = .Attributes
+  gen.single = single
   return true
 }
 
-xml__tag_end :: proc(gen: ^Xml_Gen, name: string, single: bool) {
+xml__tag_end_auto :: proc(
+  gen: ^Xml_Gen, name: string, single, auto_close: bool
+) {
+  if !auto_close do return
+  xml__tag_end(gen)
+}
+
+xml__tag_end :: proc(gen: ^Xml_Gen) {
   last := exparr__pop(&gen.tag_stack)
   if gen.single {
+    gen.stage = .Content
     fmt.sbprintf(&gen.builder, "/>")
   } else {
     xml__ensure_content(gen)
@@ -537,14 +548,12 @@ site__feed :: proc(
           xml__string(g, "hi@moonythm.dev (prescientmoon)")
         }
 
-        title := page__title(page^)
         if xml__tag(g, "title") {
-          if mem__is_zero(title) {
+          title := &page.title
+          if mem__is_zero(title^) {
             xml__string(g, ERROR_TEXT)
           } else {
-            xml__stringf(g, "%v",
-              inline_markup__formatter(site, page, &title.content)
-            )
+            xml__stringf(g, "%v", inline_markup__formatter(site, page, title))
           }
         }
 
@@ -655,6 +664,7 @@ site__commit :: proc(site: ^Site) {
 // }}}
 // {{{ Site
 site__generate :: proc(site: ^Site) {
+  forever := virtual.arena_allocator(&site.forever_arena)
   site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
   for i in 0..<site.pages.len {
     page := exparr__get(site.pages, i)
@@ -665,11 +675,19 @@ site__generate :: proc(site: ^Site) {
       site__add_file(site, feed_path, feed_content)
     }
 
+    page_path := Path__Relative(fmt.aprintf(
+      "%v/index.html", page.site_path, allocator=forever
+    ))
+
+    {
+      defer xml__clear(&site.xml)
+      block_markup__html(site, page^, page.content)
+      site__add_file(site, page_path, site__xml(site))
+    }
+
     // Add guard pages to page aliases, thus erroring out on path conflicts.
     for j in 0..<page.aliases.len {
       alias := exparr__get(page.aliases, j)^
-
-      forever := virtual.arena_allocator(&site.forever_arena)
       alias_path_str := fmt.aprintf("%v/index.html", alias, allocator=forever)
       alias_path := Path__Relative(alias_path_str)
 

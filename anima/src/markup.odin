@@ -2,10 +2,12 @@ package anima
 
 import "base:runtime"
 import "core:mem"
+import "core:mem/virtual"
 import "core:log"
 import "core:fmt"
 import "core:time"
 import "core:strings"
+import "core:container/small_array"
 
 // {{{ Page
 // TODO: assets?, imports, (anima) comments
@@ -14,6 +16,7 @@ Page :: struct {
   public:    bool, // Whether the page should be included in the sitemap
 
   filename:    string, // Overrides the last segment of the path
+  title:       Inline_Markup,
   description: Inline_Markup,
   content:     Block_Markup,
 
@@ -27,7 +30,7 @@ Page :: struct {
 
   tags:      Exparr(Tag),
   changelog: Exparr(Change),
-  headings:  Exparr(Heading),
+  headings:  Exparr(Heading), // The first heading is declared the title
 	links:     Exparr(Def__Link),
 	icons:     Exparr(Def__Icon),
   feeds:     Exparr(Def__Feed),
@@ -57,11 +60,6 @@ page__last_updated :: proc(page: Page) -> (t: time.Time) {
   return t
 }
 
-page__title :: proc(page: Page) -> Heading {
-  if page.headings.len == 0 do return {}
-  return exparr__get(page.headings, 0)^
-}
-
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)
@@ -79,6 +77,7 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   aliases := codec__field(k, "aliases",   Page, aliases_payload)
 
   content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
+  title       := codec__field_at(k, "title", Page, imarkup, ONCE)
   description := codec__field_at(k, "description", Page, imarkup, UNIQUE)
   filename    := codec__field_at(k, "filename", Page, ctext, UNIQUE)
 
@@ -93,7 +92,7 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
 
   inner_loop := codec__sum(
     k, Page,
-    content, feeds, tags, aliases, public, description, compact, created,
+    content, feeds, tags, aliases, public, title, description, compact, created,
     published, filename, changefreq, priority, changes,
   )
 
@@ -122,15 +121,23 @@ page__check :: proc(site: ^Site, page: ^Page) {
   // TODO: chech for duplicate tags
   // TODO: check for duplicate element IDs across  pages
   // TODO: check for duplicate footnotes
+  // TODO: move link resolution checking here
+  // TODO: ensure there's at most one table of contens
 
   for i in 0..<page.footnotes.len {
-    footnotes := exparr__get(page.footnotes, i)
-    block_markup__check(site, page^, &footnotes.content)
+    footnote := exparr__get(page.footnotes, i)
+    block_markup__check(site, page^, &footnote.content)
   }
 
-  level: uint = 0
+  for i in 0..<page.links.len {
+    link := exparr__get(page.links, i)
+    inline_markup__check(site, page^, &link.label)
+  }
+
+  level: uint = 1 // the title is equivalent to a h1
   for i in 0..<page.headings.len {
     heading := exparr__get(page.headings, i)
+    inline_markup__check(site, page^, &heading.content)
 
     if heading.level > level + 1 {
       site__errorf(
@@ -380,6 +387,7 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
 }
 // }}}
 // {{{ Headings
+MAX_HEADING_LEVEL :: 4
 Heading :: struct {
   id:      string,
   content: Inline_Markup,
@@ -399,6 +407,8 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
     case .Inject:
       outer^ = inner^
       outer.level = uint(uintptr(kit.user_data))
+      log.assert(0 < outer.level)
+      log.assert(outer.level <= MAX_HEADING_LEVEL)
     }
   }
 
@@ -750,8 +760,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	)
 }
 // }}}
-// {{{ Formatting
-// Conversion
+// {{{ Formatting as text
 inline_markup__atom__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
 ) {
@@ -834,8 +843,95 @@ inline_markup__formatter :: proc(
   )
 }
 // }}}
+// {{{ Formatting as html
+inline_markup__atom__html :: proc(
+  site: ^Site, page: Page, atom: Inline_Markup__Atom
+) {
+  g := &site.xml
+  switch inner in atom {
+  case nil:
+  case ^Inline_Markup__Icon:
+    xml__attr(g, "class", "icon")
+    // Decorative image.
+    // See: https://www.w3.org/WAI/tutorials/images/decorative/
+    xml__attr(g, "alt", "")
+    xml__attr(g, "src", inner.def.path)
+  case Inline_Markup__Space:
+    xml__string(g, " ")
+  case Inline_Markup__Ellipsis:
+    xml__stringf(g, "%v", ELLIPSIS_SYMBOL)
+  case Inline_Markup__Text:
+    xml__string(g, string(inner))
+  case Inline_Markup__Emph:
+    xml__tag(g, "em")
+    inline_markup__html(site, page, Inline_Markup(inner))
+  case Inline_Markup__Strong:
+    xml__tag(g, "strong")
+    inline_markup__html(site, page, Inline_Markup(inner))
+  case Inline_Markup__Strikethrough:
+    xml__tag(g, "s")
+    inline_markup__html(site, page, Inline_Markup(inner))
+  case Inline_Markup__Mono:
+    xml__tag(g, "code")
+    inline_markup__html(site, page, Inline_Markup(inner))
+  case Inline_Markup__Quote:
+    xml__stringf(g, "%v", QUOTE_EN_LEFT)
+    inline_markup__html(site, page, Inline_Markup(inner))
+    xml__stringf(g, "%v", QUOTE_EN_RIGHT)
+  case ^Inline_Markup__Link:
+    xml__tag(g, "a")
+    xml__attr(g, "href", inner.def.target)
+    if mem__non_zero(inner.label) {
+      inline_markup__html(site, page, inner.label)
+    } else if inner.def != nil {
+      inline_markup__html(site, page, inner.def.label)
+    } else {
+      xml__string(g, ERROR_TEXT)
+    }
+  case ^Inline_Markup__Fn:
+    xml__tag(g, "sup")
+    xml__tag(g, "a")
+    xml__attr(g, "role", "doc-noteref")
+
+    if inner.def != nil {
+      xml__attrf(g, "id", "footnote-reference-%v", inner.def.index)
+      xml__attrf(g, "href", "#footnote-%v", inner.def.index)
+      xml__stringf(g, "%v", inner.def.index)
+    } else {
+      xml__string(g, ERROR_TEXT)
+    }
+  case Inline_Markup__Date:
+    xml__tag(g, "time")
+    xml__attrf(g, "datetime", "%v", Rfc3339(inner.time))
+    if inner.compact {
+      xml__stringf(g, "%v", Date__Compact(inner.time))
+    } else {
+      xml__stringf(g, "%v", Date__Pretty(inner.time))
+    }
+  case Inline_Markup__Datetime:
+    xml__tag(g, "time")
+    xml__attrf(g, "datetime", "%v", Rfc3339(inner.time))
+    if inner.compact {
+      xml__stringf(g, "%v", Datetime__Compact(inner.time))
+    } else {
+      xml__stringf(g, "%v", Datetime__Pretty(inner.time))
+    }
+  }
+}
+
+inline_markup__html :: proc(
+  site: ^Site, page: Page, im: Inline_Markup
+) {
+  for i in 0..<im.elements.len {
+    chunk := exparr__get(im.elements^, i)^
+    inline_markup__atom__html(site, page, chunk)
+  }
+}
+// }}}
 // {{{ Checking
 inline_markup__check :: proc(site: ^Site, page: Page, im: ^Inline_Markup) {
+  if im.elements == nil do return
+  // TODO: remove spirious space here
   for i in 0..<im.elements.len {
     chunk := exparr__get(im.elements^, i)
     inline_markup__atom__check(site, page, chunk)
@@ -949,7 +1045,7 @@ Block_Markup__List :: struct {
 
 Block_Markup__Aside :: struct {
   id:       string,
-  char:     string,
+  char:     string, // Icon name
   content:  Block_Markup,
   title:    Inline_Markup,
 
@@ -968,6 +1064,12 @@ Block_Markup__Table_Of_Contents :: distinct Unit
 Block_Markup__Thematic_Break :: distinct Unit
 Block_Markup__Index :: distinct Page_Filter__All
 
+// These are inserted after the fact, during the checking phase
+Block_Markup__Section :: struct {
+  heading: ^Heading,
+  content: Block_Markup,
+}
+
 // TODO: code, list
 // This currently takes up a fat 144B. If memory usage ever goes past 1MiB, I
 // will bother using pointers for the various branches, thus not wasting so much
@@ -984,6 +1086,7 @@ Block_Markup__Atom :: union {
   Block_Markup__Index,
   Block_Markup__Aside,
   Block_Markup__Code,
+  Block_Markup__Section,
 	Table,
 
   // References to data saved in the parent Page structure
@@ -1062,9 +1165,9 @@ codec__block_markup__atom :: proc(
   deficon := codec__at(k, "deficon", codec__deficon(k))
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
 
-	h1 := codec__at(k, "#", codec__heading(k, 1))
-	h2 := codec__at(k, "##", codec__heading(k, 2))
-	h3 := codec__at(k, "###", codec__heading(k, 3))
+	h2 := codec__at(k, "#", codec__heading(k, 2))
+	h3 := codec__at(k, "##", codec__heading(k, 3))
+	h4 := codec__at(k, "###", codec__heading(k, 4))
 
   filter__all := codec__page_filter__all(k)
 	index := codec__trans_at(k, "index", Block_Markup__Index, filter__all)
@@ -1079,9 +1182,9 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, image),
 		codec__variant(k, Block_Markup__Atom, figure),
 		codec__variant(k, Block_Markup__Atom, table),
-		codec__variant(k, Block_Markup__Atom, h1),
 		codec__variant(k, Block_Markup__Atom, h2),
 		codec__variant(k, Block_Markup__Atom, h3),
+		codec__variant(k, Block_Markup__Atom, h4),
 		codec__variant(k, Block_Markup__Atom, index),
 		codec__variant(k, Block_Markup__Atom, aside),
 		codec__variant(k, Block_Markup__Atom, deflink),
@@ -1105,13 +1208,197 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 	)
 }
 // }}}
+// {{{ Formatting as html
+@(private="file")
+block_markup__anchored_heading :: proc(
+  site: ^Site, page: Page, heading: Heading
+) {
+  @(static, rodata)
+  TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
+
+  g := &site.xml
+  xml__tag(g, TAG_NAMES[heading.level - 1])
+  xml__attr(g, "id", heading.id)
+
+  if xml__tag(g, "a") {
+    xml__attr(g, "class", "heading-anchor")
+
+    if mem__non_zero(heading.id) {
+      xml__attrf(g, "href", "#%v", heading.id)
+    } else {
+      xml__attr(g, "href", "")
+    }
+
+    xml__string(g, "◇")
+  }
+
+  xml__string(g, " ")
+  inline_markup__html(site, page, heading.content)
+}
+
+block_markup__atom__html :: proc(
+  site: ^Site, page: Page, atom: Block_Markup__Atom
+) {
+  g := &site.xml
+  #partial switch inner in atom {
+  case nil:
+  case ^Def__Link:
+  case ^Def__Footnote:
+  case ^Def__Icon:
+  case Block_Markup__Thematic_Break:
+    xml__tag(g, "hr", single = true)
+  case ^Heading:
+    log.panic("Cannot render section-less heading as HTML")
+  case Block_Markup__Description:
+    xml__tag(g, "p")
+    inline_markup__html(site, page, page.description)
+  case Block_Markup__Table_Of_Contents: // TODO
+    xml__tag(g, "details")
+    if xml__tag(g, "summary") do xml__string(g, "Toggle table of contens")
+    xml__tag(g, "nav")
+    xml__attr(g, "role", "doc-toc")
+    xml__attr(g, "aria_labelledby", "toc-title")
+    if xml__tag(g, "h3") {
+      xml__attr(g, "id", "toc-title")
+      xml__string(g, "Table of Contents")
+    }
+
+    xml__tag(g, "ol")
+    stack: small_array.Small_Array(MAX_HEADING_LEVEL, uint)
+    // Whether we've created an <ol> element for the top of the stack. Since an
+    // empty stack is contained in the <ol> we've just created above, this
+    // starts out as being true.
+    last_has_children := true
+    for i in 0..<page.headings.len {
+      heading := exparr__get(page.headings, i)
+
+      for j := small_array.len(stack) - 1; j >= 0; j -= 1 {
+        last := small_array.get(stack, j)
+        (last >= heading.level) or_break
+        small_array.pop_back(&stack)
+        if last_has_children do xml__tag_end(g) // </ol>
+        xml__tag_end(g) // </li>
+        last_has_children = true
+      }
+
+      if !last_has_children {
+        xml__tag(g, "ol", auto_close = false)
+      }
+
+      small_array.push_back(&stack, heading.level)
+      xml__tag(g, "li", auto_close = false)
+      xml__tag(g, "a")
+      xml__attrf(g, "href", "#%v", heading.id)
+      inline_markup__html(site, page, heading.content)
+      last_has_children = false
+    }
+
+    // Clean what's left of the stack
+    for small_array.len(stack) > 0 {
+      small_array.pop_back(&stack)
+      if last_has_children do xml__tag_end(g) // </ol>
+      xml__tag_end(g) // </li>
+      last_has_children = true
+    }
+  case Block_Markup__Index: // TODO
+  case Block_Markup__Section:
+    xml__tag(g, "section")
+    xml__attr(g, "aria-labelledby", inner.heading.id)
+    block_markup__anchored_heading(site, page, inner.heading^)
+    block_markup__html(site, page, inner.content)
+  case Block_Markup__Paragraph:
+    xml__tag(g, "p")
+    inline_markup__html(site, page, Inline_Markup(inner))
+  case Block_Markup__Blockquote:
+    xml__tag(g, "blockquote")
+    block_markup__html(site, page, Block_Markup(inner))
+  case Block_Markup__List:
+    xml__tag(g, inner.ordered ? "ol" : "ul")
+    if inner.block {
+      for i in 0..<inner.bmarkup.len {
+        xml__tag(g, "li")
+        block_markup__html(site, page, exparr__get(inner.bmarkup, i)^)
+      }
+    } else {
+      for i in 0..<inner.imarkup.len {
+        xml__tag(g, "li")
+        inline_markup__html(site, page, exparr__get(inner.imarkup, i)^)
+      }
+    }
+  case Block_Markup__Aside: // TODO
+  }
+}
+
+block_markup__html :: proc(
+  site: ^Site, page: Page, bm: Block_Markup
+) {
+  for i in 0..<bm.elements.len {
+    chunk := exparr__get(bm.elements, i)^
+    block_markup__atom__html(site, page, chunk)
+  }
+}
+// }}}
 // {{{ Checking
 block_markup__check :: proc(site: ^Site, page: Page, bm: ^Block_Markup) {
   if bm == nil do return
   for i in 0..<bm.elements.len {
-    chunk := exparr__get(bm.elements, i)
-    block_markup__atom__check(site, page, chunk)
+    atom := exparr__get(bm.elements, i)
+    block_markup__atom__check(site, page, atom)
   }
+
+  // Split block into sections We don't attempt to reuse any of the existing
+  // structure... As such, we try to avoind neednessly creating new copies when
+  // the body contains no headings.
+  has_headings: bool
+  for i in 0..<bm.elements.len {
+    atom := exparr__get(bm.elements, i)
+    heading := atom.(^Heading) or_continue
+    has_headings = true
+    break
+  }
+  if !has_headings do return
+
+  allocator := virtual.arena_allocator(&site.forever_arena)
+  sectioned: Block_Markup // The root section we write to
+  sectioned.elements.allocator = allocator
+
+  stack: small_array.Small_Array(MAX_HEADING_LEVEL, ^Block_Markup__Section)
+  for i in 0..<bm.elements.len {
+    atom := exparr__get(bm.elements, i)
+
+    if heading, ok := atom.(^Heading); ok {
+      for j := small_array.len(stack) - 1; j >= 0; j -= 1 {
+        last := small_array.get(stack, j)
+        (last.heading.level >= heading.level) or_break
+        small_array.pop_back(&stack)
+      }
+
+      inner_content: Block_Markup
+      inner_content.elements.allocator = allocator
+      atom := Block_Markup__Section {
+        heading = heading,
+        content = inner_content,
+      }
+
+      ref: ^Block_Markup__Atom
+      if l := small_array.len(stack); l > 0 {
+        last := small_array.get(stack, l - 1)
+        ref = exparr__push(&last.content.elements, atom)
+      } else {
+        ref = exparr__push(&sectioned.elements, atom)
+      }
+
+      section := &ref.(Block_Markup__Section)
+      log.assert(small_array.push_back(&stack, section))
+    } else if l := small_array.len(stack); l > 0 {
+      last := small_array.get(stack, l - 1)
+      exparr__push(&last.content.elements, atom^)
+    } else {
+      exparr__push(&sectioned.elements, atom^)
+    }
+  }
+
+  bm^ = sectioned
 }
 
 block_markup__atom__check :: proc(
@@ -1128,6 +1415,8 @@ block_markup__atom__check :: proc(
   case ^Def__Footnote:
   case ^Def__Icon:
   case ^Heading:
+  case Block_Markup__Section:
+    block_markup__check(site, page, &inner.content)
   case Block_Markup__Paragraph:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Block_Markup__Image:
@@ -1154,5 +1443,4 @@ block_markup__atom__check :: proc(
     table__check(site, page, &inner)
   }
 }
-
 // }}}
