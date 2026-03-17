@@ -391,13 +391,7 @@ mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
 // Prints every token in a file
 @(private = "package")
 mps_tokens :: proc(mps: ^Markup_Printer_State, file: ^File) {
-	arena: virtual.Arena
-	err := virtual.arena_init_growing(&arena)
-	log.assert(err == nil)
-	defer virtual.arena_destroy(&arena)
-
-	lexer, ok := lexer__make(file, &arena)
-	allocator := virtual.arena_allocator(&arena)
+	lexer, ok := lexer__make(file, context.temp_allocator)
 
 	if ok {
 		for {
@@ -416,7 +410,7 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, file: ^File) {
 			case .Apparition:
 				mps__leaf(
 					mps,
-					fmt.aprintf("\\%v", tok.content, allocator = allocator),
+					fmt.tprintf("\\%v", tok.content),
 					allow_inline = true,
 				)
 			}
@@ -428,11 +422,10 @@ mps_tokens :: proc(mps: ^Markup_Printer_State, file: ^File) {
 		mps__deeper(mps, "error")
 		mps__leaf_str(mps, lexer.error.msg)
 
-		pos := fmt.aprintf(
+		pos := fmt.tprintf(
 			"%v:%v",
 			lexer.error.pos.line,
 			lexer.error.pos.col,
-			allocator = allocator,
 		)
 
 		mps__labeled_str(mps, "loc", pos)

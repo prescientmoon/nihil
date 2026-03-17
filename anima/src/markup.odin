@@ -167,7 +167,7 @@ Change :: struct {
 
 codec__change :: proc(k: ^Codec_Kit) -> Typed_Codec(Change) {
   imarkup := codec__inline_markup(k)
-	at := codec__field_at(k, "at", Change, codec__timestamp(k), ONCE)
+  at := codec__field_at(k, "at", Change, codec__timestamp(k), ONCE)
   message := codec__field(k, "message", Change, imarkup, REQUIRED)
 
   return codec__loop(k, codec__sum(k, Change, at, message))
@@ -181,8 +181,8 @@ Page_Filter__Any   :: distinct Page_Filter__Many  // OR
 Page_Filter__All   :: distinct Page_Filter__Many  // AND
 Page_Filter__Not   :: distinct ^Page_Filter__Atom // NOT
 
-Page_Filter__Tag   :: distinct Tag  // Pages having this tag
-Page_Filter__Local :: distinct Unit // The current page
+Page_Filter__Tag    :: distinct Tag  // Pages having this tag
+Page_Filter__Local  :: distinct Unit // The current page
 Page_Filter__Public :: distinct Unit // The page is visible
 
 // NOTE: nil is equivalent to Page_Filter__Local

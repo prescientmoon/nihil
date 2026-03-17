@@ -1,27 +1,17 @@
 #+private file
 package anima
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
 import "core:reflect"
+import "core:strings"
+import "core:unicode/utf8"
 
-// {{{ The parser type
-Surrounding_Apparition :: struct {
-	indentation: uint,
-  loc:         Source_Loc,
-	kind:        enum { Indented,
-		Bracketed,
-		Ambient,
-	},
-}
-
-Indented_Token :: struct {
-	using token: Token,
-	indentation: uint,
-}
-
+// Basics
+// {{{ Paring-related types
 // This is technically wasting some memory by storing the file pointer twice and
 // whatnot, but it does not matter in the grand scheme of things.
 @(private = "package")
@@ -43,79 +33,273 @@ Error :: struct {
 }
 
 @(private = "package")
-Parser :: struct {
-  // Contains:
-  // - tokens
-  // - codec indermediate outputs
-  // - codec completion tracking arrays
-	dynamic_stack: virtual.Arena,
-	output_arena:  virtual.Arena, // Output data
-	tokens:        Exparr(Indented_Token, 10),
-	token:         uint, // The index of the current token
-	errors:        Exparr(Error),
-	statistics:    ^Statistics,
+File :: struct {
+  name:   string,
+  source: string
 }
 
+// This is a bit fatter than we could get away with, but it doesn't really 
+// matter, and having everything in one place makes a lot of stuff easier.
 @(private = "package")
-parser__make :: proc(parser: ^Parser, statistics: ^Statistics) {
-  log.assert(mem__iz(parser^))
-
-	parser.statistics = statistics
-	err := virtual.arena_init_static(&parser.dynamic_stack)
-	log.assert(err == nil)
-	err = virtual.arena_init_static(&parser.output_arena)
-	log.assert(err == nil)
-
-	parser.tokens.allocator = virtual.arena_allocator(&parser.dynamic_stack)
-	parser.errors.allocator = virtual.arena_allocator(&parser.output_arena)
+Source_Loc :: struct {
+  file:  ^File,
+	index: uint,
+	line:  uint,
+	col:   uint,
 }
 
+// NOTE: the "content" property might be null for certain tokens (i.e. EOF).
 @(private = "package")
-parser__destroy :: proc(parser: ^Parser) {
-  s := parser.statistics
-  arena__destroy(&s.parser_dynamic_stack, &parser.dynamic_stack)
-	arena__destroy(&s.parser_output_arena, &parser.output_arena)
+Token :: struct {
+	from:    Source_Loc,
+	content: string,
+	kind:    Token_Kind,
 }
 
-@(private = "package")
-parser__clear :: proc(parser: ^Parser) {
-  exparr__clear(&parser.errors)
-
-  s := parser.statistics
-  arena__clear(&s.parser_dynamic_stack, &parser.dynamic_stack)
-
-  parser.token = 0
-  parser.tokens = {}
-	parser.tokens.allocator = virtual.arena_allocator(&parser.dynamic_stack)
-}
-
-// Since the parser uses dynamic stacks, the usual arena stat tracking no longer
-// works (since the arena is always zeroed at the beginning/end). Instead, we
-// manually call this at key points.
-parser__update_arena_stats :: proc(parser: Parser) {
-  size := &parser.statistics.parser_dynamic_stack
-  size^ = max(size^, Bytes(parser.dynamic_stack.total_used))
-}
-
-parser__error :: proc(parser: ^Parser, loc: Error_Location, msg: string) {
-	exparr__push(&parser.errors, Error{loc, msg})
-}
-
-parser__errorf :: proc(
-  parser: ^Parser, loc: Error_Location, format: string, args: ..any
-) {
-	allocator := virtual.arena_allocator(&parser.output_arena)
-	msg := fmt.aprintf(format, ..args, allocator = allocator)
-	parser__error(parser, loc, msg)
+Token_Kind :: enum u8 {
+	None = 0,
+	Space,      // One or more spaces
+	Newline,    // Newlines (\r is not kept around at the moment)
+	Word,       // A contiguous sequence of everything else
+	Apparition, // \<word>
+	Bang,       // !
+	LCurly,     // {
+	RCurly,     // }
+	Eof,        // Special token emitted once there's nothing more to consume
 }
 // }}}
-// {{{ Lexing
-@(private = "package")
-parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
-	log.assert(parser.tokens.len == 0, "Cannot lex inside a non-clean parser")
-  parser.token = 0
 
-	lexer := lexer__make(file, &parser.output_arena) or_return
+// Lexing
+// {{{ The lexer type
+// The lexer for the anima language. The "curr" propery contains the rune
+// currently being focused. The lexer works in a streaming fashion, by
+// incrementally moving the focus forwards.
+//
+// The "next_index" is required for handling multi-byte characters.
+//
+// If any of the underlying functions error out, a proper error string (together
+// with the source location) will get saved in the "error" property, and the
+// "ok" boolean of the given function will be returned as "false".
+Lexer :: struct {
+	forever:         mem.Allocator,
+	source:          string,
+	pos:             Source_Loc,
+	curr:            rune,
+	next_index:      uint,
+	error:           struct {
+		pos: Source_Loc,
+		msg: string,
+	},
+}
+
+@(private = "package")
+lexer__make :: proc(
+  file: ^File, forever: mem.Allocator,
+) -> (lexer: Lexer, ok: bool) {
+	lexer = Lexer {
+    forever = forever,
+		source = file.source,
+		pos = Source_Loc{file = file, line = 1, col = 0, index = 0},
+		curr = 0,
+		next_index = 0,
+	}
+
+	advance_rune(&lexer) or_return
+
+	return lexer, true
+}
+// }}}
+// {{{ Lexing helpers
+@(require_results)
+advance_rune :: proc(lexer: ^Lexer) -> (ok: bool) {
+	if lexer.next_index >= len(lexer.source) {
+		lexer.pos.index = len(lexer.source)
+
+		if lexer.curr == '\n' {
+			lexer.pos.line += 1
+			lexer.pos.col = 1
+		}
+
+		lexer.next_index = ~uint(0)
+		lexer.curr = {}
+		return true
+	}
+
+	lexer.pos.index = lexer.next_index
+	if lexer.curr == '\n' {
+		lexer.pos.col = 1
+		lexer.pos.line += 1
+	} else {
+		lexer.pos.col += 1
+	}
+
+	r, w := rune(lexer.source[lexer.next_index]), 1
+	switch {
+	case r == 0:
+		lexer.error = {lexer.pos, "Illegal character NUL"}
+		return false
+	case r >= utf8.RUNE_SELF:
+		r, w = utf8.decode_rune_in_string(lexer.source[lexer.next_index:])
+		if r == utf8.RUNE_ERROR && w == 1 {
+			lexer.error = {lexer.pos, "Illegal UTF-8 encoding"}
+			return false
+		} else if r == utf8.RUNE_BOM && lexer.next_index > 0 {
+			lexer.error = {lexer.pos, "Illegal byte order mark"}
+			return false
+		}
+	}
+
+	lexer.next_index += uint(w)
+	lexer.curr = r
+
+	return true
+}
+
+// Look at the lexer's next rune without actively focusing it.
+peek_rune :: proc(lexer: Lexer) -> rune {
+	copy := lexer
+	ok := advance_rune(&copy)
+	if ok {
+		return copy.curr
+	} else {
+		return {}
+	}
+}
+
+// Check whether the lexer's focused rune is a valid word character. This will
+// also handle escaping any of the special syntax characters like { or \.
+next_rune_is_text_char :: proc(lexer: Lexer) -> (width: uint) {
+	nch := peek_rune(lexer)
+	switch lexer.curr {
+	case {}:
+		return 0
+	case '\\':
+		switch nch {
+		case '{', '}', '!', '\\', '\n', '\r', '\t', ' ':
+			return 2
+		case:
+			return 0
+		}
+	case '{', '}', '!', '\n', '\r', '\t', ' ':
+		return 0
+	case:
+		return 1
+	}
+}
+// }}}
+// {{{ Word char consumer
+// Consumes any character allowed inside a word (see `next_rune_is_text_char`),
+// then resolves any escaped characters. The output string will only cause an
+// allocation if character escapes are encountered.
+consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
+	copy := lexer^
+
+	no_escapes := true
+
+	// Traverse word once in order to compute the maximum size taken by the output
+	// string
+	for {
+		width := next_rune_is_text_char(copy)
+		(width > 0) or_break
+		for _ in 0 ..< width do advance_rune(&copy) or_return
+		no_escapes &&= width == 1
+	}
+
+	if no_escapes {
+		string := lexer.source[lexer.pos.index:copy.pos.index]
+		lexer^ = copy
+		return string, true
+	}
+
+	// Allocate builder for the output string. Should never grow past the given
+	// size!
+	builder := strings.builder_make_len_cap(
+		0,
+		int(copy.pos.index - lexer.pos.index),
+		lexer.forever,
+	)
+
+	// Sanity check: attempting to re-allocate the buffer will cause a panic!
+	builder.buf.allocator = runtime.panic_allocator()
+
+	for {
+		width := next_rune_is_text_char(lexer^)
+
+		assert(width <= 2)
+		(width > 0) or_break
+
+		// Escaped: skip the backslash
+		if width == 2 do advance_rune(lexer) or_return
+
+		strings.write_rune(&builder, lexer.curr)
+		advance_rune(lexer) or_return
+	}
+
+	return strings.to_string(builder), true
+}
+// }}}
+// {{{ Lexing loop entrypoint
+@(private = "package")
+tokenize :: proc(lexer: ^Lexer) -> (tok: Token, ok: bool) {
+	// Skip all \r characters. Such characters cannot currently be escaped. I
+	// don't use windows, so I do not care in the end.
+	for lexer.curr == '\r' do advance_rune(lexer) or_return
+
+	tok.from = lexer.pos
+	tok.kind = .Eof
+
+	char := lexer.curr
+	switch char {
+	case {}:
+		break
+	case '{', '}', '!':
+		@(rodata, static)
+		KIND_TABLE: [128]Token_Kind = {
+			'{' = .LCurly,
+			'}' = .RCurly,
+			'!' = .Bang,
+		}
+
+		tok.kind = KIND_TABLE[char]
+		advance_rune(lexer) or_return
+		tok.content = lexer.source[tok.from.index:][:1]
+	case '\n':
+		tok.kind = .Newline
+		advance_rune(lexer) or_return
+	case '\t', ' ':
+		tok.kind = .Space
+		curr := lexer.pos.index
+		for lexer.curr == '\t' || lexer.curr == ' ' do advance_rune(lexer) or_return
+		tok.content = lexer.source[curr:lexer.pos.index]
+	case:
+		if next_rune_is_text_char(lexer^) > 0 {
+			tok.kind = .Word
+			tok.content = consume_word_chars(lexer) or_return
+		} else {
+			assert(lexer.curr == '\\')
+			tok.kind = .Apparition
+			advance_rune(lexer) or_return
+			tok.content = consume_word_chars(lexer) or_return
+		}
+	}
+
+	return tok, true
+}
+// }}}
+// {{{ Running the full blown lexer
+Indented_Token :: struct {
+	using token: Token,
+	indentation: uint,
+}
+
+Tokens :: Exparr(Indented_Token, 10)
+
+// Allocates the token array on the stack arena.
+@(private = "package")
+parser__lex :: proc(site: ^Site, file: ^File) -> (tokens: Tokens, ok: bool) {
+  forever := virtual.arena_allocator(&site.forever_arena)
+	lexer := lexer__make(file, forever) or_return
+  tokens.allocator = virtual.arena_allocator(&site.stack_arena)
 
 	for {
     tok: Token
@@ -123,8 +307,8 @@ parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 
 		if !ok {
 			tok.from = lexer.error.pos
-			parser__error(parser, tok, lexer.error.msg)
-			return false
+			site__error(site, tok, lexer.error.msg)
+			return
 		}
 
 		itok := Indented_Token {
@@ -132,14 +316,14 @@ parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 			indentation = tok.from.col,
 		}
 
-		exparr__push(&parser.tokens, itok)
+		exparr__push(&tokens, itok)
 
 		if tok.kind == .Eof do break
 	}
 
 	current_indentation: uint = 0
-	for i := parser.tokens.len - 1; int(i) >= 0; i -= 1 {
-		tok := exparr__get(parser.tokens, i)
+	for i := tokens.len - 1; int(i) >= 0; i -= 1 {
+		tok := exparr__get(tokens, i)
 		if tok.kind == .Space || tok.kind == .Newline {
 			tok.indentation = current_indentation
 		} else {
@@ -147,53 +331,26 @@ parser__lex :: proc(parser: ^Parser, file: ^File) -> (ok: bool) {
 		}
 	}
 
-	parser.statistics.tokens += parser.tokens.len
+	site.statistics.tokens += tokens.len
+  site__update_stack_stats(site)
 
-	return true
+	return tokens, true
 }
 // }}}
-// {{{ Token handling
-parser__get_pos :: proc(parser: Parser) -> Source_Loc {
-  return exparr__get(parser.tokens, parser.token).from
-}
 
-parser__advance :: proc(parser: ^Parser) {
-	parser.token += 1
-}
-
-parser__get_token :: proc(instance: Codec_Instance) -> (tok: Token) {
-	itok := exparr__get(instance.parser.tokens, instance.parser.token)^
-
-	if itok.indentation <= instance.indentation {
-		return {from = tok.from}
-	}
-
-	// Paragraphs get terminated by consecutive newlines.
-	if instance.in_paragraph && itok.kind == .Newline {
-		offset: uint = 1
-		for {
-      index     := instance.parser.token + offset
-			next_itok := exparr__get(instance.parser.tokens, index)^
-
-			if next_itok.kind == .Space {
-				offset += 1
-			} else if next_itok.kind == .Newline {
-				return {from = tok.from} // We dodged the bullet!
-			} else {
-				break
-			}
-		}
-	}
-
-	return itok.token
-}
-// }}}
-// {{{ Codec evaluation
+// Parsing
+// {{{ The parser type
 // If codecs are templates for parsers, a codec instance is the actual parser,
 // together with its state.
-Codec_Instance :: struct {
-	parser:       ^Parser,
-	codec:        ^Codec,
+Parser :: struct {
+  // Data given to us from the outside
+  site:          ^Site,
+	codec:         ^Codec, // Dictates what parsing will look like
+	tokens:        Tokens, // Read-only
+	token:         ^uint, // The index of the current token
+  ok:            ^bool, // Set to false if we've ever emitted an error
+
+  // Data that is local to the current instance
 	output:       rawptr,
 	in_paragraph: bool,
   scratch:      bool, // Are we (possibly deep) inside a scratch focus codec?
@@ -213,10 +370,47 @@ Codec_Instance :: struct {
 	// spending time on right now.
 	completed_codecs: ^[dynamic]^Codec,
 }
+// }}}
+// {{{ Parser helpers
+parser__get_pos :: proc(instance: Parser) -> Source_Loc {
+  return exparr__get(instance.tokens, instance.token^).from
+}
 
+parser__advance :: proc(instance: Parser) {
+	instance.token^ += 1
+}
+
+parser__get_token :: proc(instance: Parser) -> (tok: Token) {
+	itok := exparr__get(instance.tokens, instance.token^)^
+
+	if itok.indentation <= instance.indentation {
+		return {from = tok.from}
+	}
+
+	// Paragraphs get terminated by consecutive newlines.
+	if instance.in_paragraph && itok.kind == .Newline {
+		offset: uint = 1
+		for {
+      index     := instance.token^ + offset
+			next_itok := exparr__get(instance.tokens, index)^
+
+			if next_itok.kind == .Space {
+				offset += 1
+			} else if next_itok.kind == .Newline {
+				return {from = tok.from} // We dodged the bullet!
+			} else {
+				break
+			}
+		}
+	}
+
+	return itok.token
+}
+// }}}
+// {{{ Codec evaluation
 // Count the number of codecs in the current block that care about keeping track
 // of whether they've been completed or not.
-codec__count_completable :: proc(instance: Codec_Instance) -> uint {
+codec__count_completable :: proc(instance: Parser) -> uint {
 	switch inner in instance.codec.data {
 	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
 		return 0
@@ -250,7 +444,7 @@ codec__count_completable :: proc(instance: Codec_Instance) -> uint {
 	panic("impossible")
 }
 
-codec__is_completed :: proc(instance: Codec_Instance) -> bool {
+codec__is_completed :: proc(instance: Parser) -> bool {
 	for completed in instance.completed_codecs {
 		if completed == instance.codec do return true
 	}
@@ -258,40 +452,38 @@ codec__is_completed :: proc(instance: Codec_Instance) -> bool {
 	return false
 }
 
-codec__mark_completed :: proc(instance: Codec_Instance, could_be_completed := true) {
+codec__mark_completed :: proc(instance: Parser, could_be_completed := true) {
 	if could_be_completed && codec__is_completed(instance) do return
 	append_elem(instance.completed_codecs, instance.codec)
 }
 
-codec__make_completed_state :: proc(
-  instance: Codec_Instance
-) -> ^[dynamic](^Codec) {
-	allocator := virtual.arena_allocator(&instance.parser.dynamic_stack)
+codec__make_completed_state :: proc(instance: ^Parser) {
+	allocator := virtual.arena_allocator(&instance.site.stack_arena)
 
 	completed_codecs := make_dynamic_array_len_cap(
 		[dynamic](^Codec),
 		0,
-		codec__count_completable(instance),
+		codec__count_completable(instance^),
 		allocator,
 	)
 
 	completed_codecs.allocator = mem.panic_allocator()
-	return new_clone(completed_codecs, allocator)
+	instance.completed_codecs = new_clone(completed_codecs, allocator)
 }
 
-parser__skip_spaces :: proc(instance: Codec_Instance) -> (consumed: bool) {
+parser__skip_spaces :: proc(instance: Parser) -> (consumed: bool) {
 	for {
 		tok := parser__get_token(instance)
 		(tok.kind == .Space || tok.kind == .Newline) or_break
-		parser__advance(instance.parser)
+		parser__advance(instance)
 		consumed = true
 	}
 
 	return consumed
 }
 
-codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
-	instance.parser.statistics.codec_evaluations += 1
+codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
+	instance.site.statistics.codec_evaluations += 1
 	switch inner in instance.codec.data {
 	case Codec__Space:
 		consumed = parser__skip_spaces(instance)
@@ -311,34 +503,34 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
 		tok := parser__get_token(instance)
 		if tok.kind != .Word && tok.kind != .Bang do return false
-		parser__advance(instance.parser)
+		parser__advance(instance)
 		mem.copy(instance.output, &tok.content, size_of(string))
 		return true
 	case Codec__Constant:
 		tok := parser__get_token(instance)
 		if tok.kind != .Apparition do return false
 		if tok.content != inner.name do return false
-		parser__advance(instance.parser)
+		parser__advance(instance)
 		mem.copy(instance.output, inner.value, reflect.size_of_typeid(instance.codec.type))
 		return true
 	case Codec__Focus:
-		temp := virtual.arena_temp_begin(&instance.parser.dynamic_stack)
+		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
 		defer if instance.scratch {
       virtual.arena_temp_ignore(temp)
     } else {
       virtual.arena_temp_end(temp)
     }
 
-    defer parser__update_arena_stats(instance.parser^)
+    defer site__update_stack_stats(instance.site)
 
     inner_alloc: mem.Allocator
     if instance.scratch {
-      inner_alloc = virtual.arena_allocator(&instance.parser.dynamic_stack)
+      inner_alloc = virtual.arena_allocator(&instance.site.stack_arena)
     } else {
-      inner_alloc = virtual.arena_allocator(&instance.parser.output_arena)
+      inner_alloc = virtual.arena_allocator(&instance.site.forever_arena)
     }
 
-    temp_alloc := virtual.arena_allocator(&instance.parser.dynamic_stack)
+    temp_alloc := virtual.arena_allocator(&instance.site.stack_arena)
 		inner_output := mem__reflected_new(inner.inner.type, temp_alloc)
     kit := Lens_Kit {
       outer           = instance.output,
@@ -349,7 +541,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       allocator       = inner_alloc,
       temp_allocator  = temp_alloc,
       surrounded_at   = instance.surrounded_at,
-      error_allocator = virtual.arena_allocator(&instance.parser.output_arena),
+      error_allocator = virtual.arena_allocator(&instance.site.forever_arena),
     }
 
     kit.errors.allocator = kit.temp_allocator
@@ -357,7 +549,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		inner.lens(&kit)
     log.assert(!kit.consumed, ".Project cannot be marked as consuming")
 
-    pos__pre := parser__get_pos(instance.parser^)
+    pos__pre := parser__get_pos(instance)
     if kit.errors.len == 0 {
       inner_instance := instance
       inner_instance.codec = inner.inner
@@ -375,22 +567,23 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
       if kit.errors.len == 0 do return kit.consumed
     }
 
-    pos__post := parser__get_pos(instance.parser^)
+    pos__post := parser__get_pos(instance)
     loc := Source_Range{pos__pre, pos__post}
     for i in 0..<kit.errors.len {
       msg := exparr__get(kit.errors, i)^
-      parser__error(instance.parser, loc, msg)
+      instance.ok^ = false
+      site__error(instance.site, loc, msg)
     }
 
     return consumed
 	case Codec__Sum:
-    tok := instance.parser.token
+    tok := instance.token^
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
 
 			consumed := codec__eval_instance(inner_instance)
-      if consumed || instance.parser.token > tok do return consumed
+      if consumed || instance.token^ > tok do return consumed
 		}
 
 		return false
@@ -398,31 +591,31 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		tok := parser__get_token(instance)
 		if tok.kind != .Apparition do return false
 		if tok.content != inner.name do return false
-		parser__advance(instance.parser)
+		parser__advance(instance)
 
-		temp := virtual.arena_temp_begin(&instance.parser.dynamic_stack)
+		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
 		defer if instance.scratch {
       virtual.arena_temp_ignore(temp)
     } else {
       virtual.arena_temp_end(temp)
     }
 
-    defer parser__update_arena_stats(instance.parser^)
+    defer site__update_stack_stats(instance.site)
 
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		inner_instance.completed_codecs = codec__make_completed_state(inner_instance)
 		inner_instance.in_paragraph = false
     inner_instance.surrounded_at = tok.from
+		codec__make_completed_state(&inner_instance)
 
 		next_tok := parser__get_token(instance)
 		#partial switch next_tok.kind {
 		case .LCurly:
-			parser__advance(instance.parser)
+			parser__advance(instance)
 			inner_instance.surrounding_kind = .Bracketed
 			inner_instance.indentation = instance.indentation
 		case .Bang:
-			parser__advance(instance.parser)
+			parser__advance(instance)
 			inner_instance.surrounding_kind = .Ambient
 			inner_instance.indentation = instance.indentation
 		case:
@@ -436,10 +629,11 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 
 		if inner_instance.surrounding_kind == .Bracketed {
 			if last_tok.kind == .RCurly {
-				parser__advance(instance.parser)
+				parser__advance(instance)
 			} else {
-				parser__errorf(
-					instance.parser,
+        instance.ok^ = false
+				site__errorf(
+					instance.site,
 					last_tok,
 					"I don't know how to parse this token. Common causes:\n" +
           "- missing closing brackets\n" +
@@ -467,12 +661,12 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
 
-		tok := instance.parser.token
+		tok := instance.token^
 		for {
       consumed_now := codec__eval_instance(inner_instance)
-		  (consumed_now || instance.parser.token > tok) or_break
+		  (consumed_now || instance.token^ > tok) or_break
       consumed ||= consumed_now
-		  tok = instance.parser.token
+		  tok = instance.token^
 		}
 
 		return consumed
@@ -490,7 +684,7 @@ codec__eval_instance :: proc(instance: Codec_Instance) -> (consumed: bool) {
 }
 
 @(private = "package")
-codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
+codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   inner_instance := instance
   switch inner in instance.codec.data {
 	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
@@ -511,8 +705,9 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
   case Codec__Tracked:
     inner_instance.codec = inner.inner
     if .Required in inner.flags && !codec__is_completed(inner_instance) {
-      parser__errorf(
-        instance.parser,
+      instance.ok^ = false
+      site__errorf(
+        instance.site,
         loc,
         "Argument \"%v\" is required in this scope.",
         inner.name,
@@ -522,32 +717,41 @@ codec__check_flags :: proc(loc: Error_Location, instance: Codec_Instance) {
     }
   }
 }
-
+// }}}
+// {{{ Paring entrypoint
 @(private = "package")
 parser__eval :: proc(
-  parser: ^Parser, codec: ^Codec, output: rawptr, document: rawptr = nil
-)  {
-	temp := virtual.arena_temp_begin(&parser.dynamic_stack)
+  site: ^Site, codec: ^Codec, file: ^File, output: rawptr
+) -> (ok: bool)  {
+	temp := virtual.arena_temp_begin(&site.stack_arena)
 	defer virtual.arena_temp_end(temp)
-  defer parser__update_arena_stats(parser^)
+  defer site__update_stack_stats(site)
 
-	instance := Codec_Instance {
-		parser   = parser,
+  tokens := parser__lex(site, file) or_return
+	instance := Parser {
+    site     = site,
 		codec    = codec,
 		output   = output,
-    document = document
+    tokens   = tokens,
+    // We could keep these on the proper stack but idrc
+    token    = new(uint, virtual.arena_allocator(&site.stack_arena)),
+    ok       = new_clone(true, virtual.arena_allocator(&site.stack_arena)),
 	}
 
-	instance.completed_codecs = codec__make_completed_state(instance)
+	codec__make_completed_state(&instance)
 
-  file := parser__get_pos(parser^).file
 	_ = codec__eval_instance(instance)
+  if !instance.ok^ do return
 
-	tok := exparr__get(parser.tokens, parser.token)
+  tok := parser__get_token(instance)
   if tok.kind != .Eof {
-    parser__error(parser, tok.token, "Unexpected token. Expected end of file.")
+    site__error(site, tok, "Unexpected token. Expected end of file.")
+    return
   }
 
-  if parser.errors.len == 0 do codec__check_flags(file, instance)
+  codec__check_flags(file, instance)
+  if !instance.ok^ do return
+
+  return true
 }
 // }}}

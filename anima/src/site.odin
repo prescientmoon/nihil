@@ -32,14 +32,29 @@ Site :: struct {
   // and the list of pages.
   forever_arena: virtual.Arena,
 
+  // A dynamic-stack of sorts the various systems can use for internal data.
+  stack_arena:   virtual.Arena,
+
+  // Fun struct keeping track of how many times we've done various things.
   statistics: Statistics,
+
+  // All the subsystems push their error data here.
   errors:     Exparr(Error),
+
+  // The result of parsing the various files.
   pages:      Exparr(Page),
+
+  // The output file data, to be generated in one go.
   files:      Exparr(File_Gen_Entry),
+
+  // Used to generate XML for the various files.
   xml:        Xml_Gen,
+
+  // Holds all the codec data (generated once, at startup)
   codec_kit:  Codec_Kit,
+
+  // The main codec used to parse pages.
   page_codec: Typed_Codec(Page),
-  parser:     Parser,
 }
 
 site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
@@ -57,22 +72,24 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 	err := virtual.arena_init_static(&site.forever_arena)
 	log.assert(err == nil)
 
+	err = virtual.arena_init_static(&site.stack_arena)
+	log.assert(err == nil)
+
   forever := virtual.arena_allocator(&site.forever_arena)
   site.pages.allocator  = forever
   site.errors.allocator = forever
   site.files.allocator  = forever
 
 	codec__kit__make(&site.codec_kit, &site.statistics)
-	parser__make(&site.parser, &site.statistics)
   site.page_codec = codec__page(&site.codec_kit)
   xml__make(&site.xml, &site.statistics)
 }
 
 site__destroy :: proc(site: ^Site) {
   xml__destroy(&site.xml)
-  parser__destroy(&site.parser)
   codec__kit__destroy(&site.codec_kit)
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
+  arena__destroy(&site.statistics.site_stack_arena, &site.stack_arena)
 }
 
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
@@ -182,6 +199,7 @@ site__check :: proc(site: ^Site) {
 }
 // }}}
 
+// Smaller components, I guess
 // {{{ Path & url handling
 URL :: distinct string
 Path__Absolute :: distinct string
@@ -411,7 +429,6 @@ site__collect :: proc(site: ^Site) {
           }
 
           site.statistics.pages += 1
-          page: ^Page
 
           file := new(File, allocator)
           file.source = string(bytes)
@@ -420,23 +437,17 @@ site__collect :: proc(site: ^Site) {
           log.assert(clone_err == nil)
           file.name = fullpath
 
-          if parser__lex(&site.parser, file) {
-            page = exparr__push(&site.pages, Page{})
-            parser__eval(&site.parser, site.page_codec, page)
-          }
-
-          if site.parser.errors.len > 0 {
-            exparr__push_exparr(&site.errors, site.parser.errors)
-          } else {
+          page: Page
+          if parser__eval(site, site.page_codec, file, &page) {
             page.source_path = path
             page.site_path = site__relative_path(
               site,
               site.content_root,
               directory
             )
-          }
 
-          parser__clear(&site.parser)
+            exparr__push(&site.pages, page)
+          }
         }
       }
     }
@@ -448,6 +459,50 @@ site__collect :: proc(site: ^Site) {
   }
 
   collect_under(site, site.content_root)
+}
+// }}}
+// {{{ Statistics
+// A wrapper around unsigned integers, which prints the integer as a number of 
+// bytes in human readable format (i.e. with a B/KB/MB/etc prefix).
+Bytes :: distinct uint
+
+Statistics :: struct {
+	tokens:                    uint,
+	codecs:                    uint,
+	codec_evaluations:         uint,
+  xml_tags:                  uint,
+  xml_attrs:                 uint,
+  pages:                     uint,
+  directories_visited:       uint,
+  files_generated:           uint,
+
+  system_arena:          Bytes,
+  site_forever_arena:    Bytes,
+  site_stack_arena:      Bytes,
+  codec_memo_arena:      Bytes,
+  codec_arena:           Bytes,
+  xml_internal_arena:    Bytes,
+  xml_builder_arena:     Bytes,
+}
+
+// Destroy an arena, saving the stats of how much memory it used up
+arena__clear :: proc(bytes: ^Bytes, arena: ^virtual.Arena) {
+  bytes^ = max(Bytes(arena.total_used), bytes^)
+  virtual.arena_free_all(arena)
+}
+
+// Destroy an arena, saving the stats of how much memory it used up
+arena__destroy :: proc(bytes: ^Bytes, arena: ^virtual.Arena)  {
+  bytes^ = max(Bytes(arena.total_used), bytes^)
+  virtual.arena_destroy(arena)
+}
+
+// Since the code uses dynamic stacks, the usual arena stat tracking no longer
+// works (since the arena is always zeroed at the beginning/end). Instead, we
+// manually call this at key points.
+site__update_stack_stats :: proc(site: ^Site) {
+  size := &site.statistics.site_stack_arena
+  size^ = max(size^, Bytes(site.stack_arena.total_used))
 }
 // }}}
 
