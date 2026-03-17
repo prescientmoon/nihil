@@ -107,32 +107,29 @@ Memoized_Codec :: struct {
 }
 
 Codec_Kit :: struct {
-	codec_arena:   virtual.Arena,
-	memo_arena:    virtual.Arena,
-	memoized:      Exparr(Memoized_Codec),
-	statistics:    ^Statistics,
+  site:     ^Site,
+  forever:  mem.Allocator,
+	memoized: Exparr(Memoized_Codec),
+
+  // Temporary stack memory block backing the memo array.
+  temp: virtual.Arena_Temp,
 }
 
-codec__kit__make :: proc(kit: ^Codec_Kit, statistics: ^Statistics) {
-  log.assert(mem__is_zero(kit^))
-	kit.statistics = statistics
-
-	err := virtual.arena_init_static(&kit.codec_arena)
-	log.assert(err == nil)
-	err = virtual.arena_init_static(&kit.memo_arena)
-	log.assert(err == nil)
-
-	kit.memoized.allocator = virtual.arena_allocator(&kit.memo_arena)
+codec__kit__make :: proc(site: ^Site) -> (kit: Codec_Kit) {
+  kit.site = site
+  kit.temp = virtual.arena_temp_begin(&site.stack_arena)
+	kit.memoized.allocator = virtual.arena_allocator(&site.stack_arena)
+	kit.forever = virtual.arena_allocator(&site.forever_arena)
+  return kit
 }
 
-codec__kit__destroy :: proc(kit: ^Codec_Kit) {
-  arena__destroy(&kit.statistics.codec_arena, &kit.codec_arena)
-  arena__destroy(&kit.statistics.codec_memo_arena, &kit.memo_arena)
+codec__kit__destroy :: proc(kit: Codec_Kit) {
+  virtual.arena_temp_end(kit.temp)
 }
 
 codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
-	kit.statistics.codecs += 1
-	codec, err := new(Codec, virtual.arena_allocator(&kit.codec_arena))
+	kit.site.statistics.codecs += 1
+	codec, err := new(Codec, kit.forever)
 	codec.type = T
 	assert(err == nil)
 	return {codec}
@@ -141,7 +138,7 @@ codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
 codec__space :: proc(kit: ^Codec_Kit, $T: typeid, value: T) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
 	codec.data = Codec__Space(
-    new_clone(value, virtual.arena_allocator(&kit.codec_arena))
+    new_clone(value, kit.forever)
   )
 
 	return codec
@@ -153,7 +150,7 @@ codec__const :: proc(
 	codec := codec__make(kit, T)
 	codec.data = Codec__Constant {
 		name  = name,
-		value = new_clone(value, virtual.arena_allocator(&kit.codec_arena)),
+		value = new_clone(value, kit.forever),
 	}
 
 	return codec
@@ -396,7 +393,7 @@ codec__sum :: proc(
   kit: ^Codec_Kit, $T: typeid, codecs: ..Typed_Codec(T)
 ) -> Typed_Codec(T) {
 	codec := codec__make(kit, T)
-  allocator := virtual.arena_allocator(&kit.codec_arena)
+  allocator := kit.forever
 	slice := make_slice([]Codec, len(codecs), allocator)
 	for c, i in codecs do slice[i] = c.codec^
 

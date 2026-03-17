@@ -50,9 +50,6 @@ Site :: struct {
   // Used to generate XML for the various files.
   xml:        Xml_Gen,
 
-  // Holds all the codec data (generated once, at startup)
-  codec_kit:  Codec_Kit,
-
   // The main codec used to parse pages.
   page_codec: Typed_Codec(Page),
 }
@@ -80,14 +77,15 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
   site.errors.allocator = forever
   site.files.allocator  = forever
 
-	codec__kit__make(&site.codec_kit, &site.statistics)
-  site.page_codec = codec__page(&site.codec_kit)
+	codec_kit := codec__kit__make(site)
+  site.page_codec = codec__page(&codec_kit)
+	codec__kit__destroy(codec_kit)
+
   xml__make(&site.xml, &site.statistics)
 }
 
 site__destroy :: proc(site: ^Site) {
   xml__destroy(&site.xml)
-  codec__kit__destroy(&site.codec_kit)
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
   arena__destroy(&site.statistics.site_stack_arena, &site.stack_arena)
 }
@@ -479,8 +477,6 @@ Statistics :: struct {
   system_arena:          Bytes,
   site_forever_arena:    Bytes,
   site_stack_arena:      Bytes,
-  codec_memo_arena:      Bytes,
-  codec_arena:           Bytes,
   xml_internal_arena:    Bytes,
   xml_builder_arena:     Bytes,
 }
