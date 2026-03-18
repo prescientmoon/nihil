@@ -233,7 +233,6 @@ site__absolute_path :: proc(
 }
 
 // NOTE: we do not handle ".." segments
-@(private = "file")
 site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
   if path == "." do return url
   allocator := virtual.arena_allocator(&site.forever_arena)
@@ -522,7 +521,7 @@ site__sitemap :: proc(site: ^Site) -> string {
       xml__tag(g, "url")
 
       if xml__tag(g, "loc") {
-        xml__stringf(g, "%v", site__url_at(site, site.base_url, page.site_path))
+        xml__stringf(g, "%v", page.url)
       }
 
       if xml__tag(g, "last_mod") {
@@ -576,9 +575,9 @@ site__feed :: proc(
       description := strings.trim_space(feed.description)
       if xml__tag(g, "description") do xml__stringf(g, "%v", description)
       if xml__tag(g, "language") do xml__string(g, "en")
-      if xml__tag(g, "generator") do xml__string(g, "anima")
+      if xml__tag(g, "generator") do xml__string(g, GENERATOR)
       if xml__tag(g, "webMaster") {
-        xml__string(g, "hi@moonythm.dev (prescientmoon)")
+        xml__stringf(g, "%v %v", EMAIL, USERNAME)
       }
 
       if xml__tag(g, "atom:link", true) {
@@ -596,16 +595,11 @@ site__feed :: proc(
 
         xml__tag(g, "item")
         if xml__tag(g, "author") {
-          xml__string(g, "hi@moonythm.dev (prescientmoon)")
+          xml__stringf(g, "%v %v", EMAIL, USERNAME)
         }
 
         if xml__tag(g, "title") {
-          title := &page.title
-          if mem__is_zero(title^) {
-            xml__string(g, ERROR_TEXT)
-          } else {
-            xml__stringf(g, "%v", inline_markup__formatter(site, page, title))
-          }
+          xml__stringf(g, "%v", inline_markup__formatter(site, page, &page.title))
         }
 
         if xml__tag(g, "description") {
@@ -624,11 +618,10 @@ site__feed :: proc(
           }
         }
 
-        url := site__url_at(site, site.base_url, page.site_path)
-        if xml__tag(g, "link") do xml__stringf(g, "%v", url)
+        if xml__tag(g, "link") do xml__stringf(g, "%v", page.url)
         if xml__tag(g, "guid") {
           xml__attr(g, "isPermaLink", "true")
-          xml__stringf(g, "%v", url)
+          xml__stringf(g, "%v", page.url)
         }
 
         for j in 0..<page.tags.len {

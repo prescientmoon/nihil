@@ -117,6 +117,21 @@ exparr__push_exparr :: proc(
 	}
 }
 
-exparr__clear :: proc(exparr: ^Exparr($V, $FCE)) {
-  exparr.len = 0
+
+// Iterator
+Exparr__Iter :: struct($T: typeid, $FCE: uint) {
+  exparr: Exparr(T, FCE),
+  index:  uint,
+}
+
+exparr__iter__mk :: proc(exparr: Exparr($V, $FCE)) -> Exparr__Iter(V, FCE) {
+  return { exparr = exparr }
+}
+
+exparr__iter__next :: proc(
+  iter: ^Exparr__Iter($V, $FCE)
+) -> (v: ^V, ix: uint, ok: bool) {
+  (iter.index < iter.exparr.len) or_return
+  defer iter.index += 1
+  return exparr__get(iter.exparr, iter.index), iter.index, true
 }

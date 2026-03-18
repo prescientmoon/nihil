@@ -1,126 +1,114 @@
-\title The title of this page :3
+\title Hiii
+\compact
+\created_at 2026-03-18T00:26:39+01:00
 
-\---
-\> \---
+\change \at 2025-08-14T19:10:53+00:00
+  Add myself to a webring!
 
-Here's a paragraph!
-It can continue on another line, and contain stuff like \*{this}!
+\change \at 2025-11-05T20:19:10+00:00
+  Imtlement support for having more than one RSS feed.
 
-It can still be broken off though!
+\change \at 2025-11-09T15:18:48+00:00
+  Add a fedi link, turn the Discord handle into an URL, and explain
+  the source/changelog system"
 
-\figure \caption Ummm, this is the caption, I guess :3
-  \image
-    \source{thing  sldkfjsldfkj }
-    Hi, this is the alt!
+\change \at 2025-11-09T15:47:16+00:00
+  Fix typo (Source-code -> Source-Code)
 
-\table
-  yo yo yo
-  \header 
-    \cell one
-    \cell two
-    \cell three
-    \cell and go!
-  \row \cell{} \cell{} \cell{meow} \cell{}
-  \row \cell{boo} \cell{} \cell{} \cell{}
-  \row \cell{boo} \cell{} \cell{} \cell{aaaaaa}
+\deflink dont-click-here
+  \target https://www.dont-click-here.com/
+  \label  https://www.dont-click-here.com/
 
-\deflink \id example
-  \target https://example.com
-  Example link :3
+\change \at 2025-12-09T03:27:07+00:00
+  Fixed some links going aganinst \link{dont-click-here}
 
 
-Markup can contain references to things like links: \link{example}. One can even
-override their default labels: \link{example \label meow}. Such references can
-also look into the future. For example, here's a reference to a not-yet-defined
-footnote\fn{example}.
-
-\defnote \id example
-  Hello there!
-
-Other block elements do this as well!
-
-\# Here's a heading
-
-I'm typing this out at \datetime{2026-02-28T18:17:52+01:00}. Here it is
-as a date: \date{\compact 2026-02-28T18:17:52+01:00}.
-
-\> \embed-description
-
-\index
-  \tag echo
-  \local
-  \not \all!
-    \tag thing
-    \tag other-thing
-    \any \tag me
-
-\aside \collapse \id{greeting} \char{lagrange} \title A greeting
-  Hi there!
-
-\deficon lagrange 
-  \path /icons/lagrange.png
-  \scope \local
-
-\tag foo
-\tag bar
-\feed not/toplevel \name{something} \description{oof} \under{}
-  \members \local
-
-\feed toplevel
-  \name Moonythm's RSS feed 
-  \description All my articles! 
-
-  \members 
-    \tag foo 
-    \tag bar 
-    \not \tag goobar
-    \public
-
-  \under \any!
-    \local
-    \tag bar
-
-\feed toplevel2 \name{something} \description{oof} \under{}
-  \members \tag{foo} \tag{bar}
-\feed toplevel3 \name{something} \description{oof} \under{}
-  \members \any \all{\tag{foo} \tag{bar} \tag{goo}} \local
-\feed toplevel4 \name{something} \description{oof} \under{}
-  \members \not{\tag{goo}}
-
-\alias something
-\tag wow
-\compact \public
-
-\filename slkjdfslkdjfs
-\created_at 2026-03-04T21:30:59+01:00
-\published_at 2026-03-04T21:31:01+01:00
-\changefreq weekly
-\priority 0.7
+\feed /echoes/feed.xml
+  \name Echoes
+  \under{}
+  \members \public \tag{echo}
+  \description
+    This is the RSS feed for my ethereal realm (read: website). Feel free to
+    poke around :3
 
 \description
-  This is \*{merely} an example page: \link{example}. Here's a date:
-  \date{2026-03-04T21:38:11+01:00}, and compact: 
-  \date{\compact 2026-03-04T21:38:11+01:00}, and as a datetime
-  \datetime{2026-03-04T21:38:11+01:00}, and compact again:
-  \datetime{\compact 2026-03-04T21:38:11+01:00}, and that's all!
+  Wassup, this is the home page of my ethereal realm (read: website). Feel free
+  to poke around :3
 
-\change \at 2026-03-04T21:38:11+01:00
-  I added changelog support!
+\# Hiii
 
-\# Heading
-\## Deeper Heading
-\### Deeper Deeper Heading
-\## Deeper Heading 2
-\## Deeper Heading 3
-\### Deeper Deeper Heading 2
-\# Heading 2
+Welcome to my ethereal realm (read: website). This place is still being
+conjured (read: under construction), hence some things might be startlingly
+empty.
 
-\toc
+I'm known as \`{prescientmoon}, or sometimes \`{PGW}. I study mathematics, but
+I also really like coding and all computer-related sorcery. I love games of all
+kinds, although rhythm games have a special place in my heart.
 
-\---
+You can message me in the following places \`{:3}
 
+  - via email at \link{mail}
 
-We have \*{strong}, \_{emph}, \~{stikethrough}, \"{quotes}, \`{mono}, \...
+  - on discord as \link{discord}
 
-\icon{lagrange}
-oienrsot
+  - on certain \link{irc} networks as \`{prescientmoon}
+
+  - (WIP) on the \link{fedi} at \link{fedi-profile}
+
+\deflink mail
+  \target mailto://hi@moonythm.dev
+  \label hi@moonythm.dev
+
+\deflink discord
+  \target https://discord.com/users/385759924917108740
+  \label \`{@prescientmoon}
+
+\deflink irc
+  \target https://en.wikipedia.org/wiki/IRC
+  \label IRC
+
+\deflink fedi
+  \target https://en.wikipedia.org/wiki/Fediverse
+  \label Fediverse
+
+\deflink fedi-profile
+  \target https://social.moonythm.dev/@prescientmoon
+  \label \`{prescientmoon@moonythm.dev}
+
+\## Lore
+
+Some pages will have lore bits sprinkled throughout. English is not my native
+tongue, so writing in a more archaic-sounding style comes difficult to me, but
+I'm doing my best. That is, some of the lore snippets might sound utterly
+meaningless, although I guess that's half the vibe.
+
+\## Webrings
+
+I'm not part of a ton of \link{webring \label webrings}, but oh well.
+
+\deflink webring \target https://indieweb.org/webring
+
+ \link{sillyring} (\link{sillyring-prev}, \link{sillyring-next})
+
+\deflink sillyring \target https://silly.moonythm.dev/
+\deflink sillyring-prev 
+  \target https://silly.moonythm.dev/prescientmoon/prev
+  \label «prev
+\deflink sillyring-next 
+  \target https://silly.moonythm.dev/prescientmoon/next
+  \label next»
+
+\## Source Code
+
+\link{nihil \label The source} for this site's static site generator is
+publicly availabli. The repository containing the source of the content is
+intentionally not public, although the source for any individual page can be
+downloaded by appending \`{/index.dj} to the URL (for example, here's
+\link{source \label the source for this page}). You can similarly access the
+changelog of any page by appending \`{/changelog} to the URL (as above, here's
+\link{changelog \label the changelog for this page}).
+
+\deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
+\deflink source \target{/index.dj} \label Home Page Source
+\deflink changelog \target{/changelog} \label Home Page Chagelog
+

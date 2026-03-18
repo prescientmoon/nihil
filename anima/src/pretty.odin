@@ -291,9 +291,13 @@ mps__block_markup__atom :: proc(
 
     mps__labeled_str(mps, "id", inner.id)
     mps__block_markup(mps, inner.content)
-	case Block_Markup__Index:
+	case Article_List:
 		mps__deeper(mps, "index")
-    mps__page_filter__many(mps, Page_Filter__All(inner))
+    if inner.heading != 0 {
+      mps__labeled_str(mps, "heading", fmt.tprint(inner.heading))
+    }
+
+    mps__page_filter__many(mps, inner.filter)
 	case Block_Markup__Code:
 		mps__leaf(mps, "code")
 	case Block_Markup__Aside:

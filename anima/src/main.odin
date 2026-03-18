@@ -5,6 +5,11 @@ import "core:log"
 import "core:mem"
 import "core:mem/virtual"
 
+// CONSTANTS
+GENERATOR :: "anima"
+USERNAME  :: "prescientmoon"
+EMAIL     :: "hi@moonythm.dev"
+
 main :: proc() {
   context.allocator = mem.panic_allocator()
   defer free_all(context.temp_allocator)

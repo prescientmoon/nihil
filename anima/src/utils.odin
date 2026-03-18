@@ -42,3 +42,11 @@ time__max :: proc(a, b: time.Time) -> time.Time {
   return time.Time{max(a._nsec, b._nsec)}
 }
 
+// These will eventually be handled by my pre-processor
+iter__mk :: proc {
+  exparr__iter__mk,
+}
+
+iter__next :: proc {
+  exparr__iter__next,
+}

@@ -1,13 +1,14 @@
 package anima
 
-import "base:runtime"
+import "core:container/small_array"
+import "core:fmt"
+import "core:log"
 import "core:mem"
 import "core:mem/virtual"
-import "core:log"
-import "core:fmt"
-import "core:time"
+import "core:strconv"
 import "core:strings"
-import "core:container/small_array"
+import "core:time"
+import "core:unicode"
 
 // {{{ Page
 // TODO: assets?, imports, (anima) comments
@@ -40,6 +41,8 @@ Page :: struct {
   // These attributes are not part of the markup itself
   source_path: Path__Absolute,
   site_path:   Path__Relative,
+  url:         URL,
+  word_count:  uint, // Merely an estimate!
 }
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
@@ -115,8 +118,11 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
 // }}}
 // {{{ Checking
 page__check :: proc(site: ^Site, page: ^Page) {
-  inline_markup__check(site, page^, &page.description)
-  block_markup__check(site, page^, &page.content)
+  inline_markup__check(site, page, &page.description)
+  block_markup__check(site, page, &page.content)
+
+  // TODO: apply the filename option
+  page.url = site__url_at(site, site.base_url, page.site_path)
 
   // TODO: chech for duplicate tags
   // TODO: check for duplicate element IDs across  pages
@@ -126,25 +132,21 @@ page__check :: proc(site: ^Site, page: ^Page) {
 
   for i in 0..<page.footnotes.len {
     footnote := exparr__get(page.footnotes, i)
-    block_markup__check(site, page^, &footnote.content)
+    block_markup__check(site, page, &footnote.content)
   }
 
   for i in 0..<page.links.len {
     link := exparr__get(page.links, i)
-    inline_markup__check(site, page^, &link.label)
+    inline_markup__check(site, page, &link.label)
   }
 
   level: uint = 1 // the title is equivalent to a h1
   for i in 0..<page.headings.len {
     heading := exparr__get(page.headings, i)
-    inline_markup__check(site, page^, &heading.content)
+    inline_markup__check(site, page, &heading.content)
 
     if heading.level > level + 1 {
-      site__errorf(
-        site,
-        heading.loc,
-        "Heading increases level by more than 1"
-      )
+      site__errorf(site, heading.loc, "Heading increases level by more than 1")
     }
 
     // TODO: generate ID
@@ -223,8 +225,10 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
   log.panic("impossible")
 }
 
-page_filter__all__eval :: proc(base, page: Page, all: Page_Filter__All) -> bool {
-  if all.elements.len == 0 {
+page_filter__all__eval :: proc(
+  base, page: Page, all: Page_Filter__All, local_first := false
+) -> bool {
+  if local_first && all.elements.len == 0 {
     return page_filter__eval(base, page, Page_Filter__Local{})
   }
 
@@ -330,9 +334,9 @@ codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)
 
-	id := codec__field_at(k, "id", Def__Link, ctext, ONCE)
+	id := codec__field(k, "id", Def__Link, ctext, REQUIRED)
   target := codec__field_at(k, "target", Def__Link, ctext, ONCE)
-  label := codec__field(k, "label", Def__Link, imarkup, REQUIRED)
+  label := codec__field_at(k, "label", Def__Link, imarkup, UNIQUE)
   inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
 	return codec__remote_push(k, "links", Page, inner_loop)
 }
@@ -453,7 +457,7 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
 }
 
-table__check :: proc(site: ^Site, page: Page, table: ^Table) {
+table__check :: proc(site: ^Site, page: ^Page, table: ^Table) {
   inline_markup__check(site, page, &table.caption)
   table__row__check(site, page, &table.header)
   for i in 0..<table.rows.len {
@@ -461,7 +465,7 @@ table__check :: proc(site: ^Site, page: Page, table: ^Table) {
   }
 }
 
-table__row__check :: proc(site: ^Site, page: Page, row: ^Table__Row) {
+table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
   for i in 0..<row.cells.len {
     cell := exparr__get(row.cells, i)
     mem__non_zero(cell.content.elements) or_continue
@@ -477,7 +481,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
     inner := cast(^string)kit.inner
     switch kit.mode {
     case .Project:
-      log.assertf(outer^ == {}, "Timestamps must parse in one go %v", outer^)
+      log.assertf(outer^ == {}, "Timestamps must parse in one go: %v", outer^)
     case .Inject:
       if inner^ == "" {
         kit.consumed = false
@@ -511,9 +515,47 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
 
   return codec__tracked(
     k,
-    codec__focus(k, time.Time, codec__contiguous_text(k), lens),
+    codec__focus(k, time.Time, codec__contiguous_text(k), lens, scratch = true),
     "timestamp",
     UNIQUE
+  )
+}
+// }}}
+// {{{ Integers
+// NOTE: this does not currently handle signed integers (and *will* overflow for
+// large enough integers).
+@(private = "file")
+codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
+  lens :: proc(kit: ^Lens_Kit) {
+    outer := cast(^T)kit.outer
+    inner := cast(^string)kit.inner
+    switch kit.mode {
+    case .Project:
+      log.assertf(outer^ == {}, "Integers must parse in one go: %v", outer^)
+    case .Inject:
+      if inner^ == "" {
+        kit.consumed = false
+        return
+      }
+
+      n: int
+      value, ok := strconv.parse_u64_maybe_prefixed(inner^, &n)
+      if !ok || n != len(inner) {
+        lens__errorf(kit, "Invalid integer: '%v'", inner)
+      } else if u64(T(value)) != value {
+        lens__errorf(kit, "Integer would overflow: '%v'", value)
+      } else {
+        outer^ = T(value)
+        return
+      }
+    }
+  }
+
+  return codec__tracked(
+    k,
+    codec__focus(k, T, codec__contiguous_text(k), lens, scratch = true),
+    "integer",
+    UNIQUE,
   )
 }
 // }}}
@@ -547,7 +589,7 @@ codec__text_impl :: proc(
 
       // Allocate a string buffer, preventing further re-allocations
       builder := strings.builder_make_len_cap(0, size, kit.allocator)
-      builder.buf.allocator = runtime.panic_allocator()
+      builder.buf.allocator = mem.panic_allocator()
 
       for i in 0..<inner.len {
         chunk := exparr__get(inner^, i)^
@@ -589,6 +631,24 @@ Tag :: distinct string
 @(private = "file")
 codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
   return codec__transmute(k, Tag, codec__contiguous_text(k))
+}
+// }}}
+// {{{ Article lists
+Article_List :: struct {
+  filter:  Page_Filter__All,
+  heading: u8,
+  loc:     Source_Loc,
+}
+
+@(private = "file")
+codec__article_list :: proc(k: ^Codec_Kit) -> Typed_Codec(Article_List) {
+  filter__all := codec__page_filter__all(k)
+  u8 := codec__integer(k, u8)
+
+	filter := codec__field(k, "filter", Article_List, filter__all)
+  heading := codec__field_at(k, "heading", Article_List, u8, UNIQUE)
+  looped := codec__loop(k, codec__sum(k, Article_List, filter, heading))
+	return codec__loc(k, looped)
 }
 // }}}
 
@@ -721,6 +781,7 @@ codec__inline_markup__atom :: proc(
 	)
 }
 
+@(private="file")
 codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 	return codec__memo(
 		kit,
@@ -761,6 +822,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 }
 // }}}
 // {{{ Formatting as text
+@(private="file")
 inline_markup__atom__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
 ) {
@@ -798,7 +860,7 @@ inline_markup__atom__fmt :: proc(
     } else if inner.def != nil {
       inline_markup__fmt(fi, site, page, inner.def.label)
     } else {
-      fmt.wprint(fi.writer, ERROR_TEXT)
+      fmt.wprint(fi.writer, inner.id)
     }
   case ^Inline_Markup__Fn:
     if inner.def != nil {
@@ -821,6 +883,7 @@ inline_markup__atom__fmt :: proc(
   }
 }
 
+@(private="file")
 inline_markup__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
 ) {
@@ -844,6 +907,7 @@ inline_markup__formatter :: proc(
 }
 // }}}
 // {{{ Formatting as html
+@(private="file")
 inline_markup__atom__html :: proc(
   site: ^Site, page: Page, atom: Inline_Markup__Atom
 ) {
@@ -886,7 +950,7 @@ inline_markup__atom__html :: proc(
     } else if inner.def != nil {
       inline_markup__html(site, page, inner.def.label)
     } else {
-      xml__string(g, ERROR_TEXT)
+      xml__string(g, inner.id)
     }
   case ^Inline_Markup__Fn:
     xml__tag(g, "sup")
@@ -922,6 +986,7 @@ inline_markup__atom__html :: proc(
 inline_markup__html :: proc(
   site: ^Site, page: Page, im: Inline_Markup
 ) {
+  if im.elements == nil do return
   for i in 0..<im.elements.len {
     chunk := exparr__get(im.elements^, i)^
     inline_markup__atom__html(site, page, chunk)
@@ -929,7 +994,8 @@ inline_markup__html :: proc(
 }
 // }}}
 // {{{ Checking
-inline_markup__check :: proc(site: ^Site, page: Page, im: ^Inline_Markup) {
+@(private="file")
+inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
   if im.elements == nil do return
   // TODO: remove spirious space here
   for i in 0..<im.elements.len {
@@ -938,16 +1004,22 @@ inline_markup__check :: proc(site: ^Site, page: Page, im: ^Inline_Markup) {
   }
 }
 
+@(private="file")
 inline_markup__atom__check :: proc(
-  site: ^Site, page: Page, atom: ^Inline_Markup__Atom
+  site: ^Site, page: ^Page, atom: ^Inline_Markup__Atom
 ) {
   switch &inner in atom {
   case nil:
   case Inline_Markup__Space:
   case Inline_Markup__Ellipsis:
-  case Inline_Markup__Text:
   case Inline_Markup__Date: 
   case Inline_Markup__Datetime: 
+  case Inline_Markup__Text:
+    for char in string(inner) {
+      unicode.is_alpha(char) or_continue
+      page.word_count += 1
+      break
+    }
   case Inline_Markup__Emph:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Inline_Markup__Strong:
@@ -970,18 +1042,13 @@ inline_markup__atom__check :: proc(
       for j in 0..<defsite.links.len {
         link := exparr__get(defsite.links, j)
         (link.id == inner.id) or_continue
-        page_filter__all__eval(defsite^, page, link.scope) or_continue
+        page_filter__all__eval(defsite^, page^, link.scope, true) or_continue
         inner.def = link
         return
       }
     }
 
-    site__errorf(
-      site,
-      inner.loc,
-      "Link '%v' is not in scope.",
-      inner.id
-    )
+    site__errorf(site, inner.loc, "Link '%v' is not in scope.", inner.id)
   case ^Inline_Markup__Fn:
     log.assert(inner.def == nil)
     for j in 0..<page.footnotes.len {
@@ -991,12 +1058,7 @@ inline_markup__atom__check :: proc(
       return
     }
 
-    site__errorf(
-      site,
-      inner.loc,
-      "Footnote '%v' is not in scope.",
-      inner.id
-    )
+    site__errorf(site, inner.loc, "Footnote '%v' is not in scope.", inner.id)
   case ^Inline_Markup__Icon:
     log.assert(inner.def == nil)
     for i in 0..<site.pages.len {
@@ -1004,21 +1066,15 @@ inline_markup__atom__check :: proc(
       for j in 0..<defsite.icons.len {
         icon := exparr__get(defsite.icons, j)
         (icon.id == inner.id) or_continue
-        page_filter__all__eval(defsite^, page, icon.scope) or_continue
+        page_filter__all__eval(defsite^, page^, icon.scope, true) or_continue
         inner.def = icon
         return
       }
     }
 
-    site__errorf(
-      site,
-      inner.loc,
-      "Icon '%v' is not in scope.",
-      inner.id
-    )
+    site__errorf(site, inner.loc, "Icon '%v' is not in scope.", inner.id)
   }
 }
-
 // }}}
 
 // {{{ Block markup
@@ -1062,7 +1118,6 @@ Block_Markup__Blockquote :: distinct Block_Markup
 Block_Markup__Description :: distinct Unit
 Block_Markup__Table_Of_Contents :: distinct Unit
 Block_Markup__Thematic_Break :: distinct Unit
-Block_Markup__Index :: distinct Page_Filter__All
 
 // These are inserted after the fact, during the checking phase
 Block_Markup__Section :: struct {
@@ -1083,7 +1138,7 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
-  Block_Markup__Index,
+  Article_List,
   Block_Markup__Aside,
   Block_Markup__Code,
   Block_Markup__Section,
@@ -1164,13 +1219,11 @@ codec__block_markup__atom :: proc(
 	defnote := codec__at(k, "defnote", codec__defnote(k))
   deficon := codec__at(k, "deficon", codec__deficon(k))
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
+  article_list := codec__at(k, "index", codec__article_list(k))
 
 	h2 := codec__at(k, "#", codec__heading(k, 2))
 	h3 := codec__at(k, "##", codec__heading(k, 3))
 	h4 := codec__at(k, "###", codec__heading(k, 4))
-
-  filter__all := codec__page_filter__all(k)
-	index := codec__trans_at(k, "index", Block_Markup__Index, filter__all)
 
 	return codec__sum(
 		k,
@@ -1185,7 +1238,7 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, h2),
 		codec__variant(k, Block_Markup__Atom, h3),
 		codec__variant(k, Block_Markup__Atom, h4),
-		codec__variant(k, Block_Markup__Atom, index),
+		codec__variant(k, Block_Markup__Atom, article_list),
 		codec__variant(k, Block_Markup__Atom, aside),
 		codec__variant(k, Block_Markup__Atom, deflink),
 		codec__variant(k, Block_Markup__Atom, defnote),
@@ -1194,6 +1247,7 @@ codec__block_markup__atom :: proc(
 	)
 }
 
+@(private="file")
 codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 	return codec__memo(
 		kit,
@@ -1209,15 +1263,16 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
 }
 // }}}
 // {{{ Formatting as html
+@(rodata)
+@(private="file")
+HEADING_TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
+
 @(private="file")
 block_markup__anchored_heading :: proc(
   site: ^Site, page: Page, heading: Heading
 ) {
-  @(static, rodata)
-  TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
-
   g := &site.xml
-  xml__tag(g, TAG_NAMES[heading.level - 1])
+  xml__tag(g, HEADING_TAG_NAMES[heading.level - 1])
   xml__attr(g, "id", heading.id)
 
   if xml__tag(g, "a") {
@@ -1236,6 +1291,7 @@ block_markup__anchored_heading :: proc(
   inline_markup__html(site, page, heading.content)
 }
 
+@(private="file")
 block_markup__atom__html :: proc(
   site: ^Site, page: Page, atom: Block_Markup__Atom
 ) {
@@ -1252,7 +1308,7 @@ block_markup__atom__html :: proc(
   case Block_Markup__Description:
     xml__tag(g, "p")
     inline_markup__html(site, page, page.description)
-  case Block_Markup__Table_Of_Contents: // TODO
+  case Block_Markup__Table_Of_Contents:
     xml__tag(g, "details")
     if xml__tag(g, "summary") do xml__string(g, "Toggle table of contens")
     xml__tag(g, "nav")
@@ -1300,7 +1356,48 @@ block_markup__atom__html :: proc(
       xml__tag_end(g) // </li>
       last_has_children = true
     }
-  case Block_Markup__Index: // TODO
+  case Article_List:
+    xml__tag(g, "ol")
+    xml__attr(g, "class", "article-list")
+    iter := iter__mk(site.pages)
+    for article in iter__next(&iter) {
+      page_filter__eval(page, article^, inner.filter) or_continue
+
+      xml__tag(g, "li")
+      xml__tag(g, "article")
+
+      if xml__tag(g, HEADING_TAG_NAMES[inner.heading - 1]) {
+        xml__tag(g, "a")
+        xml__attrf(g, "href", "%v", article.url)
+        xml__attr(g, "rel", "bookmark")
+        inline_markup__html(site, article^, article.title)
+      }
+
+      if xml__tag(g, "ul") {
+        if xml__tag(g, "li") {
+          xml__stringf(g, "%v by ", fmt__posted_on(&article.published_at))
+          xml__tag(g, "a")
+          xml__attrf(g, "href", "%v", site.base_url)
+          xml__attr(g, "rel", "bookmark")
+        }
+
+        if xml__tag(g, "li") {
+          at := page__last_updated(article^)
+          xml__stringf(g, "Last updated on %v", Datetime__Pretty(at))
+        }
+
+        if xml__tag(g, "li") {
+          at := page__last_updated(article^)
+          xml__stringf(
+            g, "About %v words; a %v read",
+            fmt__word_count(&article.word_count),
+            fmt__reading_duration(&article.word_count),
+          )
+        }
+      }
+
+      inline_markup__html(site, article^, article.description)
+    }
   case Block_Markup__Section:
     xml__tag(g, "section")
     xml__attr(g, "aria-labelledby", inner.heading.id)
@@ -1339,7 +1436,8 @@ block_markup__html :: proc(
 }
 // }}}
 // {{{ Checking
-block_markup__check :: proc(site: ^Site, page: Page, bm: ^Block_Markup) {
+@(private="file")
+block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   if bm == nil do return
   for i in 0..<bm.elements.len {
     atom := exparr__get(bm.elements, i)
@@ -1401,15 +1499,15 @@ block_markup__check :: proc(site: ^Site, page: Page, bm: ^Block_Markup) {
   bm^ = sectioned
 }
 
+@(private="file")
 block_markup__atom__check :: proc(
-  site: ^Site, page: Page, atom: ^Block_Markup__Atom
+  site: ^Site, page: ^Page, atom: ^Block_Markup__Atom
 ) {
   switch &inner in atom {
   case nil:
   case Block_Markup__Code:
   case Block_Markup__Description:
   case Block_Markup__Table_Of_Contents:
-  case Block_Markup__Index:
   case Block_Markup__Thematic_Break:
   case ^Def__Link:
   case ^Def__Footnote:
@@ -1441,6 +1539,82 @@ block_markup__atom__check :: proc(
     block_markup__check(site, page, cast(^Block_Markup)&inner)
   case Table:
     table__check(site, page, &inner)
+  case Article_List:
+    // NOTE: should we error out if no articles get caught by the filter?
+    if inner.heading > MAX_HEADING_LEVEL {
+      site__errorf(site, inner.loc, "Invalid heading: %v", inner.heading)
+    } else if inner.heading == 0 {
+      inner.heading = 2
+    }
   }
+}
+// }}}
+
+// Metadata formatting
+// {{{ Posted on...
+@(private="file")
+fmt__posted_on :: proc(time: ^time.Time) -> Frozen {
+  return fmt__freeze1(
+    time,
+    proc(fi: ^fmt.Info, time: ^time.Time) {
+      if mem__is_zero(time^) {
+        fmt.wprint(fi.writer, "Being conjured")
+      } else {
+        fmt.wprintf(fi.writer, "Posted on %v", Datetime__Pretty(time^))
+      }
+    },
+  )
+}
+// }}}
+// {{{ Word count
+@(private="file")
+fmt__word_count :: proc(word_count: ^uint) -> Frozen {
+  return fmt__freeze1(
+    word_count,
+    proc(fi: ^fmt.Info, wc: ^uint) {
+      wc := wc^
+      if wc < 400 {
+        fmt.wprint(fi.writer, wc)
+      } else if wc < 1000 {
+        fmt.wprint(fi.writer, wc / 10 * 10)
+      } else if wc < 2000 {
+        fmt.wprint(fi.writer, wc / 100 * 100)
+      } else {
+        fmt.wprint(fi.writer, wc / 1000)
+      }
+    },
+  )
+}
+// }}}
+// {{{ Reading duration
+@(private="file")
+fmt__reading_duration :: proc(word_count: ^uint) -> Frozen {
+  return fmt__freeze1(
+    word_count,
+    proc(fi: ^fmt.Info, wc: ^uint) {
+      wc      := wc^
+      seconds := wc * 60 / 200
+      minutes := wc / 200
+      hours   := minutes / 60
+
+      if minutes == 0 {
+        fmt.wprintf(fi.writer, "very short %v second", seconds)
+      } else if minutes < 10 {
+        fmt.wprintf(fi.writer, "short %v minute", minutes)
+      } else if wc < 2000 {
+        fmt.wprintf(fi.writer, "somewhat short %v minute", minutes)
+      } else if wc < 2000 {
+        fmt.wprintf(fi.writer, "somewhat long %v minute", minutes)
+      } else if wc < 2000 {
+        fmt.wprintf(fi.writer, "long %v minute", minutes)
+      } else {
+        fmt.wprintf(
+          fi.writer,
+          "very long %v hour and %v minute",
+          hours, minutes
+        )
+      }
+    },
+  )
 }
 // }}}

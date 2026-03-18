@@ -51,8 +51,14 @@ Datetime__Compact :: distinct time.Time
 // }}}
 // {{{ Formatter freezing
 // Function pointer war crimes!
+//
+// Note that we use raw pointers such that we don't have to keep track of the
+// types at the type level, since that would lead to ugly type definitions.
+//
+// A "nicer" solution would be to simply copy the arguments in some scratch
+// arena, but I don't want to think about that right now...
 Frozen :: struct {
-	formatter: rawptr,
+	formatter: rawptr, // Function pointer taking user_data as argument(s).
   user_data: small_array.Small_Array(4, rawptr),
 }
 

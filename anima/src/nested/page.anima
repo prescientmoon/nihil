@@ -21,9 +21,9 @@ It can still be broken off though!
   \row \cell{boo} \cell{} \cell{} \cell{}
   \row \cell{boo} \cell{} \cell{} \cell{aaaaaa}
 
-\deflink \id example
+\deflink example
   \target https://example.com
-  Example link :3
+  \label Example link :3
 
 Markup can contain references to things like links: \link{example}. One can even
 override their default labels: \link{example \label meow}. Such references can
