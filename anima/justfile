@@ -1,0 +1,25 @@
+[private]
+@default:
+  just --list
+
+[group("build")]
+[doc("Build an odin package with the required configuration set")]
+@build source *args:
+  odin build {{ source }} \
+    -linker:mold \
+    -show-timings \
+    {{ args }}
+
+[group("build")]
+[group("debug")]
+[doc("Build `anima` in debug mode")]
+@build-debug:
+  mkdir -p build/debug
+  just build src \
+    -debug \
+    -out:build/debug/anima.bin
+
+[group("debug")]
+[doc("Run `anima` in debug mode")]
+@run-debug: build-debug
+  ./build/debug/anima.bin

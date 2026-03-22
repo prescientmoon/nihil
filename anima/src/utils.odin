@@ -4,6 +4,7 @@ package anima
 
 import "core:mem"
 import "core:time"
+import "core:container/small_array"
 
 // Similar to the standard library's "new", except the type of the allocation
 // need not be known at compile time.

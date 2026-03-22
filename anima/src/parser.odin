@@ -555,7 +555,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       inner_instance.codec = inner.inner
       inner_instance.output = inner_output
       inner_instance.document = kit.document
-      inner_instance.scratch ||= instance.scratch
+      inner_instance.scratch ||= inner.scratch
 
       consumed = codec__eval_instance(inner_instance)
       if consumed {

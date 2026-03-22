@@ -2,6 +2,9 @@
 \compact
 \created_at 2026-03-18T00:26:39+01:00
 
+\stylesheet \preload
+  \path /styles.css
+
 \change \at 2025-08-14T19:10:53+00:00
   Add myself to a webring!
 
@@ -22,7 +25,6 @@
 \change \at 2025-12-09T03:27:07+00:00
   Fixed some links going aganinst \link{dont-click-here}
 
-
 \feed /echoes/feed.xml
   \name Echoes
   \under{}
@@ -35,7 +37,6 @@
   Wassup, this is the home page of my ethereal realm (read: website). Feel free
   to poke around :3
 
-\# Hiii
 
 Welcome to my ethereal realm (read: website). This place is still being
 conjured (read: under construction), hence some things might be startlingly
@@ -75,14 +76,14 @@ You can message me in the following places \`{:3}
   \target https://social.moonythm.dev/@prescientmoon
   \label \`{prescientmoon@moonythm.dev}
 
-\## Lore
+\# Lore
 
 Some pages will have lore bits sprinkled throughout. English is not my native
 tongue, so writing in a more archaic-sounding style comes difficult to me, but
 I'm doing my best. That is, some of the lore snippets might sound utterly
 meaningless, although I guess that's half the vibe.
 
-\## Webrings
+\# Webrings
 
 I'm not part of a ton of \link{webring \label webrings}, but oh well.
 

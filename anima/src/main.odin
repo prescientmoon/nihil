@@ -6,9 +6,12 @@ import "core:mem"
 import "core:mem/virtual"
 
 // CONSTANTS
-GENERATOR :: "anima"
-USERNAME  :: "prescientmoon"
-EMAIL     :: "hi@moonythm.dev"
+GENERATOR   :: "anima"
+USERNAME    :: "prescientmoon"
+EMAIL       :: "hi@moonythm.dev"
+THEME_COLOR :: "#faebff"
+SITE_NAME   :: "Moonythm"
+FEDI_USER   :: "@prescientmoon@moonythm.dev"
 
 main :: proc() {
   context.allocator = mem.panic_allocator()
@@ -26,7 +29,7 @@ main :: proc() {
   defer formatters__deinit(system_allocator)
 
   site: Site
-  content_root := "/home/moon/projects/personal/nihil/anima/src"
+  content_root := "/home/moon/projects/personal/nihil/anima/src/example"
   out_root := "/home/moon/projects/personal/nihil/anima/dist"
   site__make(&site, "https://moonythm.dev", content_root, out_root)
   site.statistics.system_arena = Bytes(system_arena.total_used)

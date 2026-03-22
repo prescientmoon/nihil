@@ -315,6 +315,13 @@ xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
   fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, value)
 }
 
+// An attribute without an associated value
+xml__flag :: proc(gen: ^Xml_Gen, name: string) {
+  gen.statistics.xml_attrs += 1
+  log.assert(gen.stage == .Attributes)
+  fmt.sbprintf(&gen.builder, " %v", name)
+}
+
 xml__attrf :: proc(gen: ^Xml_Gen, name: string, fstr: string, args: ..any) {
   allocator := virtual.arena_allocator(&gen.internal_arena)
   xml__attr(gen, name, fmt.aprintf(fstr, ..args, allocator=allocator))
@@ -558,11 +565,6 @@ site__feed :: proc(
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
   )
 
-  forever := virtual.arena_allocator(&site.forever_arena)
-  feed_path_str := fmt.aprintf("%v.xml", feed.at, allocator=forever)
-  feed_path := Path__Relative(feed_path_str)
-  feed_url := site__url_at(site, site.base_url, feed_path)
-
   if xml__tag(g, "rss") {
     xml__attr(g, "version", "2.0")
     if xml__tag(g, "channel") {
@@ -581,7 +583,7 @@ site__feed :: proc(
       }
 
       if xml__tag(g, "atom:link", true) {
-        xml__attrf(g, "href", "%v", feed_url)
+        xml__attrf(g, "href", "%v", feed.url)
         xml__attr(g, "rel", "self")
         xml__attr(g, "type", "application/rss+xml")
       }
@@ -639,22 +641,30 @@ site__feed :: proc(
     }
   }
 
-  return feed_path, site__xml(site)
+  return feed.site_path, site__xml(site)
 }
 // }}}
 // {{{ Files
 @(private = "file")
+File_Gen_Content :: union {
+  string,
+  Path__Absolute,
+}
+
+@(private = "file")
 File_Gen_Entry :: struct {
   path:     Path__Relative,
-  contents: string,
+  content: File_Gen_Content,
 }
 
 // Note that this will not generate the physical file right away. Instead, one
 // must call "site__commit" for that to take place.
 @(private = "file")
-site__add_file :: proc(site: ^Site, path: Path__Relative, str: string) {
+site__add_file :: proc(
+  site: ^Site, path: Path__Relative, content: File_Gen_Content
+) {
   site.statistics.files_generated += 1
-  entry := File_Gen_Entry { path, str }
+  entry := File_Gen_Entry { path, content }
   exparr__push(&site.files, entry)
 }
 
@@ -698,10 +708,19 @@ site__commit :: proc(site: ^Site) {
       continue
     }
 
-    err = os.write_entire_file_from_string(string(full_path), entry.contents)
-    if err != nil {
-      site__errorf(site, full_path, "Failed to write file: %v", err)
-      continue
+    switch inner in entry.content {
+    case string:
+      err = os.write_entire_file_from_string(string(full_path), inner)
+      if err != nil {
+        site__errorf(site, full_path, "Failed to write file: %v", err)
+        continue
+      }
+    case Path__Absolute:
+      err = os.copy_file(string(full_path), string(inner))
+      if err != nil {
+        site__errorf(site, full_path, "Failed to copy file: %v", err)
+        continue
+      }
     }
   }
 }
@@ -725,22 +744,34 @@ site__generate :: proc(site: ^Site) {
 
     {
       defer xml__clear(&site.xml)
-      block_markup__html(site, page^, page.content)
+      page__html(site, page, .Self)
+
       site__add_file(site, page_path, site__xml(site))
     }
 
-    // Add guard pages to page aliases, thus erroring out on path conflicts.
-    for j in 0..<page.aliases.len {
-      alias := exparr__get(page.aliases, j)^
-      alias_path_str := fmt.aprintf("%v/index.html", alias, allocator=forever)
-      alias_path := Path__Relative(alias_path_str)
+    {
+      iter := iter__mk(page.styles)
+      for style in iter__next(&iter) {
+        rel_path := Path__Relative(style.path)
+        abs_path := site__absolute_path(site, site.content_root, rel_path)
+        site__add_file(site, rel_path, abs_path)
+      }
+    }
 
-      // TODO: prettier message
-      site__add_file(
-        site,
-        alias_path,
-        "If you're seeing this, something went wrong."
-      )
+    {
+      // Add guard pages to page aliases, thus erroring out on path conflicts.
+      iter := iter__mk(page.aliases)
+      for alias in iter__next(&iter) {
+        alias_path_str := fmt.aprintf("%v/index.html", alias^, allocator=forever)
+        alias_path := Path__Relative(alias_path_str)
+
+        // TODO: prettier message?
+        site__add_file(
+          site,
+          alias_path,
+          string("If you're seeing this, something went wrong.")
+        )
+      }
     }
   }
 }

@@ -300,7 +300,7 @@ codec__ref :: proc(kit: ^Codec_Kit, inner: Typed_Codec($T)) -> Typed_Codec(^T) {
       if as_ptr^ == nil {
         t, err := new(T, kit.allocator)
         log.assert(err == nil)
-        mem.copy(as_ptr, &t, size_of(rawptr))
+        as_ptr^ = t
       }
 
       mem.copy(kit.inner, as_ptr^, size_of(T))

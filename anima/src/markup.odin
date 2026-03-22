@@ -36,6 +36,7 @@ Page :: struct {
 	icons:     Exparr(Def__Icon),
   feeds:     Exparr(Def__Feed),
 	footnotes: Exparr(Def__Footnote),
+  styles:    Exparr(Def__Stylesheet),
   aliases:   Exparr(string), // Locations to redirect from
 
   // These attributes are not part of the markup itself
@@ -43,6 +44,8 @@ Page :: struct {
   site_path:   Path__Relative,
   url:         URL,
   word_count:  uint, // Merely an estimate!
+  in_feeds:    Exparr(^Def__Feed),
+  in_styles:   Exparr(^Def__Stylesheet),
 }
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
@@ -50,6 +53,9 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   page.icons.allocator     = allocator
   page.headings.allocator  = allocator
   page.footnotes.allocator = allocator
+  page.styles.allocator    = allocator
+  page.in_feeds.allocator  = allocator
+  page.in_styles.allocator = allocator
   return page
 }
 
@@ -64,20 +70,23 @@ page__last_updated :: proc(page: Page) -> (t: time.Time) {
 }
 
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
-  ctext := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
-  bmarkup := codec__block_markup(k)
-  timestamp := codec__timestamp(k)
+  ctext      := codec__contiguous_text(k)
+  imarkup    := codec__inline_markup(k)
+  bmarkup    := codec__block_markup(k)
+  timestamp  := codec__timestamp(k)
+  stylesheet := codec__stylesheet(k)
 
-  feeds_payload   := codec__exparr(k, codec__at(k, "feed",   codec__feed(k)))
-  tags_payload    := codec__exparr(k, codec__at(k, "tag",    codec__tag(k)))
-  changes_payload := codec__exparr(k, codec__at(k, "change", codec__change(k)))
-  aliases_payload := codec__exparr(k, codec__at(k, "alias",  ctext))
+  feeds_payload   := codec__exparr(k, codec__at(k, "feed",       codec__feed(k)))
+  tags_payload    := codec__exparr(k, codec__at(k, "tag",        codec__tag(k)))
+  changes_payload := codec__exparr(k, codec__at(k, "change",     codec__change(k)))
+  aliases_payload := codec__exparr(k, codec__at(k, "alias",      ctext))
+  styles_payload  := codec__exparr(k, codec__at(k, "stylesheet", stylesheet))
 
   feeds   := codec__field(k, "feeds",     Page, feeds_payload)
   tags    := codec__field(k, "tags",      Page, tags_payload)
   changes := codec__field(k, "changelog", Page, changes_payload)
   aliases := codec__field(k, "aliases",   Page, aliases_payload)
+  styles  := codec__field(k, "styles",    Page, styles_payload)
 
   content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
   title       := codec__field_at(k, "title", Page, imarkup, ONCE)
@@ -95,8 +104,8 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
 
   inner_loop := codec__sum(
     k, Page,
-    content, feeds, tags, aliases, public, title, description, compact, created,
-    published, filename, changefreq, priority, changes,
+    content, feeds, tags, aliases, styles, public, title, description, compact,
+    created, published, filename, changefreq, priority, changes,
   )
 
   lens :: proc(kit: ^Lens_Kit) {
@@ -116,19 +125,159 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   return codec__focus(k, Page, codec__loop(k, inner_loop), lens)
 }
 // }}}
+// {{{ Formatting as html
+Page_Gen_Mode :: enum {
+  Self,
+  Changelog,
+}
+
+page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
+  g := &site.xml
+  xml__raw_string(g, "<!doctype html>")
+  xml__tag(g, "html")
+  xml__attr(g, "lang", "en")
+  if xml__tag(g, "head") {
+    if xml__tag(g, "meta", true) do xml__attr(g, "charset", "utf-8")
+
+    meta :: proc(g: ^Xml_Gen, prop_name: string, prop: string, content: any) {
+      if xml__tag(g, "meta", true) {
+        xml__attrf(g, prop_name, "%v", prop)
+        xml__attrf(g, "content", "%v", content)
+      }
+    }
+
+    meta(g, "name", "theme-color", THEME_COLOR)
+    meta(
+      g, "name", "viewport",
+      "width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"
+    )
+
+    title := inline_markup__formatter(site, page, &page.title)
+    desc  := inline_markup__formatter(site, page, &page.description)
+    meta(g, "property", "og:site_name", SITE_NAME)
+    meta(g, "property", "og:url", page.url)
+    meta(g, "property", "og:title", title)
+    meta(g, "property", "og:description", desc)
+    meta(g, "property", "twitter:title", title)
+    meta(g, "property", "twitter:description", desc)
+    meta(g, "name", "fediverse:creator", FEDI_USER)
+
+    {
+      iter := iter__mk(page.in_feeds)
+      for feed in iter__next(&iter) {
+        feed := feed^
+        xml__tag(g, "link")
+        xml__attr(g, "rel", "alternate")
+        xml__attr(g, "type", "application/rss+xml")
+        xml__attrf(g, "title", "Moonythm | %v", strings.trim_space(feed.name))
+        xml__attrf(g, "href", "%v", feed.url)
+      }
+    }
+    {
+      iter := iter__mk(page.in_styles)
+      for style in iter__next(&iter) {
+        style := style^
+        if style.preload {
+          xml__tag(g, "link")
+          xml__attr(g, "rel", "preload")
+          xml__attr(g, "as", "stylesheet")
+          xml__attr(g, "href", style.path)
+        }
+
+        xml__tag(g, "link")
+        xml__attr(g, "rel", "stylesheet")
+        xml__attr(g, "href", style.path)
+      }
+    }
+
+    if xml__tag(g, "title") do inline_markup__html(site, page^, page.title)
+
+    // NOTE: I might un-hardcode these paths in the future
+    if xml__tag(g, "link") {
+      xml__attr(g, "rel", "icon")
+      xml__attr(g, "type", "image/x-icon")
+      xml__attr(g, "href", "/favicon.ico")
+    }
+
+    if xml__tag(g, "link") {
+      xml__attr(g, "rel", "preload")
+      xml__attr(g, "as", "font")
+      xml__attr(g, "href", "/fonts/computer-modern/cm-regular.woff2")
+      xml__attr(g, "type", "font/woff2")
+      xml__flag(g, "crossorigin") // TODO: what does this even do?
+    }
+  }
+
+  if xml__tag(g, "body") {
+    if xml__tag(g, "header") {
+      // TODO: think about what to put here a bit further
+      if xml__tag(g, "a") {
+        xml__attr(g, "href", "/")
+        xml__tag(g, "code")
+        xml__string(g, "~")
+      }
+    }
+
+    switch mode {
+    case .Self:
+      xml__tag(g, "main")
+      xml__attr(g, "aria-labelledby", "main")
+      heading := Heading { level = 1, content = page.title, id = "main" } 
+      if page.compact {
+        block_markup__anchored_heading(site, page^, heading, main = true)
+      } else if xml__tag(g, "header") {
+        block_markup__anchored_heading(site, page^, heading, main = true)
+
+        // NOTE: we do duplicate these, so I might eventually abstract them away
+        if xml__tag(g, "ul") {
+          if xml__tag(g, "li") {
+            xml__stringf(g, "%v by ", fmt__posted_on(&page.published_at))
+            xml__tag(g, "a")
+            xml__attrf(g, "href", "%v", site.base_url)
+            xml__attr(g, "rel", "bookmark")
+            xml__string(g, USERNAME)
+          }
+
+          if xml__tag(g, "li") {
+            at := page__last_updated(page^)
+            xml__stringf(g, "Last updated on %v", Datetime__Pretty(at))
+          }
+
+          if xml__tag(g, "li") {
+            at := page__last_updated(page^)
+            xml__stringf(
+              g, "About %v words; a %v read",
+              fmt__word_count(&page.word_count),
+              fmt__reading_duration(&page.word_count),
+            )
+          }
+        }
+
+        xml__tag(g, "hr")
+      }
+
+      if page.compact {
+        block_markup__html(site, page^, page.content)
+      } else {
+        xml__tag(g, "article")
+        block_markup__html(site, page^, page.content)
+      }
+      // TODO: bookmarks
+    case .Changelog: // TODO
+    }
+  }
+}
+// }}}
 // {{{ Checking
 page__check :: proc(site: ^Site, page: ^Page) {
+  forever := virtual.arena_allocator(&site.forever_arena)
   inline_markup__check(site, page, &page.description)
   block_markup__check(site, page, &page.content)
 
   // TODO: apply the filename option
   page.url = site__url_at(site, site.base_url, page.site_path)
 
-  // TODO: chech for duplicate tags
-  // TODO: check for duplicate element IDs across  pages
-  // TODO: check for duplicate footnotes
   // TODO: move link resolution checking here
-  // TODO: ensure there's at most one table of contens
 
   for i in 0..<page.footnotes.len {
     footnote := exparr__get(page.footnotes, i)
@@ -138,6 +287,36 @@ page__check :: proc(site: ^Site, page: ^Page) {
   for i in 0..<page.links.len {
     link := exparr__get(page.links, i)
     inline_markup__check(site, page, &link.label)
+  }
+
+  {
+    iter := iter__mk(site.pages)
+    for other_page in iter__next(&iter) {
+      {
+        iter := iter__mk(other_page.feeds)
+        for feed in iter__next(&iter) {
+          page_filter__all__eval(other_page^, page^, feed.under) or_continue
+          exparr__push(&page.in_feeds, feed)
+        }
+      }
+      {
+        iter := iter__mk(other_page.styles)
+        for style in iter__next(&iter) {
+          page_filter__all__eval(other_page^, page^, style.scope) or_continue
+          exparr__push(&page.in_styles, style)
+        }
+      }
+    }
+  }
+
+  {
+    // Generate feed urls
+    iter := iter__mk(page.feeds)
+    for feed in iter__next(&iter) {
+      feed_path_str := fmt.aprintf("%v.xml", feed.at, allocator=forever)
+      feed.site_path = Path__Relative(feed_path_str)
+      feed.url = site__url_at(site, site.base_url, feed.site_path)
+    }
   }
 
   level: uint = 1 // the title is equivalent to a h1
@@ -371,6 +550,9 @@ Def__Feed :: struct {
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
+
+  site_path:   Path__Relative,
+  url:         URL,
 }
 
 @(private = "file")
@@ -388,6 +570,26 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
 	members := codec__field_at(k, "members", Self, filter, ONCE)
 
   return codec__loop(k, codec__sum(k, Self, at, under, members, name, desc))
+}
+// }}}
+// {{{ Stylesheet definitions
+Def__Stylesheet :: struct {
+  scope:   Page_Filter__All,
+  path:    string,
+  preload: bool,
+}
+
+@(private = "file")
+codec__stylesheet :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Stylesheet) {
+  Self :: Def__Stylesheet
+
+  filter__all := codec__page_filter__all(k)
+  ctext       := codec__contiguous_text(k)
+
+	scope := codec__field(k, "scope", Self, filter__all)
+	path := codec__field_at(k, "path", Self, ctext, ONCE)
+  preload := codec__flag_at(k, "preload", Self)
+  return codec__loop(k, codec__sum(k, Self, scope, path, preload))
 }
 // }}}
 // {{{ Headings
@@ -1269,7 +1471,7 @@ HEADING_TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
 
 @(private="file")
 block_markup__anchored_heading :: proc(
-  site: ^Site, page: Page, heading: Heading
+  site: ^Site, page: Page, heading: Heading, main := false
 ) {
   g := &site.xml
   xml__tag(g, HEADING_TAG_NAMES[heading.level - 1])
@@ -1278,7 +1480,7 @@ block_markup__anchored_heading :: proc(
   if xml__tag(g, "a") {
     xml__attr(g, "class", "heading-anchor")
 
-    if mem__non_zero(heading.id) {
+    if !main && mem__non_zero(heading.id) {
       xml__attrf(g, "href", "#%v", heading.id)
     } else {
       xml__attr(g, "href", "")
@@ -1313,7 +1515,7 @@ block_markup__atom__html :: proc(
     if xml__tag(g, "summary") do xml__string(g, "Toggle table of contens")
     xml__tag(g, "nav")
     xml__attr(g, "role", "doc-toc")
-    xml__attr(g, "aria_labelledby", "toc-title")
+    xml__attr(g, "aria-labelledby", "toc-title")
     if xml__tag(g, "h3") {
       xml__attr(g, "id", "toc-title")
       xml__string(g, "Table of Contents")
@@ -1379,6 +1581,7 @@ block_markup__atom__html :: proc(
           xml__tag(g, "a")
           xml__attrf(g, "href", "%v", site.base_url)
           xml__attr(g, "rel", "bookmark")
+          xml__string(g, USERNAME)
         }
 
         if xml__tag(g, "li") {
