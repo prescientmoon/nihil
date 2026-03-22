@@ -359,7 +359,7 @@ Parser :: struct {
   // Data about the surrounding apparition
   indentation:      uint,
   surrounded_at:    Source_Loc,
-  surrounding_kind: enum { Indented, Bracketed, Ambient },
+  surrounding_kind: enum { Indented, Bracketed },
 
 	// The capacity for this list is computed at the start of the block, and its
 	// allocator is set to the panic allocator. We could instead store this as a
@@ -412,7 +412,7 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 // of whether they've been completed or not.
 codec__count_completable :: proc(instance: Parser) -> uint {
 	switch inner in instance.codec.data {
-	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
+	case Codec__Space, Codec__Constant, Codec__Text, Codec__Raw, Codec__At, nil:
 		return 0
 	case Codec__Focus:
 		inner_instance := instance
@@ -515,6 +515,82 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 		parser__advance(instance)
 		mem.copy(instance.output, &tok.content, size_of(string))
 		return true
+	case Codec__Raw:
+		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
+		defer virtual.arena_temp_end(temp)
+    defer site__update_stack_stats(instance.site)
+
+		log.assertf(
+			instance.codec.type == string,
+			"Expected codec of type string. Got %v instead.",
+			instance.codec.type,
+		)
+
+    forever_alloc := virtual.arena_allocator(&instance.site.forever_arena)
+    temp_alloc    := virtual.arena_allocator(&instance.site.stack_arena)
+    lines: Exparr(string)
+    lines.allocator = temp_alloc
+
+    builder: strings.Builder
+    strings.builder_init_none(&builder, temp_alloc)
+    
+    should_continue := true
+    for should_continue {
+      for {
+        tok := parser__get_token(instance) 
+        if tok.kind == .None do should_continue = false
+        switch instance.surrounding_kind {
+        case .Indented:
+        case .Bracketed:
+          if tok.kind == .RCurly do should_continue = false
+        }
+
+        if !should_continue do break
+
+        parser__advance(instance)
+        if tok.kind == .Newline do break
+        fmt.sbprint(&builder, tok.content)
+      }
+
+      clone, err := strings.clone(strings.to_string(builder), temp_alloc)
+      log.assert(err == nil)
+      strings.builder_reset(&builder)
+      exparr__push(&lines, clone)
+    }
+
+    min_indent := max(uint)
+    iter := iter__mk(lines)
+    for line in iter__next(&iter) {
+      indent: uint = 0
+      non_empty := false
+      for char in line^ {
+        if char == ' ' {
+          indent += 1
+        } else {
+          non_empty = true
+          break
+        }
+      }
+
+      non_empty or_continue
+      if min_indent > indent do min_indent = indent
+    }
+
+    iter = iter__mk(lines)
+    for line, i in iter__next(&iter) {
+      sliced := len(line^) >= int(min_indent) \
+        ? strings.trim_right_space(line^[min_indent:]) : ""
+      if i > 0 do strings.write_rune(&builder, '\n')
+      strings.write_string(&builder, sliced)
+    }
+
+    clone, err := strings.clone(strings.to_string(builder), forever_alloc)
+    log.assert(err == nil)
+
+    trimmed := strings.trim_space(clone)
+    mem.copy(instance.output, &trimmed, size_of(string))
+
+		return len(clone) > 0
 	case Codec__Constant:
 		tok := parser__get_token(instance)
 		if tok.kind != .Apparition do return false
@@ -658,26 +734,32 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     inner_instance.surrounded_at = tok.from
 		codec__make_completed_state(&inner_instance)
 
+    // Unlike the parser's .surrounding_kind, this has an explicit .Ambient
+    // branch.
+    Kind :: enum { Bracketed, Indented, Ambient }
+    kind: Kind
+
 		next_tok := parser__get_token(instance)
 		#partial switch next_tok.kind {
 		case .LCurly:
 			parser__advance(instance)
 			inner_instance.surrounding_kind = .Bracketed
 			inner_instance.indentation = instance.indentation
+			kind = .Bracketed
 		case .Bang:
 			parser__advance(instance)
-			inner_instance.surrounding_kind = .Ambient
 			inner_instance.indentation = instance.indentation
+			kind = .Ambient
 		case:
 			inner_instance.surrounding_kind = .Indented
 			inner_instance.indentation = tok.from.col
+			kind = .Indented
 		}
 
-		parser__skip_spaces(instance)
 		codec__eval_instance(inner_instance)
 		last_tok := parser__get_token(instance)
 
-		if inner_instance.surrounding_kind == .Bracketed {
+		if kind == .Bracketed {
 			if last_tok.kind == .RCurly {
 				parser__advance(instance)
 			} else {
@@ -737,7 +819,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   inner_instance := instance
   switch inner in instance.codec.data {
-	case Codec__Space, Codec__Constant, Codec__Text, Codec__At, nil:
+	case Codec__Space, Codec__Constant, Codec__Text, Codec__Raw, Codec__At, nil:
   case Codec__Focus: 
     inner_instance.codec = inner.inner
     codec__check_flags(loc, inner_instance)

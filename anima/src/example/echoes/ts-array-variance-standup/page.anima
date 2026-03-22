@@ -1,25 +1,26 @@
 \title Explaining TS's handling of array variance checking
-\created_at 2025-06-18 21:50:15+02:00
-\published_at 2025-06-18 21:50:15+02:00
+\created_at 2025-06-18T21:50:15+02:00
+\published_at 2025-06-18T21:50:15+02:00
+\tag{echo}
 \public
 
 \description
   Short post going over some well-known Typescript behaviour brought up on
   \link{the-standup}.
 
-I just finished watching the \link{primagen}'s live podcast \"{\link
-the-standup}. Near the end, the cast started discussing some code that looks
-like this:
+I just finished watching the \link{the-primeagen}'s live podcast 
+\"{\link the-standup}. Near the end, the cast started discussing some code that
+looks like this:
 
 \deflink the-standup
   \target https://www.youtube.com/playlist?list=PL2Fq-K0QdOQiJpufsnhEd1z3xOv2JMHuk
   \label The Standup
 
-\deflink pimeagen
+\deflink the-primeagen
   \target https://www.youtube.com/c/theprimeagen
-  \label Primagen
+  \label The Primeagen
 
-\code \lang{ts} \content!
+\code ts \content!
   const nums: number[] = [0]
 
   function mutate(arr: (string | number)[]) {
@@ -63,7 +64,7 @@ camps:
     \`{B}, then \`{P<B>} is a subtype of \`{P<A>} (notice the direction of the
     relation got flipped!). This explains the following example:
 
-    \code \lang{ts} \content!
+    \code ts \content!
       type P<T> = (v: T) => number
       const p: P<number | string> = (_) => 3
 
@@ -97,7 +98,7 @@ quite common in practice).
 One thing Casey asked on stream is why the error does not occur with the
 following snippet:
 
-\code \lang{ts} \content!
+\code ts \content!
   const nums: number[] = [0]
   nums.push("oops") // type error!
 
@@ -107,7 +108,7 @@ most narrow type possible for the variables involved. That is, \`{nums} has type
 widening said \"{most narrow type} with a type annotation, thus recreating the
 bug without any new functions:
 
-\code \lang{ts} \content!
+\code ts \content!
   const nums: number[] = [0]
   const arr: (number | string)[] = nums
   arr.push("oops") // works, even though we're still referencing the same array!

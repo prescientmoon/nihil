@@ -55,8 +55,10 @@ exprarr__destructure_ix :: proc(
 	return chunk, local_ix
 }
 
-exparr__get :: proc(exparr: Exparr($V, $FCE), #any_int ix: uint) -> ^V {
-	log.assert(ix < exparr.len)
+exparr__get :: proc(
+  exparr: Exparr($V, $FCE), #any_int ix: uint, loc := #caller_location
+) -> ^V {
+	log.assert(ix < exparr.len, loc = loc)
 	chunk, local_ix := exprarr__destructure_ix(FCE, ix)
 	return &exparr.chunks[chunk][local_ix]
 }

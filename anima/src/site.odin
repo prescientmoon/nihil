@@ -129,7 +129,7 @@ site__check :: proc(site: ^Site) {
       for l in 0..<defsite1.links.len {
         link1 := exparr__get(defsite1.links, l)
         for m in 0..<defsite2.links.len {
-          link2 := exparr__get(defsite2.links, l)
+          link2 := exparr__get(defsite2.links, m)
 
           (link1.id == link2.id)          or_continue
           (link1 != link2)                or_continue
@@ -308,13 +308,6 @@ xml__ensure_content :: proc(gen: ^Xml_Gen) {
   }
 }
 
-xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
-  gen.statistics.xml_attrs += 1
-  // TODO: escaping
-  log.assert(gen.stage == .Attributes)
-  fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, value)
-}
-
 // An attribute without an associated value
 xml__flag :: proc(gen: ^Xml_Gen, name: string) {
   gen.statistics.xml_attrs += 1
@@ -322,9 +315,59 @@ xml__flag :: proc(gen: ^Xml_Gen, name: string) {
   fmt.sbprintf(&gen.builder, " %v", name)
 }
 
+// NOTE: always run this inside a temporary block
+xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
+  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
+
+  builder: strings.Builder
+  strings.builder_init_none(&builder, temp_alloc)
+
+  needs_escaping := false
+  for char in formatted {
+    if char == '&' || char == '<' || char == '>' || char == '"' {
+      needs_escaping = true
+      break
+    }
+  }
+
+  if needs_escaping {
+    unescaped, err := strings.clone(formatted, temp_alloc)
+    log.assert(err == nil)
+    strings.builder_reset(&builder)
+
+    for char in unescaped {
+      switch char {
+      case '&': strings.write_string(&builder, "&amp;")
+      case '"': strings.write_string(&builder, "&quot;")
+      case '<': strings.write_string(&builder, "&lt;")
+      case '>': strings.write_string(&builder, "&gt;")
+      case: strings.write_rune(&builder, char)
+      }
+    }
+
+    return strings.to_string(builder)
+  } else {
+    return formatted
+  }
+}
+
+xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
+  xml__attrf(gen, name, "%v", value)
+}
+
 xml__attrf :: proc(gen: ^Xml_Gen, name: string, fstr: string, args: ..any) {
-  allocator := virtual.arena_allocator(&gen.internal_arena)
-  xml__attr(gen, name, fmt.aprintf(fstr, ..args, allocator=allocator))
+  gen.statistics.xml_attrs += 1
+  log.assert(gen.stage == .Attributes)
+
+  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
+  temp := virtual.arena_temp_begin(&gen.internal_arena)
+  defer virtual.arena_temp_end(temp)
+
+  builder: strings.Builder
+  strings.builder_init_none(&builder, temp_alloc)
+  fmt.sbprintf(&builder, fstr, ..args)
+  escaped := xml__escape(gen, strings.to_string(builder))
+  fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, escaped)
 }
 
 xml__raw_string :: proc(gen: ^Xml_Gen, value: string) {
@@ -338,13 +381,19 @@ xml__raw_stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
 }
 
 xml__string :: proc(gen: ^Xml_Gen, value: string) {
-  // TODO: escaping
-  xml__raw_string(gen, value)
+  xml__stringf(gen, "%v", value)
 }
 
 xml__stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
-  // TODO: escaping
-  xml__raw_stringf(gen, fstr, ..args)
+  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
+  temp := virtual.arena_temp_begin(&gen.internal_arena)
+  defer virtual.arena_temp_end(temp)
+  // defer site__update_stack_stats(instance.site)
+
+  builder: strings.Builder
+  strings.builder_init_none(&builder, temp_alloc)
+  fmt.sbprintf(&builder, fstr, ..args)
+  xml__raw_string(gen, xml__escape(gen, strings.to_string(builder)))
 }
 
 // We return a boolean such that this can be used with if statements.

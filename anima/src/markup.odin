@@ -712,7 +712,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
         return
       }
 
-      lens__errorf(kit, "Invalid timestamp: '%v'", inner)
+      lens__errorf(kit, "Invalid timestamp: '%v'", inner^)
     }
   }
 
@@ -1459,6 +1459,18 @@ codec__block_markup__list :: proc(
 	return codec__loop(k, codec__seq(k, Self, flags, content))
 }
 
+codec__block_markup__code :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Block_Markup__Code) {
+  Self :: Block_Markup__Code
+
+  ctext := codec__contiguous_text(k)
+  lang := codec__field(k, "language", Self, ctext, ONCE)
+  content := codec__field_at(k, "content", Self, codec__raw(k), ONCE)
+
+	return codec__loop(k, codec__sum(k, Self, lang, content))
+}
+
 @(private = "file")
 codec__block_markup__atom :: proc(
   k: ^Codec_Kit
@@ -1480,6 +1492,7 @@ codec__block_markup__atom :: proc(
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
   article_list := codec__at(k, "index", codec__article_list(k))
   list := codec__at(k, "list", codec__block_markup__list(k))
+  code := codec__at(k, "code", codec__block_markup__code(k))
 
 	h2 := codec__at(k, "#", codec__heading(k, 2))
 	h3 := codec__at(k, "##", codec__heading(k, 3))
@@ -1500,6 +1513,7 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, h4),
 		codec__variant(k, Block_Markup__Atom, article_list),
 		codec__variant(k, Block_Markup__Atom, list),
+		codec__variant(k, Block_Markup__Atom, code),
 		codec__variant(k, Block_Markup__Atom, aside),
 		codec__variant(k, Block_Markup__Atom, deflink),
 		codec__variant(k, Block_Markup__Atom, defnote),
@@ -1557,7 +1571,7 @@ block_markup__atom__html :: proc(
   site: ^Site, page: Page, atom: Block_Markup__Atom
 ) {
   g := &site.xml
-  #partial switch inner in atom {
+  switch inner in atom {
   case nil:
   case ^Def__Link:
   case ^Def__Footnote:
@@ -1685,7 +1699,15 @@ block_markup__atom__html :: proc(
         inline_markup__html(site, page, exparr__get(inner.imarkup, i)^)
       }
     }
-  case Block_Markup__Aside: // TODO
+  case Block_Markup__Code:
+    xml__tag(g, "pre")
+    xml__tag(g, "code")
+    xml__attr(g, "data-language", inner.language)
+    xml__string(g, inner.content)
+  case Block_Markup__Aside:  // TODO
+  case Block_Markup__Image:  // TODO
+  case Block_Markup__Figure: // TODO
+  case Table: // TODO
   }
 }
 

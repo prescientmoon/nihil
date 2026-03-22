@@ -9,6 +9,7 @@ import "core:reflect"
 // {{{ The Codec type
 Codec__Text  :: distinct Unit
 Codec__Space :: distinct rawptr
+Codec__Raw   :: distinct Unit
 
 Codec__Constant :: struct {
 	name:  string,
@@ -60,6 +61,7 @@ Codec :: struct {
 	data: union {
 		Codec__Text,
 		Codec__Space,
+		Codec__Raw,
 		Codec__Constant,
 		Codec__At,
 		Codec__Tracked,
@@ -163,6 +165,12 @@ codec__const :: proc(
 codec__string :: proc(kit: ^Codec_Kit) -> Typed_Codec(string) {
 	codec := codec__make(kit, string)
 	codec.data = Codec__Text{}
+	return codec
+}
+
+codec__raw :: proc(kit: ^Codec_Kit) -> Typed_Codec(string) {
+	codec := codec__make(kit, string)
+	codec.data = Codec__Raw{}
 	return codec
 }
 
