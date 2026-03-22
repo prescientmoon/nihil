@@ -35,6 +35,7 @@ Codec__Tracked :: struct {
   flags: Apparition_Flags,
 }
 
+Codec__Seq       :: distinct []Codec
 Codec__Sum       :: distinct []Codec
 Codec__Loop      :: distinct ^Codec
 Codec__Paragraph :: distinct ^Codec // Terminated by two consecutive newlines
@@ -62,6 +63,7 @@ Codec :: struct {
 		Codec__Constant,
 		Codec__At,
 		Codec__Tracked,
+		Codec__Seq,
 		Codec__Sum,
 		Codec__Focus,
 		Codec__Loop,
@@ -87,8 +89,10 @@ Lens_Kit :: struct{
   // Project => set the inner pointer to the focus of the outer pointer
 	mode: enum { Inject, Project },
 
-  // Can be used to ignore consumption of trivial things like whitespace.
-  consumed: bool,
+  // While projecting, this can be used to block execution of the inner codec.
+  // While injecting, this can be used to ignore consumption of trivial tokens
+  // like whitespace.
+  ignored: bool,
 }
 
 lens__errorf :: proc(kit: ^Lens_Kit, format: string, args: ..any) {
@@ -348,7 +352,7 @@ codec__spaced_exparr :: proc(
       inner := cast(^Maybe(T))kit.inner
       if outer.allocator == {} do outer.allocator = kit.allocator
       if value, ok := inner.(T); ok do exparr__push(outer, value)
-      else do kit.consumed = false
+      else do kit.ignored = true
     }
   }
 
@@ -387,6 +391,18 @@ codec__remote_push :: proc(
   }
 
 	return codec__focus(kit, ^T, inner, lens, rawptr(field.offset))
+}
+
+codec__seq :: proc(
+  kit: ^Codec_Kit, $T: typeid, codecs: ..Typed_Codec(T)
+) -> Typed_Codec(T) {
+	codec := codec__make(kit, T)
+  allocator := kit.forever
+	slice := make_slice([]Codec, len(codecs), allocator)
+	for c, i in codecs do slice[i] = c.codec^
+
+	codec.data = Codec__Seq(slice)
+	return codec
 }
 
 codec__sum :: proc(

@@ -23,3 +23,8 @@
 [doc("Run `anima` in debug mode")]
 @run-debug: build-debug
   ./build/debug/anima.bin
+
+[group("debug")]
+[doc("Run `anima` inside `valgrind`")]
+@grind: build-debug
+  valgrind ./build/debug/anima.bin

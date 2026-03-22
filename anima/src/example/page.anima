@@ -37,7 +37,6 @@
   Wassup, this is the home page of my ethereal realm (read: website). Feel free
   to poke around :3
 
-
 Welcome to my ethereal realm (read: website). This place is still being
 conjured (read: under construction), hence some things might be startlingly
 empty.
@@ -48,13 +47,11 @@ kinds, although rhythm games have a special place in my heart.
 
 You can message me in the following places \`{:3}
 
-  - via email at \link{mail}
-
-  - on discord as \link{discord}
-
-  - on certain \link{irc} networks as \`{prescientmoon}
-
-  - (WIP) on the \link{fedi} at \link{fedi-profile}
+\list
+  \- via email at \link{mail}
+  \- on discord as \link{discord}
+  \- on certain \link{irc} networks as \`{prescientmoon}
+  \- (WIP) on the \link{fedi} at \link{fedi-profile}
 
 \deflink mail
   \target mailto://hi@moonythm.dev
@@ -89,7 +86,8 @@ I'm not part of a ton of \link{webring \label webrings}, but oh well.
 
 \deflink webring \target https://indieweb.org/webring
 
- \link{sillyring} (\link{sillyring-prev}, \link{sillyring-next})
+\list
+  \- \link{sillyring} (\link{sillyring-prev}, \link{sillyring-next})
 
 \deflink sillyring \target https://silly.moonythm.dev/
 \deflink sillyring-prev 
@@ -112,4 +110,3 @@ changelog of any page by appending \`{/changelog} to the URL (as above, here's
 \deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
 \deflink source \target{/index.dj} \label Home Page Source
 \deflink changelog \target{/changelog} \label Home Page Chagelog
-

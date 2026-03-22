@@ -79,7 +79,7 @@ exparr__push :: proc(
 			1 << (FCE + len(exparr.chunks)),
 			allocator = exparr.allocator,
 		)
-		assert(err == nil)
+		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
 
 		exparr.chunks.allocator = exparr.allocator
 		append_elem(&exparr.chunks, multiptr)

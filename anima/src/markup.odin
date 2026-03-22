@@ -204,7 +204,7 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "as", "font")
       xml__attr(g, "href", "/fonts/computer-modern/cm-regular.woff2")
       xml__attr(g, "type", "font/woff2")
-      xml__flag(g, "crossorigin") // TODO: what does this even do?
+      xml__flag(g, "crossorigin") // Required when as=font
     }
   }
 
@@ -262,7 +262,8 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
         xml__tag(g, "article")
         block_markup__html(site, page^, page.content)
       }
-      // TODO: bookmarks
+
+      // TODO: footnotes
     case .Changelog: // TODO
     }
   }
@@ -686,7 +687,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
       log.assertf(outer^ == {}, "Timestamps must parse in one go: %v", outer^)
     case .Inject:
       if inner^ == "" {
-        kit.consumed = false
+        kit.ignored = true
         return
       }
 
@@ -736,7 +737,7 @@ codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
       log.assertf(outer^ == {}, "Integers must parse in one go: %v", outer^)
     case .Inject:
       if inner^ == "" {
-        kit.consumed = false
+        kit.ignored = true
         return
       }
 
@@ -989,6 +990,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
 		kit,
 		"inline_markup",
 		proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
+      // This lens marks runs only consisting of spaces as ignored.
       lens :: proc(kit: ^Lens_Kit) {
         switch kit.mode {
         case .Project:
@@ -997,8 +999,8 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
           inner := cast(^^Exparr(Inline_Markup__Atom))kit.inner
 
           found_substantial := false
-          for i in 0..<inner^.len {
-            elem := exparr__get(inner^^, i)
+          iter := iter__mk(inner^^)
+          for elem in iter__next(&iter) {
             if _, ok := elem.(Inline_Markup__Space); !ok {
               found_substantial = true
               break
@@ -1008,7 +1010,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
           if found_substantial {
             mem.copy(kit.outer, kit.inner, size_of(Inline_Markup))
           } else {
-            kit.consumed = false
+            kit.ignored = true
           }
         }
       }
@@ -1327,7 +1329,7 @@ Block_Markup__Section :: struct {
   content: Block_Markup,
 }
 
-// TODO: code, list
+// TODO: code
 // This currently takes up a fat 144B. If memory usage ever goes past 1MiB, I
 // will bother using pointers for the various branches, thus not wasting so much
 // space on padding.
@@ -1340,10 +1342,10 @@ Block_Markup__Atom :: union {
 	Block_Markup__Description,
 	Block_Markup__Table_Of_Contents,
 	Block_Markup__Thematic_Break,
-  Article_List,
   Block_Markup__Aside,
   Block_Markup__Code,
   Block_Markup__Section,
+  Article_List,
 	Table,
 
   // References to data saved in the parent Page structure
@@ -1402,6 +1404,57 @@ codec__block_markup__aside :: proc(
   )
 }
 
+// This one is implemented in a very silly way, with the benefit being that
+// there's no actual branching support required in the proper codec system. We
+// instead hack our own by simply trying both options and using the "ignored"
+// field of the kit to filter out the invalid ones.
+codec__block_markup__list :: proc(
+  k: ^Codec_Kit
+) -> Typed_Codec(Block_Markup__List) {
+  Self :: Block_Markup__List
+
+  ilens :: proc(kit: ^Lens_Kit) {
+    outer := cast(^Self)kit.outer
+    inner := cast(^Exparr(Inline_Markup))kit.inner
+    switch kit.mode {
+    case .Project:
+      if outer.block do kit.ignored = true
+      else do inner^ = outer.imarkup
+    case .Inject:
+      log.assert(!outer.block)
+      outer.imarkup = inner^
+    }
+  }
+
+  blens :: proc(kit: ^Lens_Kit) {
+    outer := cast(^Self)kit.outer
+    inner := cast(^Exparr(Block_Markup))kit.inner
+    switch kit.mode {
+    case .Project:
+      if !outer.block do kit.ignored = true
+      else do inner^ = outer.bmarkup
+    case .Inject:
+      log.assert(outer.block)
+      outer.bmarkup = inner^
+    }
+  }
+
+  ordered := codec__flag_at(k, "ordered", Self)
+  block := codec__flag_at(k, "block", Self)
+  flags := codec__sum(k, Self, ordered, block)
+
+  imarkup := codec__inline_markup(k)
+  ielem := codec__at(k, "-", imarkup)
+  icontent := codec__focus(k, Self, codec__spaced_exparr(k, ielem), ilens)
+
+  bmarkup := codec__block_markup(k)
+  belem := codec__at(k, "-", bmarkup)
+  bcontent := codec__focus(k, Self, codec__spaced_exparr(k, belem), blens)
+
+  content := codec__sum(k, Self, icontent, bcontent)
+	return codec__loop(k, codec__seq(k, Self, flags, content))
+}
+
 @(private = "file")
 codec__block_markup__atom :: proc(
   k: ^Codec_Kit
@@ -1422,6 +1475,7 @@ codec__block_markup__atom :: proc(
   deficon := codec__at(k, "deficon", codec__deficon(k))
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
   article_list := codec__at(k, "index", codec__article_list(k))
+  list := codec__at(k, "list", codec__block_markup__list(k))
 
 	h2 := codec__at(k, "#", codec__heading(k, 2))
 	h3 := codec__at(k, "##", codec__heading(k, 3))
@@ -1441,6 +1495,7 @@ codec__block_markup__atom :: proc(
 		codec__variant(k, Block_Markup__Atom, h3),
 		codec__variant(k, Block_Markup__Atom, h4),
 		codec__variant(k, Block_Markup__Atom, article_list),
+		codec__variant(k, Block_Markup__Atom, list),
 		codec__variant(k, Block_Markup__Atom, aside),
 		codec__variant(k, Block_Markup__Atom, deflink),
 		codec__variant(k, Block_Markup__Atom, defnote),

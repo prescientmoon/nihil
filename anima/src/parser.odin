@@ -430,6 +430,15 @@ codec__count_completable :: proc(instance: Parser) -> uint {
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
 		return codec__count_completable(inner_instance)
+	case Codec__Seq:
+		total: uint = 0
+		for &codec in inner {
+			inner_instance := instance
+			inner_instance.codec = &codec
+			total += codec__count_completable(inner_instance)
+		}
+
+		return total + len(inner)
 	case Codec__Sum:
 		total: uint = 0
 		for &codec in inner {
@@ -547,10 +556,9 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     kit.errors.allocator = kit.temp_allocator
 
 		inner.lens(&kit)
-    log.assert(!kit.consumed, ".Project cannot be marked as consuming")
-
     pos__pre := parser__get_pos(instance)
     if kit.errors.len == 0 {
+      if kit.ignored do return false
       inner_instance := instance
       inner_instance.codec = inner.inner
       inner_instance.output = inner_output
@@ -560,11 +568,11 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       consumed = codec__eval_instance(inner_instance)
       if consumed {
         kit.mode = .Inject
-        kit.consumed = consumed
+        kit.ignored = !consumed
         inner.lens(&kit)
       }
 
-      if kit.errors.len == 0 do return kit.consumed
+      if kit.errors.len == 0 do return consumed && !kit.ignored
     }
 
     pos__post := parser__get_pos(instance)
@@ -576,6 +584,48 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     }
 
     return consumed
+	case Codec__Seq:
+    // Say we have a codec sequence "AB" (the general case follows by induction).
+    // We want to run A if possible, but not if B has ever run. If A does not
+    // consume anything, we fall back to B.
+    //
+    // Something to keep in mind is that the "completed" in things like
+    // "codec__is_completed" actually means "consumed" (I need to change the
+    // naming at some point).
+    tok := instance.token^
+
+    earliest_thats_never_consumed := len(inner)
+    for &codec, i in inner {
+			inner_instance := instance
+			inner_instance.codec = &codec
+      if !codec__is_completed(inner_instance) {
+        earliest_thats_never_consumed = i
+        break
+      }
+    }
+
+    // If the "C" in "ABC" has never consumed anything, then "B" might still
+    // have stuff left to parse out. We've initialized
+    // "earliest_thats_never_consumed" to "len(inner)" such that this will
+    // reslove to the last codec if every single codec has consumed.
+    earliest_runnable := earliest_thats_never_consumed == 0 \
+      ? 0 : earliest_thats_never_consumed - 1
+
+    for &codec, i in inner[earliest_runnable:] {
+			inner_instance := instance
+			inner_instance.codec = &codec
+
+			consumed := codec__eval_instance(inner_instance)
+      if consumed || instance.token^ > tok {
+        if consumed && i >= earliest_thats_never_consumed {
+          codec__mark_completed(inner_instance, could_be_completed = false)
+        }
+
+        return consumed
+      }
+		}
+
+		return false
 	case Codec__Sum:
     tok := instance.token^
 		for &codec in inner {
@@ -697,6 +747,11 @@ codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   case Codec__Paragraph: 
     inner_instance.codec = cast(^Codec)inner
     codec__check_flags(loc, inner_instance)
+  case Codec__Seq: 
+    for &codec in inner {
+      inner_instance.codec = &codec
+      codec__check_flags(loc, inner_instance)
+    }
   case Codec__Sum: 
     for &codec in inner {
       inner_instance.codec = &codec
