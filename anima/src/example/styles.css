@@ -63,7 +63,7 @@ body {
     sans-serif;
 
   color: light-dark(black, white);
-  background: light-dark(#ffecfe, #210f37);
+  background: light-dark(#fff3fe, #210f37);
 }
 /* }}} */
 /* {{{ <pre> & <code> elements */
@@ -90,7 +90,7 @@ code {
 /* {{{ <a> */
 /* TODO: theme this everywhere */
 a {
-  color: light-dark(#3cca27, #92a3ff);
+  color: light-dark(#0000ee, #92a3ff);
 
   &:visited {
     color: light-dark(#ba00ac, #ef87e7);
@@ -137,22 +137,39 @@ h6 {
   .heading-anchor {
     display: inline-block;
     text-decoration: none;
-    transform: translateY(-2px);
   }
+}
+
+h1 > .heading-anchor {
+  transform: translateY(-5px);
+}
+
+h2 > .heading-anchor {
+  transform: translateY(-2.5px);
+}
+
+h3 > .heading-anchor {
+  transform: translateY(-2px);
 }
 
 /* https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/Heading_Elements#specifying_a_uniform_font_size_for_h1 */
 h1 {
   margin-block: 0.67em;
-  font-size: 1.5em;
+  font-size: 2em;
 }
 
-h2 {
-  font-size: 1.25em;
-}
+main.smaller-headings {
+  h1 {
+    font-size: 1.5em;
+  }
 
-h3 {
-  font-size: 1.125em;
+  h2 {
+    font-size: 1.4em;
+  }
+
+  h3 {
+    font-size: 1.17em;
+  }
 }
 /* }}} */
 /* {{{ Math */

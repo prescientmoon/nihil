@@ -13,8 +13,9 @@ import "core:unicode"
 // {{{ Page
 // TODO: assets?, imports, (anima) comments
 Page :: struct {
-  compact:   bool, // Whether the page should not contain the post layout
-  public:    bool, // Whether the page should be included in the sitemap
+  compact:          bool, // Whether the page should not contain the post layout
+  public:           bool, // Whether the page should be included in the sitemap
+  smaller_headings: bool,
 
   filename:    string, // Overrides the last segment of the path
   title:       Inline_Markup,
@@ -101,11 +102,15 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
 
   compact := codec__flag_at(k, "compact", Page)
   public  := codec__flag_at(k, "public", Page)
+  smaller_headings := codec__field(
+    k, "smaller_headings", Page, codec__flag(k, "smaller-headings")
+  )
 
   inner_loop := codec__sum(
     k, Page,
     content, feeds, tags, aliases, styles, public, title, description, compact,
-    created, published, filename, changefreq, priority, changes,
+    smaller_headings, created, published, filename, changefreq, priority,
+    changes,
   )
 
   lens :: proc(kit: ^Lens_Kit) {
@@ -221,6 +226,7 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
     switch mode {
     case .Self:
       xml__tag(g, "main")
+      if page.smaller_headings do xml__attr(g, "class", "smaller-headings")
       xml__attr(g, "aria-labelledby", "main")
       heading := Heading { level = 1, content = page.title, id = "main" } 
       if page.compact {
