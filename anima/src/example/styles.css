@@ -79,8 +79,8 @@ pre > code {
 }
 
 code {
-  background: light-dark(#fff7e4, #000531);
-  color: light-dark(black, #cad3f5);
+  background: light-dark(white, #000531);
+  color: light-dark(black, white);
 }
 
 /* .aside code { */

@@ -1333,7 +1333,6 @@ Block_Markup__Section :: struct {
   content: Block_Markup,
 }
 
-// TODO: code
 // This currently takes up a fat 144B. If memory usage ever goes past 1MiB, I
 // will bother using pointers for the various branches, thus not wasting so much
 // space on padding.

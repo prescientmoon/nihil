@@ -814,11 +814,17 @@ site__generate :: proc(site: ^Site) {
         alias_path_str := fmt.aprintf("%v/index.html", alias^, allocator=forever)
         alias_path := Path__Relative(alias_path_str)
 
-        // TODO: prettier message?
         site__add_file(
           site,
           alias_path,
-          string("If you're seeing this, something went wrong.")
+          fmt.aprintf(
+            "This page has moved to <a href=\"%[0]v\">%[0]v</a>. " + \
+            "You were supposed to get redirected there, but I guess " + \
+            "something went wrong in the process. Consider clicking said " + \
+            "link manually :3",
+            page.url,
+            allocator = forever
+          )
         )
       }
     }

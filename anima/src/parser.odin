@@ -1,7 +1,6 @@
 #+private file
 package anima
 
-import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -220,7 +219,7 @@ consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
 	)
 
 	// Sanity check: attempting to re-allocate the buffer will cause a panic!
-	builder.buf.allocator = runtime.panic_allocator()
+	builder.buf.allocator = mem.panic_allocator()
 
 	for {
 		width := next_rune_is_text_char(lexer^)
