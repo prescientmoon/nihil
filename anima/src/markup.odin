@@ -1061,8 +1061,10 @@ inline_markup__atom__fmt :: proc(
   case ^Inline_Markup__Link:
     if mem__non_zero(inner.label) {
       inline_markup__fmt(fi, site, page, inner.label)
-    } else if inner.def != nil {
+    } else if inner.def != nil && mem__non_zero(inner.def.label) {
       inline_markup__fmt(fi, site, page, inner.def.label)
+    } else if inner.def != nil {
+      fmt.wprintf(fi.writer, inner.def.id)
     } else {
       fmt.wprint(fi.writer, inner.id)
     }
@@ -1151,8 +1153,10 @@ inline_markup__atom__html :: proc(
     xml__attr(g, "href", inner.def.target)
     if mem__non_zero(inner.label) {
       inline_markup__html(site, page, inner.label)
-    } else if inner.def != nil {
+    } else if inner.def != nil && mem__non_zero(inner.def.label) {
       inline_markup__html(site, page, inner.def.label)
+    } else if inner.def != nil {
+      xml__string(g, inner.def.id)
     } else {
       xml__string(g, inner.id)
     }
@@ -1654,6 +1658,7 @@ block_markup__atom__html :: proc(
         }
       }
 
+      xml__tag(g, "p")
       inline_markup__html(site, article^, article.description)
     }
   case Block_Markup__Section:

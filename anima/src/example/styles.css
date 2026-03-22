@@ -63,7 +63,7 @@ body {
     sans-serif;
 
   color: light-dark(black, white);
-  background: light-dark(white, black);
+  background: light-dark(#ffecfe, #210f37);
 }
 /* }}} */
 /* {{{ <pre> & <code> elements */
@@ -79,22 +79,40 @@ pre > code {
 }
 
 code {
-  background: light-dark(#eff1f5, #24273a);
+  background: light-dark(#fff7e4, #000531);
   color: light-dark(black, #cad3f5);
 }
 
-.aside code {
-  background: light-dark(#e4e9f5, #2f2f3a);
+/* .aside code { */
+/*   background: light-dark(#e4e9f5, #2f2f3a); */
+/* } */
+/* }}} */
+/* {{{ <a> */
+/* TODO: theme this everywhere */
+a {
+  color: light-dark(#3cca27, #92a3ff);
+
+  &:visited {
+    color: light-dark(#ba00ac, #ef87e7);
+  }
 }
 /* }}} */
-/* {{{ Others */
+/* {{{ <hr> */
+.article-content hr {
+  border: none;
+  margin: 2rem 0.5rem;
+  border-top: 0.1rem solid light-dark(#9ca0b040, #6e738d40);
+}
+/* }}} */
+/* {{{ Blockquotes */
 blockquote {
   padding-left: 1.25rem;
   border-left: 3px solid;
   margin-left: 0;
   text-align: left; /* Otherwise there's issues with blockquotes inside figures */
 }
-
+/* }}} */
+/* {{{ Lists */
 ol {
   padding-left: 1.5rem;
 }
@@ -108,7 +126,8 @@ ul {
     list-style-position: outside;
   }
 }
-
+/* }}} */
+/* {{{ Headings */
 h1,
 h2,
 h3,
@@ -125,34 +144,20 @@ h6 {
 /* https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/Heading_Elements#specifying_a_uniform_font_size_for_h1 */
 h1 {
   margin-block: 0.67em;
-  font-size: 2em;
+  font-size: 1.5em;
 }
 
+h2 {
+  font-size: 1.25em;
+}
+
+h3 {
+  font-size: 1.125em;
+}
+/* }}} */
+/* {{{ Math */
 math[display="block"] {
   margin: 1.5rem 0;
-}
-
-/* }}} */
-/* {{{ <a> */
-/* TODO: theme this everywhere */
-a {
-  @media (prefers-color-scheme: dark) {
-    color: #bac3f5;
-  }
-
-  &:visited {
-    @media (prefers-color-scheme: dark) {
-      /* color: #c586c0; */
-      color: #ef87e7;
-    }
-  }
-}
-/* }}} */
-/* {{{ <hr> */
-.article-content hr {
-  border: none;
-  margin: 2rem 0.5rem;
-  border-top: 0.1rem solid light-dark(#9ca0b040, #6e738d40);
 }
 /* }}} */
 
@@ -163,267 +168,18 @@ article {
   margin: auto;
 }
 
-/* .article-list { */
-/*   max-width: 36rem; */
-/*   margin: auto; */
-/*   list-style-type: none; */
-/**/
-/*   ul { */
-/*     list-style-type: disc; */
-/*   } */
-/* } */
-/**/
-/* .change-list { */
-/*   max-width: 36rem; */
-/*   margin: auto; */
-/* } */
+.article-list {
+  max-width: 36rem;
+  margin: auto;
+  list-style-type: none;
+
+  ul {
+    list-style-type: disc;
+  }
+}
+
+.change-list {
+  max-width: 36rem;
+  margin: auto;
+}
 /* }}} */
-/* /* {{{ Tables of contents */ */
-/* .toc { */
-/*   border-radius: 3px; */
-/*   border: 1px solid; */
-/**/
-/*   @media (prefers-color-scheme: light) { */
-/*     background: hsl(220deg 23% 95%); */
-/*     border-color: black; */
-/*   } */
-/**/
-/*   @media (prefers-color-scheme: dark) { */
-/*     background: hsl(220deg 30% 15%); */
-/*     border-color: #f8e9ff88; */
-/*   } */
-/**/
-/*   box-sizing: border-box; */
-/*   padding: 1rem; */
-/*   margin: 1.5rem 0; */
-/**/
-/*   summary span { */
-/*     margin-left: 0.5rem; */
-/*   } */
-/**/
-/*   nav { */
-/*     margin-left: 1rem; */
-/*   } */
-/**/
-/*   li { */
-/*     padding: 0.25rem; */
-/*   } */
-/**/
-/*   ol { */
-/*     margin-bottom: 0; */
-/*   } */
-/**/
-/*   ol ol { */
-/*     position: relative; */
-/**/
-/*     &::before { */
-/*       content: ""; */
-/*       position: absolute; */
-/*       top: 0.5rem; */
-/*       bottom: 0.5rem; */
-/*       left: -1.4rem; */
-/*       width: 2px; */
-/**/
-/*       @media (prefers-color-scheme: light) { */
-/*         background: hsl(194deg 100% 16% / 20%); */
-/*       } */
-/**/
-/*       @media (prefers-color-scheme: dark) { */
-/*         background: hsl(194deg 100% 85% / 20%); */
-/*       } */
-/*     } */
-/*   } */
-/* } */
-/* /* }}} */ */
-/* /* {{{ Figures */ */
-/* figure { */
-/*   text-align: center; */
-/*   margin: 2rem; */
-/* } */
-/**/
-/* figure img { */
-/*   max-width: 100%; */
-/*   margin: auto; */
-/*   height: auto; */
-/* } */
-/**/
-/* figure > figcaption { */
-/*   text-align: center; */
-/* } */
-/**/
-/* figure > figcaption > p { */
-/*   margin-top: 0.25rem; */
-/* } */
-/* /* }}} */ */
-/* /* {{{ Icons */ */
-/* span.icon { */
-/*   height: 100%; */
-/*   text-align: center; */
-/* } */
-/**/
-/* img.icon { */
-/*   height: 1em; */
-/*   width: 1em; */
-/*   vertical-align: -0.125em; */
-/* } */
-/* /* }}} */ */
-/* /* {{{ Asides */ */
-/* /* TODO: perhaps remove aside-header altogether? */ */
-/* .aside-header { */
-/*   display: inline-flex; */
-/*   align-items: center; */
-/*   box-sizing: border-box; */
-/**/
-/*   img { */
-/*     height: 1.75rem; */
-/*     margin-right: 0.75rem; */
-/*     transform: translateY(-2px); */
-/*   } */
-/* } */
-/**/
-/* .aside:not(.aside-long) > .aside-header { */
-/*   h3 { */
-/*     margin-top: 0; */
-/*     margin-bottom: 0; */
-/*   } */
-/**/
-/*   /* The default h3 margin feels a bit large here */ */
-/*   margin-top: 1rem; */
-/*   margin-bottom: 1rem; */
-/* } */
-/**/
-/* .aside { */
-/*   @media (prefers-color-scheme: light) { */
-/*     background: hsl(281deg 100% 96%); */
-/*     color: black; */
-/*     border-color: black; */
-/*   } */
-/**/
-/*   @media (prefers-color-scheme: dark) { */
-/*     background: hsl(281deg 50% 15%); */
-/*     color: #f8e9ff; */
-/*     border-color: #f8e9ff88; */
-/*   } */
-/**/
-/*   box-sizing: border-box; */
-/*   padding-left: 1rem; */
-/*   padding-right: 1rem; */
-/*   margin: 1.5rem 0; */
-/**/
-/*   /* Prevents margin-collapsing of the children. */ */
-/*   border-width: 1px; */
-/*   border-style: solid; */
-/*   border-radius: 3px; */
-/**/
-/*   /* Slightly move things to the left to more nicely align with the marker */ */
-/*   &.aside-long > :not(summary) { */
-/*     margin-left: 1rem; */
-/*   } */
-/**/
-/*   /* Remove the top margin of the first paragraph under the header */ */
-/*   &:has(> .aside-header) > :nth-child(2) { */
-/*     margin-top: 0; */
-/*   } */
-/**/
-/*   /* Match the margin set by the header */ */
-/*   &:has(> .aside-header) > :last-child { */
-/*     margin-bottom: 1rem; */
-/*   } */
-/**/
-/*   &.aside-long:has(> .aside-header) > :last-child { */
-/*     margin-bottom: 2rem; */
-/*   } */
-/* } */
-/**/
-/* /* {{{ Summary & details */ */
-/* .aside, */
-/* .toc { */
-/*   summary { */
-/*     list-style: none; */
-/*   } */
-/**/
-/*   summary::marker, */
-/*   summary::webkit-details-marker { */
-/*     display: none; */
-/*     content: ""; */
-/*   } */
-/**/
-/*   summary::before { */
-/*     display: inline-block; */
-/*     content: "▶"; */
-/*     font-size: 0.75rem; */
-/*     margin: 0 0.75rem 0 0.25rem; */
-/*     transform-origin: 45% 55%; */
-/*     transition: transform 0.1s; */
-/*     cursor: pointer; */
-/*   } */
-/* } */
-/**/
-/* .toc > summary::before { */
-/*   transform: translateY(-4px); */
-/* } */
-/**/
-/* .toc[open] > summary::before { */
-/*   transform: translateY(-4.5px) rotate(90deg); */
-/* } */
-/**/
-/* .aside > summary::before { */
-/*   transform: translateY(-2px); */
-/* } */
-/**/
-/* .aside[open] > summary::before { */
-/*   transform: translateY(-2.5px) rotate(90deg); */
-/* } */
-/* /* }}} */ */
-/* /* }}} */ */
-/* /* {{{ Tables */ */
-/* table { */
-/*   display: block; */
-/*   max-width: fit-content; */
-/*   overflow-x: auto; */
-/*   white-space: nowrap; */
-/*   border-collapse: collapse; */
-/*   margin: 1rem auto 2rem auto; */
-/* } */
-/**/
-/* table tr:first-child { */
-/*   border-bottom: 1px solid; */
-/*   @media (prefers-color-scheme: light) { */
-/*     border-right-color: black; */
-/*   } */
-/**/
-/*   @media (prefers-color-scheme: dark) { */
-/*     border-right-color: white; */
-/*   } */
-/* } */
-/**/
-/* table td, */
-/* table th { */
-/*   padding: 0.3rem 0.5rem; */
-/*   border-right: 1px solid; */
-/**/
-/*   @media (prefers-color-scheme: light) { */
-/*     border-right-color: black; */
-/*   } */
-/**/
-/*   @media (prefers-color-scheme: dark) { */
-/*     border-right-color: white; */
-/*   } */
-/**/
-/*   &:last-child { */
-/*     border-right: none; */
-/*   } */
-/**/
-/*   &.align-left { */
-/*     text-align: left; */
-/*   } */
-/**/
-/*   &.align-center { */
-/*     text-align: center; */
-/*   } */
-/**/
-/*   &.align-right { */
-/*     text-align: right; */
-/*   } */
-/* } */
-/* /* }}} */ */

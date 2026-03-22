@@ -31,7 +31,7 @@ main :: proc() {
   site: Site
   content_root := "/home/moon/projects/personal/nihil/anima/src/example"
   out_root := "/home/moon/projects/personal/nihil/anima/dist"
-  site__make(&site, "https://moonythm.dev", content_root, out_root)
+  site__make(&site, "http://localhost:8080", content_root, out_root)
   site.statistics.system_arena = Bytes(system_arena.total_used)
 
   site__collect(&site)

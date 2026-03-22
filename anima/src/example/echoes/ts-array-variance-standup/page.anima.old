@@ -1,0 +1,120 @@
+\title Explaining TS's handling of array variance checking
+\created_at 2025-06-18 21:50:15+02:00
+\published_at 2025-06-18 21:50:15+02:00
+\public
+
+\description
+  Short post going over some well-known Typescript behaviour brought up on
+  \link{the-standup}.
+
+I just finished watching the \link{primagen}'s live podcast \"{\link
+the-standup}. Near the end, the cast started discussing some code that looks
+like this:
+
+\deflink the-standup
+  \target https://www.youtube.com/playlist?list=PL2Fq-K0QdOQiJpufsnhEd1z3xOv2JMHuk
+  \label The Standup
+
+\deflink pimeagen
+  \target https://www.youtube.com/c/theprimeagen
+  \label Primagen
+
+\code \lang{ts} \content!
+  const nums: number[] = [0]
+
+  function mutate(arr: (string | number)[]) {
+    arr.push("oops")
+  }
+
+  mutate(nums)
+
+  const num: number = nums[1]
+  console.log(num) // "oops"
+
+The cast sounded quite ill informed about the reason this happens, so I thought
+I'd go over it quickly. TypeScript' type system is based around the idea of
+\_{\link{subtyping}}. A type \`{A} is said to be a subtype of type \`{B} if the
+former can be used whenever the latter could be used. In particular:
+
+\list
+  \- \`{A} is always a subtype of \`{A | B}
+  \- If \`{A} is a subtype of \`{B}, then \`{A[]} is a subtype of \`{B[]}
+
+From the above, it follows that \`{number[]} is a subtype of type \`{(string |
+number)[]}, hence why the code compiles.
+
+\deflink subtyping
+  \target https://en.wikipedia.org/wiki/Subtyping
+  \label Subtyping
+
+\# Variance
+
+The proper way to fix this is to track the \_{\link variance} of type arguments
+(\`{A[]} is just syntactic sugar for \`{Array<A>}, hence why the inner type is
+a \"{type argument}). Every type argument can naturally fall in one of three
+camps:
+
+\list \block \ordered
+  \- A type argument is \_{covariant} if whenever \`{A} is a subtype of \`{B},
+    then \`{P<A>} is a subtype of \`{P<B>}. This is how TypeScript treats
+    arrays, and the mistake causing this bug.
+
+  \- A type argument is \_{contravariant} if whenever \`{A} is a subtype of
+    \`{B}, then \`{P<B>} is a subtype of \`{P<A>} (notice the direction of the
+    relation got flipped!). This explains the following example:
+
+    \code \lang{ts} \content!
+      type P<T> = (v: T) => number
+      const p: P<number | string> = (_) => 3
+
+      function test(v: P<number>) {
+        console.log(v(3))
+      }
+
+      test(p)
+
+  \- A type argument is \_{invariant} if \`{P<A>} is a subtype of \`{P<B>} only
+    when \`{A = B}.
+
+\deflink variance
+  \target https://en.wikipedia.org/wiki/Covariance_and_contravariance_(computer_science)
+  \label Variance
+
+The correct thing to do when implementing a type system is to make (mutable,
+i.e. the default in TypeScript) arrays invariant in their type argument
+(failing to do so is a common \link{covariant-containers \label mistake} when
+implementing type systems). TypeScript has the tools to track variance (the
+issue above has been known about for a long time), but it will (likely) never
+get fixed in order to preserve backwards compatibility (said behaviour is sadly
+quite common in practice).
+
+\deflink covariant-containers
+  \target https://counterexamples.org/general-covariance.html
+  \label Covariant Containers
+
+\# So why does the error not occurr with a direct \`{.push()}?
+
+One thing Casey asked on stream is why the error does not occur with the
+following snippet:
+
+\code \lang{ts} \content!
+  const nums: number[] = [0]
+  nums.push("oops") // type error!
+
+The issue is that (informally), at every point, TypeScript keeps track of the
+most narrow type possible for the variables involved. That is, \`{nums} has type
+\`{number[]}, hence the type mismatch. Still, we can guide TypeScript into
+widening said \"{most narrow type} with a type annotation, thus recreating the
+bug without any new functions:
+
+\code \lang{ts} \content!
+  const nums: number[] = [0]
+  const arr: (number | string)[] = nums
+  arr.push("oops") // works, even though we're still referencing the same array!
+
+Duck typing the procedure multiple times (as suggested by Casey) would not fix
+the issue, as the issue is not tied to procedures in the first place. As stated
+above, the issue arises from TypeScript' treatment of array variance, which
+could be trivially fixed if backwards compatibility wasn't a concern.
+
+Thanks for reading :3
