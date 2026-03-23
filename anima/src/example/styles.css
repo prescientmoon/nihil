@@ -79,7 +79,7 @@ pre > code {
 }
 
 code {
-  background: light-dark(white, #000531);
+  background: light-dark(#ffe0e0, #000531);
   color: light-dark(black, white);
 }
 
