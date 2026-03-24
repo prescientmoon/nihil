@@ -211,16 +211,10 @@ consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
 		return string, true
 	}
 
-	// Allocate builder for the output string. Should never grow past the given
-	// size!
-	builder := strings.builder_make_len_cap(
-		0,
-		int(copy.pos.index - lexer.pos.index),
+	builder := strings__fixed_builder(
+		copy.pos.index - lexer.pos.index,
 		lexer.forever,
 	)
-
-	// Sanity check: attempting to re-allocate the buffer will cause a panic!
-	builder.buf.allocator = mem.panic_allocator()
 
 	for {
 		width := next_rune_is_text_char(lexer^)

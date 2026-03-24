@@ -50,9 +50,6 @@ Site :: struct {
   // The output file data, to be generated in one go.
   files:      Exparr(File_Gen_Entry),
 
-  // Used to generate XML for the various files.
-  xml:        Xml_Gen,
-
   // The main codec used to parse pages.
   page_codec: Typed_Codec(Page),
 }
@@ -84,12 +81,9 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 	codec_kit := codec__kit__make(site)
   site.page_codec = codec__page(&codec_kit)
 	codec__kit__destroy(codec_kit)
-
-  xml__make(&site.xml, &site.statistics)
 }
 
 site__destroy :: proc(site: ^Site) {
-  xml__destroy(&site.xml)
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
   arena__destroy(&site.statistics.site_stack_arena, &site.stack_arena)
 }
@@ -310,66 +304,36 @@ site__url :: proc(
   return URL(fmt.aprintf("%v/%v", site.base_url, path, allocator=alloc))
 }
 // }}}
-// {{{ Virtual-arena based string builders
-// I used to use this in more than one place, but I no longer do. I might remove
-// this in the future (or well, simply inline its definition into Xml_Gen.
-Virtual_String_Builder :: struct {
-  using builder: strings.Builder,
-  arena:   virtual.Arena,
-}
-
-vsb__make :: proc(vsb: ^Virtual_String_Builder) {
-  log.assert(mem__is_zero(vsb^))
-	err := virtual.arena_init_static(&vsb.arena)
-	log.assert(err == nil)
-  builder_alloc := virtual.arena_allocator(&vsb.arena)
-  strings.builder_init_none(&vsb.builder, builder_alloc)
-}
-
-vsb__destroy :: proc(bytes: ^Bytes, vsb: ^Virtual_String_Builder) {
-	arena__destroy(bytes, &vsb.arena)
-}
-
-vsb__clear :: proc(bytes: ^Bytes, vsb: ^Virtual_String_Builder) {
-  strings.builder_reset(&vsb.builder)
-  arena__clear(bytes, &vsb.arena)
-}
-// }}}
 // {{{ XML building
+// Files cannot exceed this size. Will be bumped once the size is reached in
+// practice.
+MAX_XML_CONTENT_SIZE :: 16 * mem.Kilobyte
+
 // A builder that can be used to construct XML output in-order. In particular,
 // one must generate the attributes before the content for any given tag.
 Xml_Gen :: struct {
-  statistics:     ^Statistics,
-  internal_arena: virtual.Arena, // Junk that needs not survive a clear
-  builder:        Virtual_String_Builder,
-  tag_stack:      Exparr(string),
-  stage:          enum { Attributes, Content },
-  single:         bool,
+  site:    ^Site,
+  stage:   enum { Attributes, Content },
+  single:  bool,
+  builder: strings.Builder,
 }
 
-xml__make :: proc(gen: ^Xml_Gen, statistics: ^Statistics) {
-  log.assert(mem__is_zero(gen^))
-  gen.statistics = statistics
-	err := virtual.arena_init_static(&gen.internal_arena)
-	log.assert(err == nil)
-  gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
-  gen.stage = .Content
-  vsb__make(&gen.builder)
+// Allocates data in the stack array.
+// NOTE: We return a pointer since this will get passed around everywhere, and
+// not having to take the ref in some places (and not take it in others)
+// simplifies things a lot.
+xml__make :: proc(site: ^Site) -> ^Xml_Gen {
+  alloc := site__alloc(site, .Stack)
+  gen := Xml_Gen {
+    site = site,
+    stage = .Content,
+    builder = strings__fixed_builder(MAX_XML_CONTENT_SIZE, alloc),
+  }
+
+  return new_clone(gen, alloc)
 }
 
-xml__destroy :: proc(gen: ^Xml_Gen) {
-	arena__destroy(&gen.statistics.xml_internal_arena, &gen.internal_arena)
-	vsb__destroy(&gen.statistics.xml_builder_arena, &gen.builder)
-}
-
-xml__clear :: proc(gen: ^Xml_Gen) {
-  gen.tag_stack = {}
-  gen.tag_stack.allocator = virtual.arena_allocator(&gen.internal_arena)
-  gen.stage = .Content
-  arena__clear(&gen.statistics.xml_internal_arena, &gen.internal_arena)
-  vsb__clear(&gen.statistics.xml_builder_arena, &gen.builder)
-}
-
+@(private="file")
 xml__ensure_content :: proc(gen: ^Xml_Gen) {
   log.assert(!gen.single)
   if gen.stage == .Attributes {
@@ -380,17 +344,16 @@ xml__ensure_content :: proc(gen: ^Xml_Gen) {
 
 // An attribute without an associated value
 xml__flag :: proc(gen: ^Xml_Gen, name: string) {
-  gen.statistics.xml_attrs += 1
+  gen.site.statistics.xml_attrs += 1
   log.assert(gen.stage == .Attributes)
   fmt.sbprintf(&gen.builder, " %v", name)
 }
 
-// NOTE: always run this inside a temporary block
+// NOTE: Allocates the output string on the temporary stack.
+@(private="file")
 xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
-  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
-
-  builder: strings.Builder
-  strings.builder_init_none(&builder, temp_alloc)
+  site__frame(gen.site, true)
+  builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
 
   needs_escaping := false
   for char in formatted {
@@ -401,7 +364,7 @@ xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
   }
 
   if needs_escaping {
-    unescaped, err := strings.clone(formatted, temp_alloc)
+    unescaped, err := strings.clone(formatted, site__alloc(gen.site, .Stack))
     log.assert(err == nil)
     strings.builder_reset(&builder)
 
@@ -426,15 +389,11 @@ xml__attr :: proc(gen: ^Xml_Gen, name: string, value: any) {
 }
 
 xml__attrf :: proc(gen: ^Xml_Gen, name: string, fstr: string, args: ..any) {
-  gen.statistics.xml_attrs += 1
+  gen.site.statistics.xml_attrs += 1
   log.assert(gen.stage == .Attributes)
 
-  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
-  temp := virtual.arena_temp_begin(&gen.internal_arena)
-  defer virtual.arena_temp_end(temp)
-
-  builder: strings.Builder
-  strings.builder_init_none(&builder, temp_alloc)
+  site__frame(gen.site)
+  builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
   fmt.sbprintf(&builder, fstr, ..args)
   escaped := xml__escape(gen, strings.to_string(builder))
   fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, escaped)
@@ -455,13 +414,8 @@ xml__string :: proc(gen: ^Xml_Gen, value: any) {
 }
 
 xml__stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
-  temp_alloc := virtual.arena_allocator(&gen.internal_arena)
-  temp := virtual.arena_temp_begin(&gen.internal_arena)
-  defer virtual.arena_temp_end(temp)
-  // defer site__update_stack_stats(instance.site)
-
-  builder: strings.Builder
-  strings.builder_init_none(&builder, temp_alloc)
+  site__frame(gen.site)
+  builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
   fmt.sbprintf(&builder, fstr, ..args)
   xml__raw_string(gen, xml__escape(gen, strings.to_string(builder)))
 }
@@ -472,10 +426,8 @@ xml__tag :: proc(
   gen: ^Xml_Gen, name: string, single := false, auto_close := true
 ) -> bool {
   log.assert(name != {})
-  log.assert(!single || auto_close) // single implies auto_close
-  gen.statistics.xml_tags += 1
+  gen.site.statistics.xml_tags += 1
   xml__ensure_content(gen)
-  exparr__push(&gen.tag_stack, name)
   fmt.sbprintf(&gen.builder, "<%v", name)
   gen.stage = .Attributes
   gen.single = single
@@ -486,26 +438,25 @@ xml__tag_end_auto :: proc(
   gen: ^Xml_Gen, name: string, single, auto_close: bool
 ) {
   if !auto_close do return
-  xml__tag_end(gen)
+  xml__tag_end(gen, name)
 }
 
-xml__tag_end :: proc(gen: ^Xml_Gen) {
-  last := exparr__pop(&gen.tag_stack)
+xml__tag_end :: proc(gen: ^Xml_Gen, name: string) {
   if gen.single {
     gen.stage = .Content
     fmt.sbprintf(&gen.builder, "/>")
   } else {
     xml__ensure_content(gen)
-    fmt.sbprintf(&gen.builder, "</%v>", last)
+    fmt.sbprintf(&gen.builder, "</%v>", name)
   }
 
   gen.single = false
 }
 
 @(private="file")
-site__xml :: proc(site: ^Site) -> string {
-  allocator := site__alloc(site)
-  clone, err := strings.clone(strings.to_string(site.xml.builder), allocator)
+xml__output :: proc(gen: ^Xml_Gen) -> string {
+  allocator := site__alloc(gen.site)
+  clone, err := strings.clone(strings.to_string(gen.builder), allocator)
   log.assert(err == nil)
   return clone
 }
@@ -585,20 +536,18 @@ site__collect :: proc(site: ^Site) {
 Bytes :: distinct uint
 
 Statistics :: struct {
-	tokens:                    uint,
-	codecs:                    uint,
-	codec_evaluations:         uint,
-  xml_tags:                  uint,
-  xml_attrs:                 uint,
-  pages:                     uint,
-  directories_visited:       uint,
-  files_generated:           uint,
+	tokens:              uint,
+	codecs:              uint,
+	codec_evaluations:   uint,
+  xml_tags:            uint,
+  xml_attrs:           uint,
+  pages:               uint,
+  directories_visited: uint,
+  files_generated:     uint,
 
-  system_arena:          Bytes,
-  site_forever_arena:    Bytes,
-  site_stack_arena:      Bytes,
-  xml_internal_arena:    Bytes,
-  xml_builder_arena:     Bytes,
+  system_arena:       Bytes,
+  site_forever_arena: Bytes,
+  site_stack_arena:   Bytes,
 }
 
 // Destroy an arena, saving the stats of how much memory it used up
@@ -618,8 +567,8 @@ arena__destroy :: proc(bytes: ^Bytes, arena: ^virtual.Arena)  {
 // {{{ Sitemap
 @(private = "file")
 site__sitemap :: proc(site: ^Site) -> string {
-  g := &site.xml
-  defer xml__clear(g)
+  site__frame(site)
+  g := xml__make(site)
 
   xml__raw_string(
     g,
@@ -634,15 +583,12 @@ site__sitemap :: proc(site: ^Site) -> string {
       xml__tag(g, "url")
 
       if xml__tag(g, "loc") {
-        xml__stringf(g, "%v", page.url)
+        xml__string(g, page.url)
       }
 
       if xml__tag(g, "last_mod") {
-        allocator := virtual.arena_allocator(&g.internal_arena)
         at := page__last_updated(page^)
-        str, ok := time.time_to_rfc3339(at, allocator=allocator)
-        log.assert(ok)
-        xml__stringf(g, "%v", str)
+        xml__string(g, Rfc3339(at))
       }
 
       if mem__non_zero(page.priority) {
@@ -655,16 +601,16 @@ site__sitemap :: proc(site: ^Site) -> string {
     }
   }
 
-  return site__xml(site)
+  return xml__output(g)
 }
 // }}}
 // {{{ RSS feed
 @(private = "file")
 site__feed :: proc(
   site: ^Site, base: Page, feed: Def__Feed
-) -> (path: Path__Output, content: string) {
-  g := &site.xml
-  defer xml__clear(g)
+) -> string {
+  site__frame(site)
+  g := xml__make(site)
 
   xml__raw_string(
     g,
@@ -747,7 +693,7 @@ site__feed :: proc(
     }
   }
 
-  return feed.site_path, site__xml(site)
+  return xml__output(g)
 }
 // }}}
 // {{{ Files
@@ -836,20 +782,20 @@ site__commit :: proc(site: ^Site) {
 // }}}
 // {{{ Site
 site__generate :: proc(site: ^Site) {
-  forever := site__alloc(site)
   site__add_file(site, Path__Output("sitemap.xml"), site__sitemap(site))
   for iter := iter__mk(site.pages); page in iter__next(&iter) {
     for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
-      feed_path, feed_content := site__feed(site, page^, feed^)
-      site__add_file(site, feed_path, feed_content)
+      feed_content := site__feed(site, page^, feed^)
+      site__add_file(site, feed.site_path, feed_content)
     }
 
     page_path := site__resolve(site, page.site_path, "index.html")
 
     {
-      defer xml__clear(&site.xml)
-      page__html(site, page, .Self)
-      site__add_file(site, page_path, site__xml(site))
+      site__frame(site)
+      g := xml__make(site)
+      page__html(g, page, .Self)
+      site__add_file(site, page_path, xml__output(g))
     }
 
     for iter := iter__mk(page.styles); style in iter__next(&iter) {
@@ -869,7 +815,7 @@ site__generate :: proc(site: ^Site) {
         "something went wrong in the process. Consider clicking said " + \
         "link manually :3",
         site__url(site, redirect.to),
-        allocator = forever
+        allocator = site__alloc(site)
       )
     )
   }

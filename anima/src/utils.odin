@@ -2,9 +2,10 @@
 // for myself.
 package anima
 
-import "core:mem"
-import "core:time"
 import "core:container/small_array"
+import "core:mem"
+import "core:strings"
+import "core:time"
 
 // Similar to the standard library's "new", except the type of the allocation
 // need not be known at compile time.
@@ -50,4 +51,12 @@ iter__mk :: proc {
 
 iter__next :: proc {
   exparr__iter__next,
+}
+
+strings__fixed_builder :: proc(
+  size: uint, alloc: mem.Allocator
+) -> (builder: strings.Builder) {
+  builder = strings.builder_make_len_cap(0, int(size), alloc)
+  builder.buf.allocator = mem.panic_allocator() // No more growth!
+  return builder
 }

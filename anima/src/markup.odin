@@ -151,8 +151,7 @@ Page_Gen_Mode :: enum {
   Changelog,
 }
 
-page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
-  g := &site.xml
+page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
   xml__raw_string(g, "<!doctype html>")
   xml__tag(g, "html")
   xml__attr(g, "lang", "en")
@@ -172,8 +171,8 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
       "width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"
     )
 
-    title := inline_markup__formatter(site, page, &page.title)
-    desc  := inline_markup__formatter(site, page, &page.description)
+    title := inline_markup__formatter(g.site, page, &page.title)
+    desc  := inline_markup__formatter(g.site, page, &page.description)
     meta(g, "property", "og:site_name", SITE_NAME)
     meta(g, "property", "og:url", page.url)
     meta(g, "property", "og:title", title)
@@ -188,7 +187,7 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "rel", "alternate")
       xml__attr(g, "type", "application/rss+xml")
       xml__attrf(g, "title", "Moonythm | %v", strings.trim_space(feed.name))
-      xml__attr(g, "href", site__url(site, feed.site_path, .Stack))
+      xml__attr(g, "href", site__url(g.site, feed.site_path, .Stack))
     }
 
     for iter := iter__mk(page.in_styles); style in iter__next(&iter) {
@@ -197,15 +196,15 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
         xml__tag(g, "link")
         xml__attr(g, "rel", "preload")
         xml__attr(g, "as", "stylesheet")
-        xml__attr(g, "href", site__url(site, style.site_path, .Stack))
+        xml__attr(g, "href", site__url(g.site, style.site_path, .Stack))
       }
 
       xml__tag(g, "link")
       xml__attr(g, "rel", "stylesheet")
-      xml__attr(g, "href", site__url(site, style.site_path, .Stack))
+      xml__attr(g, "href", site__url(g.site, style.site_path, .Stack))
     }
 
-    if xml__tag(g, "title") do inline_markup__html(site, page^, page.title)
+    if xml__tag(g, "title") do inline_markup__html(g, page^, page.title)
 
     // NOTE: I might un-hardcode these paths in the future
     if xml__tag(g, "link") {
@@ -240,16 +239,16 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "aria-labelledby", "main")
       heading := Heading { level = 1, content = page.title, id = "main" } 
       if page.compact {
-        block_markup__anchored_heading(site, page^, heading, main = true)
+        block_markup__anchored_heading(g, page^, heading, main = true)
       } else if xml__tag(g, "header") {
-        block_markup__anchored_heading(site, page^, heading, main = true)
+        block_markup__anchored_heading(g, page^, heading, main = true)
 
         // NOTE: we do duplicate these, so I might eventually abstract them away
         if xml__tag(g, "ul") {
           if xml__tag(g, "li") {
             xml__stringf(g, "%v by ", fmt__posted_on(&page.published_at))
             xml__tag(g, "a")
-            xml__attrf(g, "href", "%v", site.base_url)
+            xml__attr(g, "href", g.site.base_url)
             xml__attr(g, "rel", "bookmark")
             xml__string(g, USERNAME)
           }
@@ -273,10 +272,10 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
       }
 
       if page.compact {
-        block_markup__html(site, page^, page.content)
+        block_markup__html(g, page^, page.content)
       } else {
         xml__tag(g, "article")
-        block_markup__html(site, page^, page.content)
+        block_markup__html(g, page^, page.content)
       }
 
       // TODO: footnotes
@@ -814,13 +813,10 @@ codec__text_impl :: proc(
       inner.allocator = kit.temp_allocator
       exparr__push(inner, outer^)
     case .Inject:
-      size := 0
+      size: uint = 0
       for i in 0..<inner.len do size += len(exparr__get(inner^, i))
 
-      // Allocate a string buffer, preventing further re-allocations
-      builder := strings.builder_make_len_cap(0, size, kit.allocator)
-      builder.buf.allocator = mem.panic_allocator()
-
+      builder := strings__fixed_builder(size, kit.allocator)
       for i in 0..<inner.len {
         chunk := exparr__get(inner^, i)^
         size := len(builder.buf)
@@ -1158,9 +1154,8 @@ inline_markup__formatter :: proc(
 // {{{ Formatting as html
 @(private="file")
 inline_markup__atom__html :: proc(
-  site: ^Site, page: Page, atom: Inline_Markup__Atom
+  g: ^Xml_Gen, page: Page, atom: Inline_Markup__Atom
 ) {
-  g := &site.xml
   switch inner in atom {
   case nil:
   case ^Inline_Markup__Icon:
@@ -1177,27 +1172,27 @@ inline_markup__atom__html :: proc(
     xml__string(g, string(inner))
   case Inline_Markup__Emph:
     xml__tag(g, "em")
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
   case Inline_Markup__Strong:
     xml__tag(g, "strong")
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
   case Inline_Markup__Strikethrough:
     xml__tag(g, "s")
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
   case Inline_Markup__Mono:
     xml__tag(g, "code")
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
   case Inline_Markup__Quote:
     xml__stringf(g, "%v", QUOTE_EN_LEFT)
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
     xml__stringf(g, "%v", QUOTE_EN_RIGHT)
   case ^Inline_Markup__Link:
     xml__tag(g, "a")
     xml__attr(g, "href", inner.def.target)
     if mem__non_zero(inner.label) {
-      inline_markup__html(site, page, inner.label)
+      inline_markup__html(g, page, inner.label)
     } else if inner.def != nil && mem__non_zero(inner.def.label) {
-      inline_markup__html(site, page, inner.def.label)
+      inline_markup__html(g, page, inner.def.label)
     } else if inner.def != nil {
       xml__string(g, inner.def.id)
     } else {
@@ -1235,12 +1230,12 @@ inline_markup__atom__html :: proc(
 }
 
 inline_markup__html :: proc(
-  site: ^Site, page: Page, im: Inline_Markup
+  g: ^Xml_Gen, page: Page, im: Inline_Markup
 ) {
   if im.elements == nil do return
   for i in 0..<im.elements.len {
     chunk := exparr__get(im.elements^, i)^
-    inline_markup__atom__html(site, page, chunk)
+    inline_markup__atom__html(g, page, chunk)
   }
 }
 // }}}
@@ -1586,9 +1581,8 @@ HEADING_TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
 
 @(private="file")
 block_markup__anchored_heading :: proc(
-  site: ^Site, page: Page, heading: Heading, main := false
+  g: ^Xml_Gen, page: Page, heading: Heading, main := false
 ) {
-  g := &site.xml
   xml__tag(g, HEADING_TAG_NAMES[heading.level - 1])
   xml__attr(g, "id", heading.id)
 
@@ -1605,14 +1599,13 @@ block_markup__anchored_heading :: proc(
   }
 
   xml__string(g, " ")
-  inline_markup__html(site, page, heading.content)
+  inline_markup__html(g, page, heading.content)
 }
 
 @(private="file")
 block_markup__atom__html :: proc(
-  site: ^Site, page: Page, atom: Block_Markup__Atom
+  g: ^Xml_Gen, page: Page, atom: Block_Markup__Atom
 ) {
-  g := &site.xml
   switch inner in atom {
   case nil:
   case ^Def__Link:
@@ -1624,7 +1617,7 @@ block_markup__atom__html :: proc(
     log.panic("Cannot render section-less heading as HTML")
   case Block_Markup__Description:
     xml__tag(g, "p")
-    inline_markup__html(site, page, page.description)
+    inline_markup__html(g, page, page.description)
   case Block_Markup__Table_Of_Contents:
     xml__tag(g, "details")
     if xml__tag(g, "summary") do xml__string(g, "Toggle table of contens")
@@ -1649,8 +1642,8 @@ block_markup__atom__html :: proc(
         last := small_array.get(stack, j)
         (last >= heading.level) or_break
         small_array.pop_back(&stack)
-        if last_has_children do xml__tag_end(g) // </ol>
-        xml__tag_end(g) // </li>
+        if last_has_children do xml__tag_end(g, "ol")
+        xml__tag_end(g, "li")
         last_has_children = true
       }
 
@@ -1662,21 +1655,21 @@ block_markup__atom__html :: proc(
       xml__tag(g, "li", auto_close = false)
       xml__tag(g, "a")
       xml__attrf(g, "href", "#%v", heading.id)
-      inline_markup__html(site, page, heading.content)
+      inline_markup__html(g, page, heading.content)
       last_has_children = false
     }
 
     // Clean what's left of the stack
     for small_array.len(stack) > 0 {
       small_array.pop_back(&stack)
-      if last_has_children do xml__tag_end(g) // </ol>
-      xml__tag_end(g) // </li>
+      if last_has_children do xml__tag_end(g, "ol")
+      xml__tag_end(g, "li")
       last_has_children = true
     }
   case Article_List:
     xml__tag(g, "ol")
     xml__attr(g, "class", "article-list")
-    for iter := iter__mk(site.pages); article in iter__next(&iter) {
+    for iter := iter__mk(g.site.pages); article in iter__next(&iter) {
       page_filter__eval(page, article^, inner.filter) or_continue
 
       xml__tag(g, "li")
@@ -1686,14 +1679,14 @@ block_markup__atom__html :: proc(
         xml__tag(g, "a")
         xml__attrf(g, "href", "%v", article.url)
         xml__attr(g, "rel", "bookmark")
-        inline_markup__html(site, article^, article.title)
+        inline_markup__html(g, article^, article.title)
       }
 
       if xml__tag(g, "ul") {
         if xml__tag(g, "li") {
           xml__stringf(g, "%v by ", fmt__posted_on(&article.published_at))
           xml__tag(g, "a")
-          xml__attrf(g, "href", "%v", site.base_url)
+          xml__attrf(g, "href", "%v", g.site.base_url)
           xml__attr(g, "rel", "bookmark")
           xml__string(g, USERNAME)
         }
@@ -1714,30 +1707,30 @@ block_markup__atom__html :: proc(
       }
 
       xml__tag(g, "p")
-      inline_markup__html(site, article^, article.description)
+      inline_markup__html(g, article^, article.description)
     }
   case Block_Markup__Section:
     xml__tag(g, "section")
     xml__attr(g, "aria-labelledby", inner.heading.id)
-    block_markup__anchored_heading(site, page, inner.heading^)
-    block_markup__html(site, page, inner.content)
+    block_markup__anchored_heading(g, page, inner.heading^)
+    block_markup__html(g, page, inner.content)
   case Block_Markup__Paragraph:
     xml__tag(g, "p")
-    inline_markup__html(site, page, Inline_Markup(inner))
+    inline_markup__html(g, page, Inline_Markup(inner))
   case Block_Markup__Blockquote:
     xml__tag(g, "blockquote")
-    block_markup__html(site, page, Block_Markup(inner))
+    block_markup__html(g, page, Block_Markup(inner))
   case Block_Markup__List:
     xml__tag(g, inner.ordered ? "ol" : "ul")
     if inner.block {
       for i in 0..<inner.bmarkup.len {
         xml__tag(g, "li")
-        block_markup__html(site, page, exparr__get(inner.bmarkup, i)^)
+        block_markup__html(g, page, exparr__get(inner.bmarkup, i)^)
       }
     } else {
       for i in 0..<inner.imarkup.len {
         xml__tag(g, "li")
-        inline_markup__html(site, page, exparr__get(inner.imarkup, i)^)
+        inline_markup__html(g, page, exparr__get(inner.imarkup, i)^)
       }
     }
   case Block_Markup__Code:
@@ -1751,31 +1744,30 @@ block_markup__atom__html :: proc(
   case Table:
     if mem__non_zero(inner.caption) {
       xml__tag(g, "caption")
-      inline_markup__html(site, page, inner.caption)
+      inline_markup__html(g, page, inner.caption)
     }
 
-    row__html :: proc(site: ^Site, page: Page, row: Table__Row, kind: string) {
-      g := &site.xml
+    row__html :: proc(g: ^Xml_Gen, page: Page, row: Table__Row, kind: string) {
       xml__tag(g, "tr")
       for iter := iter__mk(row.cells); cell in iter__next(&iter) {
         xml__tag(g, kind)
-        inline_markup__html(site, page, cell.content)
+        inline_markup__html(g, page, cell.content)
       }
     }
 
-    row__html(site, page, inner.header, "th")
+    row__html(g, page, inner.header, "th")
     for iter := iter__mk(inner.rows); row in iter__next(&iter) {
-      row__html(site, page, row^, "td")
+      row__html(g, page, row^, "td")
     }
   }
 }
 
 block_markup__html :: proc(
-  site: ^Site, page: Page, bm: Block_Markup
+  g: ^Xml_Gen, page: Page, bm: Block_Markup
 ) {
   for i in 0..<bm.elements.len {
     chunk := exparr__get(bm.elements, i)^
-    block_markup__atom__html(site, page, chunk)
+    block_markup__atom__html(g, page, chunk)
   }
 }
 // }}}
