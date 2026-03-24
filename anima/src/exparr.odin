@@ -1,7 +1,6 @@
 package anima
 
 import "base:intrinsics"
-import "base:runtime"
 import "core:mem"
 import "core:log"
 
@@ -33,7 +32,7 @@ import "core:log"
 // up when used inside union branches for the various markup trees since, unless
 // boxed, padding gets introduced for the surrounding branches as well.
 Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
-	allocator: runtime.Allocator,
+	allocator: mem.Allocator,
 
   // A possible simplification is just imposing a max chunk-count (perhaps 30?),
 	// and using a fixed-size array here. Since the chunk size grows
@@ -106,17 +105,6 @@ exparr__push :: proc(
 	ptr^ = element
 	exparr.len += 1
 	return ptr
-}
-
-// NOTE: this will invalidate pointers to the elements!
-exparr__reverse :: proc(exparr: Exparr($V, $FCE)) {
-	for i in 0 ..< exparr.len / 2 {
-		xp := exparr__get(exparr, i)
-		yp := exparr__get(exparr, exparr.len - i - 1)
-		yv := yp^
-		yp^ = xp^
-		xp^ = yv
-	}
 }
 
 // {{{ Value iterator

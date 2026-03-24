@@ -111,7 +111,9 @@ formatters__init :: proc(allocator: mem.Allocator) {
 	fmt.set_user_formatters(formatters)
 
 	// {{{ Bytes
-	fmt.register_user_formatter(Bytes, proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+	fmt.register_user_formatter(
+    Bytes,
+    proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 			bytes := cast(^Bytes)arg.data
       (verb == 'v') or_return
 
