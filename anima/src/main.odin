@@ -21,12 +21,10 @@ main :: proc() {
   system_allocator := virtual.arena_allocator(&system_arena)
 	err := virtual.arena_init_static(&system_arena)
 	assert(err == nil)
+  defer virtual.arena_destroy(&system_arena)
 
 	context.logger = log.create_console_logger(allocator=system_allocator)
-  defer log.destroy_console_logger(context.logger, allocator=system_allocator)
-
   formatters__init(system_allocator)
-  defer formatters__deinit(system_allocator)
 
   site: Site
   content_root := "/home/moon/projects/personal/nihil/anima/src/example"

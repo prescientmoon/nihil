@@ -237,7 +237,7 @@ mps__inline_markup__atom :: proc(
 
 mps__inline_markup :: proc(mps: ^Markup_Printer_State, markup: Inline_Markup) {
 	for i in 0 ..< markup.elements.len {
-		inner := exparr__get(markup.elements^, i)
+		inner := get(markup.elements^, i)
 		mps__inline_markup__atom(mps, inner^)
 	}
 }
@@ -347,7 +347,7 @@ mps__block_markup__atom :: proc(
 
 		mps__table_row :: proc(mps: ^Markup_Printer_State, row: Table__Row) {
 			for i in 0 ..< row.cells.len {
-				cell := exparr__get(row.cells, i)^
+				cell := get(row.cells, i)^
 				mps__deeper(mps, "cell")
 				mps__table_cell(mps, cell)
 			}
@@ -356,7 +356,7 @@ mps__block_markup__atom :: proc(
 		{mps__deeper(mps, "header"); mps__table_row(mps, inner.header)}
 
 		for i in 0 ..< inner.rows.len {
-			row := exparr__get(inner.rows, i)^
+			row := get(inner.rows, i)^
 			mps__deeper(mps, "row")
 			mps__table_row(mps, row)
 		}
@@ -371,12 +371,12 @@ mps__block_markup__atom :: proc(
     if inner.block {
 			for i in 0 ..< inner.bmarkup.len {
 				mps__deeper(mps, "item")
-				mps__block_markup(mps, exparr__get(inner.bmarkup, i)^)
+				mps__block_markup(mps, get(inner.bmarkup, i)^)
 			}
     } else {
 			for i in 0 ..< inner.imarkup.len {
 				mps__deeper(mps, "item")
-				mps__inline_markup(mps, exparr__get(inner.imarkup, i)^)
+				mps__inline_markup(mps, get(inner.imarkup, i)^)
 			}
 		}
 	case:
@@ -386,7 +386,7 @@ mps__block_markup__atom :: proc(
 
 mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
 	for i in 0 ..< markup.elements.len {
-		inner := exparr__get(markup.elements, i)
+		inner := get(markup.elements, i)
 		mps__block_markup__atom(mps, inner^)
 	}
 }
@@ -441,7 +441,7 @@ mps__page_filter__many :: proc(
   mps: ^Markup_Printer_State, many: $T/Page_Filter__Many
 ) {
   for i in 0..<many.elements.len {
-    mps__page_filter__atom(mps, exparr__get(many.elements, i)^)
+    mps__page_filter__atom(mps, get(many.elements, i)^)
   }
 }
 
@@ -494,23 +494,23 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   }
 
   for i in 0..<page.feeds.len {
-    mps__feed(mps, exparr__get(page.feeds, i)^)
+    mps__feed(mps, get(page.feeds, i)^)
   }
 
   for i in 0..<page.changelog.len {
-    change := exparr__get(page.changelog, i)^
+    change := get(page.changelog, i)^
     mps__deeper(mps, "change")
     mps__labeled_timestamp(mps, "at", change.at)
     mps__inline_markup(mps, change.message)
   }
 
   for i in 0..<page.tags.len {
-    tag := string(exparr__get(page.tags, i)^)
+    tag := string(get(page.tags, i)^)
     mps__labeled_str(mps, "tag", tag)
   }
 
   for i in 0..<page.aliases.len {
-    alias := exparr__get(page.aliases, i)^
+    alias := get(page.aliases, i)^
     mps__labeled_str(mps, "alias", string(alias))
   }
 

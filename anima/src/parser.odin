@@ -310,14 +310,14 @@ parser__lex :: proc(site: ^Site, file: ^File) -> (tokens: Tokens, ok: bool) {
 			indentation = tok.from.col,
 		}
 
-		exparr__push(&tokens, itok)
+		push(&tokens, itok)
 
 		if tok.kind == .Eof do break
 	}
 
 	current_indentation: uint = 0
 	for i := tokens.len - 1; int(i) >= 0; i -= 1 {
-		tok := exparr__get(tokens, i)
+		tok := get(tokens, i)
 		if tok.kind == .Space || tok.kind == .Newline {
 			tok.indentation = current_indentation
 		} else {
@@ -367,7 +367,7 @@ Parser :: struct {
 // }}}
 // {{{ Parser helpers
 parser__get_pos :: proc(instance: Parser) -> Source_Loc {
-  return exparr__get(instance.tokens, instance.token^).from
+  return get(instance.tokens, instance.token^).from
 }
 
 parser__advance :: proc(instance: Parser) {
@@ -375,7 +375,7 @@ parser__advance :: proc(instance: Parser) {
 }
 
 parser__get_token :: proc(instance: Parser) -> (tok: Token) {
-	itok := exparr__get(instance.tokens, instance.token^)^
+	itok := get(instance.tokens, instance.token^)^
 
 	if itok.indentation <= instance.indentation {
 		return {from = tok.from}
@@ -386,7 +386,7 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 		offset: uint = 1
 		for {
       index     := instance.token^ + offset
-			next_itok := exparr__get(instance.tokens, index)^
+			next_itok := get(instance.tokens, index)^
 
 			if next_itok.kind == .Space {
 				offset += 1
@@ -547,12 +547,11 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       clone, err := strings.clone(strings.to_string(builder), temp_alloc)
       log.assert(err == nil)
       strings.builder_reset(&builder)
-      exparr__push(&lines, clone)
+      push(&lines, clone)
     }
 
     min_indent := max(uint)
-    iter := iter__mk(lines)
-    for line in iter__next(&iter) {
+    for iter := iter__mk(lines); line in iter__next(&iter) {
       indent: uint = 0
       non_empty := false
       for char in line^ {
@@ -568,8 +567,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       if min_indent > indent do min_indent = indent
     }
 
-    iter = iter__mk(lines)
-    for line, i in iter__next(&iter) {
+    for iter := iter__mk(lines); line, i in iter__next(&iter) {
       sliced := len(line^) >= int(min_indent) \
         ? strings.trim_right_space(line^[min_indent:]) : ""
       if i > 0 do strings.write_rune(&builder, '\n')
@@ -637,10 +635,9 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
     pos__post := parser__get_pos(instance)
     loc := Source_Range{pos__pre, pos__post}
-    for i in 0..<kit.errors.len {
-      msg := exparr__get(kit.errors, i)^
+    for iter := iter__mk(kit.errors); msg in iter__next(&iter) {
       instance.ok^ = false
-      site__error(instance.site, loc, msg)
+      site__error(instance.site, loc, msg^)
     }
 
     return consumed

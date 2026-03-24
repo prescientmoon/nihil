@@ -63,11 +63,6 @@ exparr__get :: proc(
 	return &exparr.chunks[chunk][local_ix]
 }
 
-exparr__last :: proc(exparr: Exparr($V, $FCE)) -> ^V {
-	log.assert(exparr.len > 0)
-	return exparr__get(exparr, exparr.len - 1)
-}
-
 exparr__push :: proc(
   exparr: ^Exparr($V, $FCE), element: V, loc := #caller_location
 ) -> ^V {
@@ -93,13 +88,6 @@ exparr__push :: proc(
 	return ptr
 }
 
-exparr__pop :: proc(exparr: ^Exparr($V, $FCE)) -> V {
-	assert(exparr.len > 0)
-	v := exparr__get(exparr^, exparr.len - 1)
-	exparr.len -= 1
-	return v^
-}
-
 // NOTE: this will invalidate pointers to the elements!
 exparr__reverse :: proc(exparr: Exparr($V, $FCE)) {
 	for i in 0 ..< exparr.len / 2 {
@@ -111,16 +99,7 @@ exparr__reverse :: proc(exparr: Exparr($V, $FCE)) {
 	}
 }
 
-exparr__push_exparr :: proc(
-  exparr: ^Exparr($V, $FCE), elements: Exparr(V, $OFCE)
-) {
-	for i in 0 ..< elements.len {
-		exparr__push(exparr, exparr__get(elements, i)^)
-	}
-}
-
-
-// Iterator
+// {{{ Value iterator
 Exparr__Iter :: struct($T: typeid, $FCE: uint) {
   exparr: Exparr(T, FCE),
   index:  uint,
@@ -137,3 +116,4 @@ exparr__iter__next :: proc(
   defer iter.index += 1
   return exparr__get(iter.exparr, iter.index), iter.index, true
 }
+// }}}

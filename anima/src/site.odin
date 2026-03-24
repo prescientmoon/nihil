@@ -78,9 +78,11 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
   site.errors.allocator    = forever
   site.files.allocator     = forever
 
-	codec_kit := codec__kit__make(site)
-  site.page_codec = codec__page(&codec_kit)
-	codec__kit__destroy(codec_kit)
+  {
+    site__frame(site)
+    codec_kit := codec__kit__make(site)
+    site.page_codec = codec__page(&codec_kit)
+  }
 }
 
 site__destroy :: proc(site: ^Site) {
@@ -90,7 +92,7 @@ site__destroy :: proc(site: ^Site) {
 // }}}
 // {{{ Error reporting
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
-	exparr__push(&site.errors, Error{loc, msg})
+	push(&site.errors, Error{loc, msg})
 }
 
 site__errorf :: proc(
@@ -102,9 +104,8 @@ site__errorf :: proc(
 
 site__check_errors :: proc(site: ^Site) {
   if site.errors.len > 0 {
-    for i in 0..<site.errors.len {
-      err := exparr__get(site.errors, i)^
-      fmt.eprintln(pretty_error(err))
+    for iter := iter__mk(site.errors); err in iter__next(&iter) {
+      fmt.eprintln(pretty_error(err^))
     }
 
     os.exit(1)
@@ -152,28 +153,27 @@ site__update_stack_stats :: proc(site: ^Site) {
 // }}}
 // {{{ Checking 
 site__check :: proc(site: ^Site) {
-  for i in 0..<site.pages.len {
-    page := exparr__get(site.pages, i)
+  for iter := iter__mk(site.pages); page in iter__next(&iter) {
     page__check(site, page)
   }
 
   // This is inefficient as fuck, but it's fineeee
   // {{{ Monstrous link/icon duplicate checker
   for i in 0..<site.pages.len {
-    defsite1 := exparr__get(site.pages, i)
+    defsite1 := get(site.pages, i)
     for j in i..<site.pages.len {
-      defsite2 := exparr__get(site.pages, j)
+      defsite2 := get(site.pages, j)
       for l in 0..<defsite1.links.len {
-        link1 := exparr__get(defsite1.links, l)
+        link1 := get(defsite1.links, l)
         for m in 0..<defsite2.links.len {
-          link2 := exparr__get(defsite2.links, m)
+          link2 := get(defsite2.links, m)
 
           (link1.id == link2.id)          or_continue
           (link1 != link2)                or_continue
           (defsite1 != defsite2 || m > l) or_continue
 
           for k in 0..<site.pages.len {
-            test_page := exparr__get(site.pages, k)
+            test_page := get(site.pages, k)
 
             page_filter__eval(defsite1^, test_page^, link1.scope) or_continue
             page_filter__eval(defsite2^, test_page^, link2.scope) or_continue
@@ -196,20 +196,20 @@ site__check :: proc(site: ^Site) {
   }
 
   for i in 0..<site.pages.len {
-    defsite1 := exparr__get(site.pages, i)
+    defsite1 := get(site.pages, i)
     for j in i..<site.pages.len {
-      defsite2 := exparr__get(site.pages, j)
+      defsite2 := get(site.pages, j)
       for l in 0..<defsite1.icons.len {
-        icon1 := exparr__get(defsite1.icons, l)
+        icon1 := get(defsite1.icons, l)
         for m in 0..<defsite2.icons.len {
-          icon2 := exparr__get(defsite2.icons, l)
+          icon2 := get(defsite2.icons, l)
 
           (icon1.id == icon2.id)          or_continue
           (icon1 != icon2)                or_continue
           (defsite1 != defsite2 || m > l) or_continue
 
           for k in 0..<site.pages.len {
-            test_page := exparr__get(site.pages, k)
+            test_page := get(site.pages, k)
 
             page_filter__eval(defsite1^, test_page^, icon1.scope) or_continue
             page_filter__eval(defsite2^, test_page^, icon2.scope) or_continue
@@ -307,15 +307,33 @@ site__url :: proc(
 // {{{ XML building
 // Files cannot exceed this size. Will be bumped once the size is reached in
 // practice.
+//
+// We do this in order to simplify the memory management, since this means we
+// don't need to worry about the string builder potentially growing while we're
+// taking care of other things.
+//
+// Thins might feel a bit strange at first, but anima is not meant to be a
+// general purpose static site generator, hence we are free to make use of
+// specific facts about its real life usage.
+//
+// Note that another way to not have to worry about this would be to stream the
+// XML dirrectly into a file, although that would require a few changes to the
+// way we organise things.
 MAX_XML_CONTENT_SIZE :: 16 * mem.Kilobyte
 
 // A builder that can be used to construct XML output in-order. In particular,
 // one must generate the attributes before the content for any given tag.
 Xml_Gen :: struct {
   site:    ^Site,
-  stage:   enum { Attributes, Content },
-  single:  bool,
+
+  // The output we're generating is being written here.
   builder: strings.Builder,
+
+  // What are we generating right now?
+  stage:   enum { Attributes, Content },
+
+  // Are we inside a self-closing tag? (i.e. <img ... />)
+  single:  bool,
 }
 
 // Allocates data in the stack array.
@@ -349,11 +367,14 @@ xml__flag :: proc(gen: ^Xml_Gen, name: string) {
   fmt.sbprintf(&gen.builder, " %v", name)
 }
 
+// Escapes special character found in an XML string. In particular, this will
+// take care of the following: <, >, ", and &.
 // NOTE: Allocates the output string on the temporary stack.
 @(private="file")
-xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
-  site__frame(gen.site, true)
+xml__escape :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) -> string {
   builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
+  fmt.sbprintf(&builder, fstr, ..args)
+  formatted := strings.to_string(builder)
 
   needs_escaping := false
   for char in formatted {
@@ -364,6 +385,8 @@ xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
   }
 
   if needs_escaping {
+    // Move the formatted string outside the builder. That way the builder can
+    // be reused by the escaping loop.
     unescaped, err := strings.clone(formatted, site__alloc(gen.site, .Stack))
     log.assert(err == nil)
     strings.builder_reset(&builder)
@@ -393,9 +416,7 @@ xml__attrf :: proc(gen: ^Xml_Gen, name: string, fstr: string, args: ..any) {
   log.assert(gen.stage == .Attributes)
 
   site__frame(gen.site)
-  builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
-  fmt.sbprintf(&builder, fstr, ..args)
-  escaped := xml__escape(gen, strings.to_string(builder))
+  escaped := xml__escape(gen, fstr, ..args)
   fmt.sbprintf(&gen.builder, " %v=\"%v\"", name, escaped)
 }
 
@@ -415,9 +436,7 @@ xml__string :: proc(gen: ^Xml_Gen, value: any) {
 
 xml__stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
   site__frame(gen.site)
-  builder := strings.builder_make_none(site__alloc(gen.site, .Stack))
-  fmt.sbprintf(&builder, fstr, ..args)
-  xml__raw_string(gen, xml__escape(gen, strings.to_string(builder)))
+  xml__raw_string(gen, xml__escape(gen, fstr, ..args))
 }
 
 // We return a boolean such that this can be used with if statements.
@@ -469,10 +488,16 @@ site__collect :: proc(site: ^Site) {
   collect_under :: proc(site: ^Site, directory: Path__Absolute) {
     site.statistics.directories_visited += 1
     file, err := os.open(string(directory))
-
     if err != nil {
       site__errorf(site, directory, "Failed to read directory: %v", err)
       return
+    }
+
+    defer {
+      err := os.close(file)
+      if err != nil {
+        site__errorf(site, directory, "Failed to close directory: %v", err)
+      }
     }
 
     iter := os.read_directory_iterator_create(file)
@@ -515,7 +540,7 @@ site__collect :: proc(site: ^Site) {
           page: Page
           if parser__eval(site, site.page_codec, file, &page) {
             page.source_path = site__ipath(site, directory)
-            exparr__push(&site.pages, page)
+            push(&site.pages, page)
           }
         }
       }
@@ -577,8 +602,7 @@ site__sitemap :: proc(site: ^Site) -> string {
 
   if xml__tag(g, "urlset") {
     xml__attr(g, "xmlns", "http://www.sitemaps.org/schemas/sitemap/0.9")
-    for i in 0..<site.pages.len {
-      page := exparr__get(site.pages, i)
+    for iter := iter__mk(site.pages); page in iter__next(&iter) {
       page.public or_continue
       xml__tag(g, "url")
 
@@ -678,10 +702,9 @@ site__feed :: proc(
           xml__string(g, page__guid(site, page^, .Stack))
         }
 
-        for j in 0..<page.tags.len {
-          tag := exparr__get(page.tags, j)^
+        for iter := iter__mk(page.tags); tag in iter__next(&iter) {
           xml__tag(g, "category")
-          xml__string(g, tag)
+          xml__string(g, tag^)
         }
       }
 
@@ -717,7 +740,7 @@ site__add_file :: proc(
 ) {
   site.statistics.files_generated += 1
   entry := File_Gen_Entry { path, content }
-  exparr__push(&site.files, entry)
+  push(&site.files, entry)
 }
 
 // Commit the site's generated files to disk.

@@ -1,6 +1,5 @@
 package anima
 
-import "core:container/small_array"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -77,7 +76,7 @@ page__guid :: proc(
   if page.aliases.len == 0 {
     return page.url
   } else {
-    first := exparr__get(page.aliases, 0)
+    first := get(page.aliases, 0)
     return site__url(site, first^, alloc)
   }
 }
@@ -307,12 +306,12 @@ page__check :: proc(site: ^Site, page: ^Page) {
   for iter := iter__mk(site.pages); other_page in iter__next(&iter) {
     for iter := iter__mk(other_page.feeds); feed in iter__next(&iter) {
       page_filter__all__eval(other_page^, page^, feed.under) or_continue
-      exparr__push(&page.in_feeds, feed)
+      push(&page.in_feeds, feed)
     }
 
     for iter := iter__mk(other_page.styles); style in iter__next(&iter) {
       page_filter__all__eval(other_page^, page^, style.scope) or_continue
-      exparr__push(&page.in_styles, style)
+      push(&page.in_styles, style)
     }
   }
 
@@ -320,7 +319,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
   for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
     feed.site_path = site__resolve(site, page.site_path, feed.at)
     for iter := iter__mk(feed.aliases); alias in iter__next(&iter) {
-      exparr__push(&site.redirects, Redirect{alias^, feed.site_path})
+      push(&site.redirects, Redirect{alias^, feed.site_path})
     }
   }
 
@@ -331,7 +330,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
 
   // Set up alias redirects
   for iter := iter__mk(page.aliases); alias in iter__next(&iter) {
-    exparr__push(&site.redirects, Redirect{alias^, page.site_path})
+    push(&site.redirects, Redirect{alias^, page.site_path})
   }
 
   level: uint = 1 // the title is equivalent to a h1
@@ -399,17 +398,15 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
   case Page_Filter__All: return page_filter__all__eval(base, page, inner)
   case Page_Filter__Local: return page.site_path == base.site_path
   case Page_Filter__Any: 
-    for i in 0..<inner.elements.len {
-      filter := exparr__get(inner.elements, i)^
-      if page_filter__eval(base, page, filter) do return true
+    for iter := iter__mk(inner.elements); filter in iter__next(&iter) {
+      if page_filter__eval(base, page, filter^) do return true
     }
 
     return false
   case Page_Filter__Tag: 
     goal := Tag(inner)
-    for i in 0..<page.tags.len {
-      tag := exparr__get(page.tags, i)^
-      if goal == tag do return true
+    for iter := iter__mk(page.tags); tag in iter__next(&iter) {
+      if goal == tag^ do return true
     }
 
     return false
@@ -425,9 +422,8 @@ page_filter__all__eval :: proc(
     return page_filter__eval(base, page, Page_Filter__Local{})
   }
 
-  for i in 0..<all.elements.len {
-    filter := exparr__get(all.elements, i)^
-    if !page_filter__eval(base, page, filter) do return false
+  for iter := iter__mk(all.elements); filter in iter__next(&iter) {
+    if !page_filter__eval(base, page, filter^) do return false
   }
 
   return true
@@ -689,14 +685,13 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
 table__check :: proc(site: ^Site, page: ^Page, table: ^Table) {
   inline_markup__check(site, page, &table.caption)
   table__row__check(site, page, &table.header)
-  for i in 0..<table.rows.len {
-    table__row__check(site, page, exparr__get(table.rows, i))
+  for iter := iter__mk(table.rows); row in iter__next(&iter) {
+    table__row__check(site, page, row)
   }
 }
 
 table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
-  for i in 0..<row.cells.len {
-    cell := exparr__get(row.cells, i)
+  for iter := iter__mk(row.cells); cell in iter__next(&iter) {
     mem__non_zero(cell.content.elements) or_continue
     inline_markup__check(site, page, &cell.content)
   }
@@ -811,17 +806,16 @@ codec__text_impl :: proc(
     switch kit.mode {
     case .Project:
       inner.allocator = kit.temp_allocator
-      exparr__push(inner, outer^)
+      push(inner, outer^)
     case .Inject:
       size: uint = 0
-      for i in 0..<inner.len do size += len(exparr__get(inner^, i))
+      for iter := iter__mk(inner^); x in iter__next(&iter) do size += len(x)
 
       builder := strings__fixed_builder(size, kit.allocator)
-      for i in 0..<inner.len {
-        chunk := exparr__get(inner^, i)^
+      for iter := iter__mk(inner^); chunk in iter__next(&iter) {
         size := len(builder.buf)
-        if chunk == " " && size > 0 && builder.buf[size - 1] == ' ' do continue
-        strings.write_string(&builder, chunk)
+        if chunk^ == " " && size > 0 && builder.buf[size - 1] == ' ' do continue
+        strings.write_string(&builder, chunk^)
       }
 
       outer^ = strings.to_string(builder)
@@ -1132,9 +1126,8 @@ inline_markup__atom__fmt :: proc(
 inline_markup__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
 ) {
-  for i in 0..<im.elements.len {
-    chunk := exparr__get(im.elements^, i)^
-    inline_markup__atom__fmt(fi, site, page, chunk)
+  for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
+    inline_markup__atom__fmt(fi, site, page, chunk^)
   }
 }
 
@@ -1233,9 +1226,8 @@ inline_markup__html :: proc(
   g: ^Xml_Gen, page: Page, im: Inline_Markup
 ) {
   if im.elements == nil do return
-  for i in 0..<im.elements.len {
-    chunk := exparr__get(im.elements^, i)^
-    inline_markup__atom__html(g, page, chunk)
+  for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
+    inline_markup__atom__html(g, page, chunk^)
   }
 }
 // }}}
@@ -1244,8 +1236,7 @@ inline_markup__html :: proc(
 inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
   if im.elements == nil do return
   // TODO: remove spirious space here
-  for i in 0..<im.elements.len {
-    chunk := exparr__get(im.elements^, i)
+  for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
     inline_markup__atom__check(site, page, chunk)
   }
 }
@@ -1283,10 +1274,8 @@ inline_markup__atom__check :: proc(
       inline_markup__check(site, page, &inner.label)
     }
 
-    for i in 0..<site.pages.len {
-      defsite := exparr__get(site.pages, i)
-      for j in 0..<defsite.links.len {
-        link := exparr__get(defsite.links, j)
+    for iter := iter__mk(site.pages); defsite in iter__next(&iter) {
+      for iter := iter__mk(defsite.links); link in iter__next(&iter) {
         (link.id == inner.id) or_continue
         page_filter__all__eval(defsite^, page^, link.scope, true) or_continue
         inner.def = link
@@ -1297,8 +1286,7 @@ inline_markup__atom__check :: proc(
     site__errorf(site, inner.loc, "Link '%v' is not in scope.", inner.id)
   case ^Inline_Markup__Fn:
     log.assert(inner.def == nil)
-    for j in 0..<page.footnotes.len {
-      footnote := exparr__get(page.footnotes, j)
+    for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
       (footnote.id == inner.id) or_continue
       inner.def = footnote
       return
@@ -1307,10 +1295,8 @@ inline_markup__atom__check :: proc(
     site__errorf(site, inner.loc, "Footnote '%v' is not in scope.", inner.id)
   case ^Inline_Markup__Icon:
     log.assert(inner.def == nil)
-    for i in 0..<site.pages.len {
-      defsite := exparr__get(site.pages, i)
-      for j in 0..<defsite.icons.len {
-        icon := exparr__get(defsite.icons, j)
+    for iter := iter__mk(site.pages); defsite in iter__next(&iter) {
+      for iter := iter__mk(defsite.icons); icon in iter__next(&iter) {
         (icon.id == inner.id) or_continue
         page_filter__all__eval(defsite^, page^, icon.scope, true) or_continue
         inner.def = icon
@@ -1630,18 +1616,15 @@ block_markup__atom__html :: proc(
     }
 
     xml__tag(g, "ol")
-    stack: small_array.Small_Array(MAX_HEADING_LEVEL, uint)
+    stack: [dynamic; MAX_HEADING_LEVEL]uint
     // Whether we've created an <ol> element for the top of the stack. Since an
     // empty stack is contained in the <ol> we've just created above, this
     // starts out as being true.
     last_has_children := true
-    for i in 0..<page.headings.len {
-      heading := exparr__get(page.headings, i)
-
-      for j := small_array.len(stack) - 1; j >= 0; j -= 1 {
-        last := small_array.get(stack, j)
+    for iter := iter__mk(page.headings); heading in iter__next(&iter) {
+      #reverse for last in stack {
         (last >= heading.level) or_break
-        small_array.pop_back(&stack)
+        pop(&stack)
         if last_has_children do xml__tag_end(g, "ol")
         xml__tag_end(g, "li")
         last_has_children = true
@@ -1651,7 +1634,7 @@ block_markup__atom__html :: proc(
         xml__tag(g, "ol", auto_close = false)
       }
 
-      small_array.push_back(&stack, heading.level)
+      push(&stack, heading.level)
       xml__tag(g, "li", auto_close = false)
       xml__tag(g, "a")
       xml__attrf(g, "href", "#%v", heading.id)
@@ -1660,8 +1643,8 @@ block_markup__atom__html :: proc(
     }
 
     // Clean what's left of the stack
-    for small_array.len(stack) > 0 {
-      small_array.pop_back(&stack)
+    for len(stack) > 0 {
+      pop(&stack)
       if last_has_children do xml__tag_end(g, "ol")
       xml__tag_end(g, "li")
       last_has_children = true
@@ -1723,14 +1706,14 @@ block_markup__atom__html :: proc(
   case Block_Markup__List:
     xml__tag(g, inner.ordered ? "ol" : "ul")
     if inner.block {
-      for i in 0..<inner.bmarkup.len {
+      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
         xml__tag(g, "li")
-        block_markup__html(g, page, exparr__get(inner.bmarkup, i)^)
+        block_markup__html(g, page, elem^)
       }
     } else {
-      for i in 0..<inner.imarkup.len {
+      for iter := iter__mk(inner.imarkup); elem in iter__next(&iter) {
         xml__tag(g, "li")
-        inline_markup__html(g, page, exparr__get(inner.imarkup, i)^)
+        inline_markup__html(g, page, elem^)
       }
     }
   case Block_Markup__Code:
@@ -1765,9 +1748,8 @@ block_markup__atom__html :: proc(
 block_markup__html :: proc(
   g: ^Xml_Gen, page: Page, bm: Block_Markup
 ) {
-  for i in 0..<bm.elements.len {
-    chunk := exparr__get(bm.elements, i)^
-    block_markup__atom__html(g, page, chunk)
+  for iter := iter__mk(bm.elements); chunk in iter__next(&iter) {
+    block_markup__atom__html(g, page, chunk^)
   }
 }
 // }}}
@@ -1775,8 +1757,7 @@ block_markup__html :: proc(
 @(private="file")
 block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   if bm == nil do return
-  for i in 0..<bm.elements.len {
-    atom := exparr__get(bm.elements, i)
+  for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
     block_markup__atom__check(site, page, atom)
   }
 
@@ -1784,8 +1765,7 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   // structure... As such, we try to avoind neednessly creating new copies when
   // the body contains no headings.
   has_headings: bool
-  for i in 0..<bm.elements.len {
-    atom := exparr__get(bm.elements, i)
+  for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
     heading := atom.(^Heading) or_continue
     has_headings = true
     break
@@ -1795,15 +1775,12 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   sectioned: Block_Markup // The root section we write to
   sectioned.elements.allocator = site__alloc(site, .Forever)
 
-  stack: small_array.Small_Array(MAX_HEADING_LEVEL, ^Block_Markup__Section)
-  for i in 0..<bm.elements.len {
-    atom := exparr__get(bm.elements, i)
-
+  stack: [dynamic; MAX_HEADING_LEVEL]^Block_Markup__Section
+  for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
     if heading, ok := atom.(^Heading); ok {
-      for j := small_array.len(stack) - 1; j >= 0; j -= 1 {
-        last := small_array.get(stack, j)
+      #reverse for last in stack {
         (last.heading.level >= heading.level) or_break
-        small_array.pop_back(&stack)
+        pop(&stack)
       }
 
       inner_content: Block_Markup
@@ -1814,20 +1791,20 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
       }
 
       ref: ^Block_Markup__Atom
-      if l := small_array.len(stack); l > 0 {
-        last := small_array.get(stack, l - 1)
-        ref = exparr__push(&last.content.elements, atom)
+      if l := len(stack); l > 0 {
+        last := stack[l - 1]
+        ref = push(&last.content.elements, atom)
       } else {
-        ref = exparr__push(&sectioned.elements, atom)
+        ref = push(&sectioned.elements, atom)
       }
 
       section := &ref.(Block_Markup__Section)
-      log.assert(small_array.push_back(&stack, section))
-    } else if l := small_array.len(stack); l > 0 {
-      last := small_array.get(stack, l - 1)
-      exparr__push(&last.content.elements, atom^)
+      push(&stack, section)
+    } else if l := len(stack); l > 0 {
+      last := stack[l - 1]
+      push(&last.content.elements, atom^)
     } else {
-      exparr__push(&sectioned.elements, atom^)
+      push(&sectioned.elements, atom^)
     }
   }
 
@@ -1859,12 +1836,12 @@ block_markup__atom__check :: proc(
     block_markup__check(site, page, &inner.content)
   case Block_Markup__List:
     if inner.block {
-    	for i in 0 ..< inner.bmarkup.len {
-    		block_markup__check(site, page, exparr__get(inner.bmarkup, i))
+      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
+    		block_markup__check(site, page, elem)
     	}
     } else {
-    	for i in 0 ..< inner.imarkup.len {
-    		inline_markup__check(site, page, exparr__get(inner.imarkup, i))
+      for iter := iter__mk(inner.imarkup); elem in iter__next(&iter) {
+    		inline_markup__check(site, page, elem)
     	}
     }
   case Block_Markup__Aside:

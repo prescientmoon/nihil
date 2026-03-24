@@ -99,7 +99,7 @@ Lens_Kit :: struct{
 
 lens__errorf :: proc(kit: ^Lens_Kit, format: string, args: ..any) {
 	msg := fmt.aprintf(format, ..args, allocator = kit.error_allocator)
-	exparr__push(&kit.errors, msg)
+	push(&kit.errors, msg)
 }
 // }}}
 // {{{ Typed codecs
@@ -116,21 +116,14 @@ Codec_Kit :: struct {
   site:     ^Site,
   forever:  mem.Allocator,
 	memoized: Exparr(Memoized_Codec),
-
-  // Temporary stack memory block backing the memo array.
-  temp: virtual.Arena_Temp,
 }
 
+// NOTE: allocates on the dynamic stack.
 codec__kit__make :: proc(site: ^Site) -> (kit: Codec_Kit) {
   kit.site = site
-  kit.temp = virtual.arena_temp_begin(&site.stack_arena)
 	kit.memoized.allocator = site__alloc(site, .Stack)
 	kit.forever = site__alloc(site, .Forever)
   return kit
-}
-
-codec__kit__destroy :: proc(kit: Codec_Kit) {
-  virtual.arena_temp_end(kit.temp)
 }
 
 codec__make :: proc(kit: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
@@ -342,7 +335,7 @@ codec__exparr :: proc(
       outer := cast(^Exparr(T))kit.outer
       inner := cast(^T)kit.inner
       if outer.allocator == {} do outer.allocator = kit.allocator
-      exparr__push(outer, inner^)
+      push(outer, inner^)
     }
   }
 
@@ -359,7 +352,7 @@ codec__spaced_exparr :: proc(
       outer := cast(^Exparr(T))kit.outer
       inner := cast(^Maybe(T))kit.inner
       if outer.allocator == {} do outer.allocator = kit.allocator
-      if value, ok := inner.(T); ok do exparr__push(outer, value)
+      if value, ok := inner.(T); ok do push(outer, value)
       else do kit.ignored = true
     }
   }
@@ -387,7 +380,7 @@ codec__remote_push :: proc(
     switch kit.mode {
     case .Project: 
       if outer^ == nil {
-        fresh := exparr__push(field, T{})
+        fresh := push(field, T{})
         outer^ = fresh
       }
 
@@ -449,15 +442,14 @@ codec__memo :: proc(
 	name: string,
 	mk_inner: proc(kit: ^Codec_Kit) -> Typed_Codec($T),
 ) -> Typed_Codec(T) {
-	for i in 0 ..< kit.memoized.len {
-		entry := exparr__get(kit.memoized, i)
+  for iter := iter__mk(kit.memoized); entry in iter__next(&iter) {
 		(entry.name == name) or_continue
 		(entry.codec.type == T) or_continue
 		return Typed_Codec(T){entry.codec}
 	}
 
 	lie := codec__make(kit, T)
-	exparr__push(&kit.memoized, Memoized_Codec{name = name, codec = lie.codec})
+	push(&kit.memoized, Memoized_Codec{name = name, codec = lie.codec})
 	codec := mk_inner(kit)
 	lie.codec^ = codec.codec^
 	return lie

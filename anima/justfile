@@ -27,4 +27,4 @@
 [group("debug")]
 [doc("Run `anima` inside `valgrind`")]
 @grind: build-debug
-  valgrind ./build/debug/anima.bin
+  valgrind --leak-check=full ./build/debug/anima.bin

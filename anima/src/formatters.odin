@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:mem"
 import "core:io"
 import "core:time"
-import "core:container/small_array"
 
 ELLIPSIS_SYMBOL :: '…'
 QUOTE_EN_LEFT   :: '“'
@@ -59,7 +58,7 @@ Datetime__Compact :: distinct time.Time
 // arena, but I don't want to think about that right now...
 Frozen :: struct {
 	formatter: rawptr, // Function pointer taking user_data as argument(s).
-  user_data: small_array.Small_Array(4, rawptr),
+  user_data: [dynamic; 4]rawptr,
 }
 
 fmt__freeze1 :: proc(
@@ -67,7 +66,7 @@ fmt__freeze1 :: proc(
   formatter: proc(fi: ^fmt.Info, arg: ^A),
 ) -> (frozen: Frozen) {
   frozen.formatter = cast(rawptr)formatter
-  small_array.push_back(&frozen.user_data, data)
+  push(&frozen.user_data, data)
   return frozen
 }
 
@@ -76,8 +75,8 @@ fmt__freeze2 :: proc(
   formatter: proc(fi: ^fmt.Info, arg1: ^A, arg2: ^B),
 ) -> (frozen: Frozen) {
   frozen.formatter = cast(rawptr)formatter
-  small_array.push_back(&frozen.user_data, data1)
-  small_array.push_back(&frozen.user_data, data2)
+  push(&frozen.user_data, data1)
+  push(&frozen.user_data, data2)
   return frozen
 }
 
@@ -86,9 +85,9 @@ fmt__freeze3 :: proc(
   formatter: proc(fi: ^fmt.Info, arg1: ^A, arg2: ^B, arg3: ^C),
 ) -> (frozen: Frozen) {
   frozen.formatter = cast(rawptr)formatter
-  small_array.push_back(&frozen.user_data, data1)
-  small_array.push_back(&frozen.user_data, data2)
-  small_array.push_back(&frozen.user_data, data3)
+  push(&frozen.user_data, data1)
+  push(&frozen.user_data, data2)
+  push(&frozen.user_data, data3)
   return frozen
 }
 
@@ -97,13 +96,15 @@ fmt__freeze4 :: proc(
   formatter: proc(fi: ^fmt.Info, arg1: ^A, arg2: ^B, arg3: ^C, arg4: ^D),
 ) -> (frozen: Frozen) {
   frozen.formatter = cast(rawptr)formatter
-  small_array.push_back(&frozen.user_data, data1)
-  small_array.push_back(&frozen.user_data, data2)
-  small_array.push_back(&frozen.user_data, data3)
+  push(&frozen.user_data, data1)
+  push(&frozen.user_data, data2)
+  push(&frozen.user_data, data3)
+  push(&frozen.user_data, data4)
   return frozen
 }
 // }}}
 
+// NOTE: prefer allocating inside an arena, thus making the cleanup "free".
 formatters__init :: proc(allocator: mem.Allocator) {
   formatters := new(map[typeid]fmt.User_Formatter, allocator)
   formatters^ = make(map[typeid]fmt.User_Formatter, allocator)
@@ -272,8 +273,8 @@ formatters__init :: proc(allocator: mem.Allocator) {
 			frozen := (cast(^Frozen)arg.data)^
       (verb == 'v') or_return
 
-      d := frozen.user_data.data
-      switch frozen.user_data.len {
+      d := &frozen.user_data
+      switch len(d) {
       case 0:
         f := cast(proc(fi: ^fmt.Info))frozen.formatter
         f(fi)
@@ -295,9 +296,4 @@ formatters__init :: proc(allocator: mem.Allocator) {
 		},
 	)
 	// }}}
-}
-
-formatters__deinit :: proc(allocator: mem.Allocator) {
-	delete(fmt._user_formatters^)
-	free(fmt._user_formatters, allocator)
 }

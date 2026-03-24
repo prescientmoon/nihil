@@ -2,13 +2,13 @@ let
   sources = import ../npins;
   pkgs = import sources.nixpkgs { };
   odin = pkgs.odin.overrideAttrs (og: {
-    version = "unstable-2026-03-04";
+    version = "unstable-2026-03-23";
     src = pkgs.fetchFromGitHub {
       fetchLFS = true;
       owner = "odin-lang";
       repo = "Odin";
-      rev = "217b4967b0769c3d9580012e3c4c923ab6b1b64d";
-      sha256 = "sha256-eUXbRPwr/3VOv1UGoYkU9qVaHGZ04Nu1uSiUAtpN8ss=";
+      rev = "d90cc4e3b6a8647f81b70464c983cc8093154c62";
+      sha256 = "sha256-fGNU/TD+I10dnMcIT06OfcwsrX7B8JvttK5ybUCi2ds=";
     };
     patches = [ (builtins.elem 0 og.patches) ]; # The second patch is broken
   });
