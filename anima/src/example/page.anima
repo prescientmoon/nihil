@@ -6,11 +6,15 @@
 
 \stylesheet \preload \at styles.css
 
+\deficon eye      \at eye.png \favicon
+\deficon charon   \at charon.png
+\deficon lagrange \at lagrange.png
+
 \change \at 2025-08-14T19:10:53+00:00
   Add myself to a webring!
 
 \change \at 2025-11-05T20:19:10+00:00
-  Imtlement support for having more than one RSS feed.
+  Implement support for having more than one RSS feed.
 
 \change \at 2025-11-09T15:18:48+00:00
   Add a fedi link, turn the Discord handle into an URL, and explain

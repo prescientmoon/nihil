@@ -206,10 +206,11 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
     if xml__tag(g, "title") do inline_markup__html(g, page^, page.title)
 
     // NOTE: I might un-hardcode these paths in the future
-    if xml__tag(g, "link") {
+    if mem__non_zero(g.site.favicon) {
+      xml__tag(g, "link")
       xml__attr(g, "rel", "icon")
       xml__attr(g, "type", "image/x-icon")
-      xml__attr(g, "href", "/favicon.ico")
+      xml__attr(g, "href", site__url(g.site, g.site.favicon.site_path, .Stack))
     }
 
     if xml__tag(g, "link") {
@@ -292,7 +293,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
   page.site_path = Path__Output(page.source_path)
   page.url = site__url(site, page.site_path)
 
-  // TODO: move link resolution checking here
+  // TODO: move link/icon resolution checking here
 
   for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
     block_markup__check(site, page, &footnote.content)
@@ -328,9 +329,33 @@ page__check :: proc(site: ^Site, page: ^Page) {
     style.site_path = site__resolve(site, page.site_path, style.at)
   }
 
+  // Generate icon paths
+  for iter := iter__mk(page.icons); icon in iter__next(&iter) {
+    icon.site_path = site__resolve(site, page.site_path, icon.at)
+    if icon.favicon {
+      if mem__is_zero(site.favicon) {
+        site.favicon = icon
+      } else {
+        site__errorf(
+          site,
+          icon.loc,
+          "Favicon already set at %v.",
+          site.favicon.loc,
+        )
+      }
+    }
+  }
+
   // Set up alias redirects
   for iter := iter__mk(page.aliases); alias in iter__next(&iter) {
     push(&site.redirects, Redirect{alias^, page.site_path})
+  }
+
+  // Set defaults for asset paths
+  for iter := iter__mk(page.assets); asset in iter__next(&iter) {
+    if mem__is_zero(asset.to) {
+      asset.to = asset.from
+    }
   }
 
   level: uint = 1 // the title is equivalent to a h1
@@ -491,23 +516,29 @@ codec__page_filter__all :: proc(
 // {{{ Icon definitions
 Def__Icon :: struct {
   id:    string,
-  path:  string,
+  at:    Path,
   scope: Page_Filter__All,
+
+  // When set to true, makes this the website's favicon. Favicons are currently
+  // global and cannot be set on a per-page basis.
+  favicon: bool,
+
+  // Generated
+  loc:       Source_Loc,
+  site_path: Path__Output,
 }
 
 @(private = "file")
 codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
   Self :: Def__Icon
 
-  ctext := codec__contiguous_text(k)
-  filter := codec__page_filter__all(k)
+	id := codec__field(k, "id", Self, codec__contiguous_text(k), REQUIRED)
+	path := codec__field_at(k, "at", Self, codec__path(k), ONCE)
+	scope := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
+	favicon := codec__flag_at(k, "favicon", Self)
 
-	id := codec__field(k, "id", Self, ctext, REQUIRED)
-	path := codec__field_at(k, "path", Self, ctext, ONCE)
-	scope := codec__field_at(k, "scope", Self, filter, ONCE)
-
-  inner_loop := codec__loop(k, codec__sum(k, Self, id, path, scope))
-	return codec__remote_push(k, "icons", Page, inner_loop)
+  inner_loop := codec__loop(k, codec__sum(k, Self, id, path, favicon, scope))
+	return codec__remote_push(k, "icons", Page, codec__loc(k, inner_loop))
 }
 // }}}
 // {{{ Link definitions
@@ -558,7 +589,8 @@ Def__Feed :: struct {
   under:   Page_Filter__All, // Which pages should this appear on?
   aliases: Exparr(Path__Output), // Locations to redirect from
 
-  site_path:   Path__Output,
+  // Generated
+  site_path: Path__Output,
 }
 
 @(private = "file")
@@ -611,7 +643,7 @@ codec__asset :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Asset) {
   Self :: Def__Asset
   path := codec__path(k)
 	from := codec__field(k, "from", Self, path, ONCE)
-	to   := codec__field_at(k, "to", Self, path, ONCE)
+	to   := codec__field_at(k, "to", Self, path, UNIQUE)
   return codec__loop(k, codec__sum(k, Self, from, to))
 }
 // }}}
@@ -1156,7 +1188,7 @@ inline_markup__atom__html :: proc(
     // Decorative image.
     // See: https://www.w3.org/WAI/tutorials/images/decorative/
     xml__attr(g, "alt", "")
-    xml__attr(g, "src", inner.def.path)
+    xml__attr(g, "src", site__url(g.site, inner.def.site_path, .Stack))
   case Inline_Markup__Space:
     xml__string(g, " ")
   case Inline_Markup__Ellipsis:

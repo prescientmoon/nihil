@@ -282,7 +282,7 @@ mps__block_markup__atom :: proc(
 		mps__deeper(mps, "deficon")
 
     mps__labeled_str(mps, "id", inner.id)
-    mps__labeled_str(mps, "path", inner.path)
+    mps__labeled_str(mps, "at", string(inner.at))
 
 		mps__deeper(mps, "scope")
     mps__page_filter__many(mps, inner.scope)
@@ -536,38 +536,7 @@ mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
 pretty_error :: proc(error: Error) -> string {
   builder: strings.Builder
   strings.builder_init_none(&builder, context.temp_allocator)
-
-  switch inner in error.loc {
-  case Path__Absolute: 
-    fmt.sbprintf(&builder, "%v", string(inner))
-  case Path__Input: 
-    fmt.sbprintf(&builder, "%v", string(inner))
-  case ^File:
-    fmt.sbprintf(&builder, "%v", inner.path)
-  case Source_Loc:
-    fmt.sbprintf(&builder, "%v(%v:%v)", inner.file.path, inner.line, inner.col)
-  case Token:
-    pos := inner.from
-    fmt.sbprintf(&builder, "%v(%v:%v)", pos.file.path, pos.line, pos.col)
-  case Source_Range:
-    from := inner[0]
-    to   := inner[1]   
-    log.assert(from.file == to.file)
-
-    fmt.sbprintf(
-      &builder,
-      "%v(%v:%v-%v:%v)",
-      from.file.path,
-      from.line,
-      from.col,
-      to.line,
-      to.col,
-    )
-  }
-
-  fmt.sbprint(&builder, ": ")
-  fmt.sbprint(&builder, error.msg)
-
+  fmt.sbprintf(&builder, "%v: %v", error.loc, error.msg)
   return strings.to_string(builder)
 }
 // }}}

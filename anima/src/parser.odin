@@ -20,6 +20,7 @@ Source_Range :: [2]Source_Loc
 Error_Location :: union {
   Path__Absolute,
   Path__Input,
+  Path__Output,
   ^File,
   Source_Loc,
   Token,

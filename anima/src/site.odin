@@ -47,6 +47,9 @@ Site :: struct {
   // Cool URLs never change!
   redirects:  Exparr(Redirect),
 
+  // The site's icon!
+  favicon:    ^Def__Icon,
+
   // The output file data, to be generated in one go.
   files:      Exparr(File_Gen_Entry),
 
@@ -774,14 +777,14 @@ site__commit :: proc(site: ^Site) {
     if !os.exists(dir) {
       err := os.make_directory_all(dir)
       if err != nil {
-        dir := Path__Absolute(dir)
+        dir := site__ipath(site, Path__Absolute(dir))
         site__errorf(site, dir, "Failed to create directory: %v", err)
         continue
       }
     }
 
     if os.exists(string(full_path)) {
-      site__errorf(site, full_path, "File already exists")
+      site__errorf(site, entry.path, "File already exists")
       continue
     }
 
@@ -789,14 +792,14 @@ site__commit :: proc(site: ^Site) {
     case string:
       err = os.write_entire_file_from_string(string(full_path), inner)
       if err != nil {
-        site__errorf(site, full_path, "Failed to write file: %v", err)
+        site__errorf(site, entry.path, "Failed to write file: %v", err)
         continue
       }
     case Path__Input:
       path := site__absolute(site, site.content_root, inner, .Stack)
       err = os.copy_file(string(full_path), string(path))
       if err != nil {
-        site__errorf(site, full_path, "Failed to copy file: %v", err)
+        site__errorf(site, entry.path, "Failed to copy file: %v", err)
         continue
       }
     }
@@ -824,6 +827,17 @@ site__generate :: proc(site: ^Site) {
     for iter := iter__mk(page.styles); style in iter__next(&iter) {
       in_path := site__resolve(site, page.source_path, style.at)
       site__add_file(site, style.site_path, in_path)
+    }
+
+    for iter := iter__mk(page.icons); icon in iter__next(&iter) {
+      in_path := site__resolve(site, page.source_path, icon.at)
+      site__add_file(site, icon.site_path, in_path)
+    }
+
+    for iter := iter__mk(page.assets); asset in iter__next(&iter) {
+      in_path := site__resolve(site, page.source_path, asset.from)
+      out_path := site__resolve(site, page.site_path, asset.to)
+      site__add_file(site, out_path, in_path)
     }
   }
 

@@ -2,7 +2,7 @@ package anima
 
 import "core:fmt"
 import "core:mem"
-import "core:io"
+import "core:log"
 import "core:time"
 
 ELLIPSIS_SYMBOL :: '…'
@@ -263,6 +263,72 @@ formatters__init :: proc(allocator: mem.Allocator) {
         hour,
         min
       )
+
+      return true
+    },
+	)
+	// }}}
+	// {{{ Source_Loc
+	fmt.register_user_formatter(
+		Source_Loc,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			loc := (cast(^Source_Loc)arg.data)^
+      (verb == 'v') or_return
+
+      fmt.wprintf(fi.writer, "%v(%v:%v)", loc.file.path, loc.line, loc.col)
+      return true
+    },
+	)
+  // }}}
+	// {{{ Source_Range
+	fmt.register_user_formatter(
+		Source_Range,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			range := (cast(^Source_Range)arg.data)^
+      (verb == 'v') or_return
+
+      from := range[0]
+      to   := range[1]   
+      log.assert(from.file == to.file)
+
+      fmt.wprintf(
+        fi.writer,
+        "%v(%v:%v-%v:%v)",
+        from.file.path,
+        from.line,
+        from.col,
+        to.line,
+        to.col,
+      )
+
+      return true
+    },
+	)
+  // }}}
+  // {{{ Error_Location
+	fmt.register_user_formatter(
+		Error_Location,
+		proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+			loc := (cast(^Error_Location)arg.data)^
+      (verb == 'v') or_return
+
+      switch inner in loc {
+      case Path__Input: 
+        fmt.wprintf(fi.writer, "%v", inner)
+      case Path__Output: 
+        fmt.wprintf(fi.writer, "%v", inner)
+      case Path__Absolute: 
+        fmt.wprintf(fi.writer, "%v", inner)
+      case Source_Loc:
+        fmt.wprintf(fi.writer, "%v", inner)
+      case Source_Range:
+        fmt.wprintf(fi.writer, "%v", inner)
+      case ^File:
+        fmt.wprintf(fi.writer, "%v", inner.path)
+      case Token:
+        pos := inner.from
+        fmt.wprintf(fi.writer, "%v(%v:%v)", pos.file.path, pos.line, pos.col)
+      }
 
       return true
     },
