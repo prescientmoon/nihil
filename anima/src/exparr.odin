@@ -13,14 +13,21 @@ import "core:log"
 // The first chunk will have size 2^first_chunk_exp. The exponent will default
 // to 3, i.e. a first chunk of 8 elements.
 //
-// Memory-wise, an empty exparr currently eats up 64B. This could be lowered to
-// 40B by simply getting rid of the dynamic array. Getting it lower isn't
+// Memory-wise, an empty exparr currently eats up 40B. Getting it lower isn't
 // possible directly. Still, we could get the usage sites lower by introducing
-// an Expslice type and using that everywhere where the allocator is "implied". 
+// an Expslice type and using that everywhere where the allocator is "implied".
 // Such a slice would only need to eat up 16B in its simplest form. If we want
-// to keep the capacity of the chunk slice around as well (thus enabling us to 
+// to keep the capacity of the chunk slice around as well (thus enabling us to
 // turn an Expslice back into an Exparr by only providing back the allocator),
-// then that'd require 24B in total.
+// then that'd require 24B in total. Unfortunately, this would require
+// significant restructuring of a lot of the existing codebase, so I don't think
+// I'm going to do it.
+//
+// Another possible safe-saving measure would be to make all the markup-related
+// data structures set the FCE parameter to 1 instead of 3. I might in fact do
+// this globally myself, even though a default of 3 "feels" more correct (this
+// reduces the memory usage by about 10% when running anima on the few files I
+// have).
 //
 // These sizes are small in the grand scheme of things, but they can quickly add
 // up when used inside union branches for the various markup trees since, unless
@@ -28,17 +35,14 @@ import "core:log"
 Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 	allocator: runtime.Allocator,
 
-	// Each chunk doubles the size! We don't need a full-blown dynamic array for
-	// the chunks, but I'm too lazy to do things manually, so here we are :3
-	//
-	// A possible simplification is just imposing a max chunk-count (perhaps 30?),
+  // A possible simplification is just imposing a max chunk-count (perhaps 30?),
 	// and using a fixed-size array here. Since the chunk size grows
 	// exponentially, the number of chunks remains quite bounded. For example, the
 	// 30th chunk will already occupy 1GiB of memory (assuming each element only
 	// takes up a single byte, and we start with first_chunk_exp = 0), a size
 	// we should never really hit in practice. Oh well, for now a dynamic array
 	// will have to do...
-	chunks:    [dynamic][^]V,
+	chunks:    [][^]V,
 	len:       uint,
 }
 
@@ -69,18 +73,34 @@ exparr__push :: proc(
 	log.assert(exparr.allocator != {}, loc=loc)
 	chunk, lix := exprarr__destructure_ix(FCE, exparr.len)
 
-	// Grow
+	// Grow chunk array
 	if chunk >= len(exparr.chunks) {
+    data, length := mem.slice_to_components(exparr.chunks)
+    new_length := max(1, 2 * length)
+    stride := max(size_of([^]V), align_of([^]V))
+
+    raw, err := mem.resize(
+      data,
+      stride * length,
+      stride * new_length,
+      align_of([^]V),
+      exparr.allocator,
+    )
+
+		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
+		exparr.chunks = mem.slice_ptr(cast(^[^]V)raw, new_length)
+  }
+
+  // Commit a new multipointer to the chunk array
+  if exparr.chunks[chunk] == nil {
 		multiptr, err := mem.make_multi_pointer(
 			[^]V,
-			1 << (FCE + len(exparr.chunks)),
+			1 << (FCE + chunk),
 			allocator = exparr.allocator,
 		)
 		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
-
-		exparr.chunks.allocator = exparr.allocator
-		append_elem(&exparr.chunks, multiptr)
-	}
+    exparr.chunks[chunk] = multiptr
+  }
 
 	ptr := &exparr.chunks[chunk][lix]
 	ptr^ = element
