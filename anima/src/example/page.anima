@@ -17,18 +17,18 @@
   Implement support for having more than one RSS feed.
 
 \change \at 2025-11-09T15:18:48+00:00
-  Add a fedi link, turn the Discord handle into an URL, and explain
-  the source/changelog system"
+  Add a fedi link, turn the Discord handle into a URL, and explain
+  the source/changelog system.
 
 \change \at 2025-11-09T15:47:16+00:00
-  Fix typo (Source-code -> Source-Code)
+  Fix typo (Source-code -> Source-Code).
 
 \deflink dont-click-here
   \target https://www.dont-click-here.com/
   \label  https://www.dont-click-here.com/
 
 \change \at 2025-12-09T03:27:07+00:00
-  Fixed some links going aganinst \link{dont-click-here}
+  Fixed some links going aganinst \link{dont-click-here}.
 
 \description
   Wassup, this is the home page of my ethereal realm (read: website). Feel free
