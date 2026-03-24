@@ -1,3 +1,9 @@
+// This file is the only one making use of the "core:os" module. The only code
+// here that is NOT cross platform is the path handling, since we assume paths
+// are "well-behaved", including the use of forward slashes. Making the code
+// cross-platform wouldn't be *super* difficult in the grand scheme of things,
+// although I have no reason to bother doing so right now (nor would I really
+// have a way to test anyways).
 package anima
 
 import "core:os"
@@ -7,6 +13,7 @@ import "core:log"
 import "core:time"
 import "core:strings"
 import "core:mem/virtual"
+import "core:path/slashpath"
 
 // {{{ Site
 Site :: struct {
@@ -240,12 +247,18 @@ site__check :: proc(site: ^Site) {
 // Smaller components, I guess
 // {{{ Path & url handling
 URL :: distinct string
-Path :: distinct string // Considered absolute if and only if it starts with /
-Path__Absolute :: distinct string
-Path__Relative :: distinct string
-Path__Input :: distinct Path__Relative // A path relative to the content root
-Path__Output :: distinct Path__Relative // A path reliative to the output root
+// Slash-separated paths. Considered absolute if and only starting with a /.
+Path :: distinct string
 
+Path__Relative :: distinct Path // A path that cannot start with a /.
+Path__Absolute :: distinct string // An absolute OS path
+
+// Note that the following paths are free to start with slashes (they're
+// considered relative nonetheless).
+Path__Input  :: distinct Path // A path relative to the content root
+Path__Output :: distinct Path // A path reliative to the output root
+
+// NOTE: this is *not* cross-platform.
 @(private = "file")
 site__relative :: proc(
   site: ^Site, base, target: Path__Absolute
@@ -253,7 +266,21 @@ site__relative :: proc(
   allocator := site__alloc(site)
   path, err := os.get_relative_path(string(base), string(target), allocator)
   log.assertf(err == nil, "Path %v cannot be made relative to %v", target, base)
+  // NOTE: this cast is not correct on all platforms!
   return Path__Relative(path)
+}
+
+// NOTE: this is *not* cross-platform.
+@(private = "file")
+site__absolute :: proc(
+  site: ^Site,
+  base: Path__Absolute,
+  target: $T/Path,
+  alloc: Site_Alloc = .Forever,
+) -> Path__Absolute {
+  if target == "." do return base
+  str := fmt.aprintf("%v/%v", base, target, allocator=site__alloc(site, alloc))
+  return Path__Absolute(str)
 }
 
 @(private = "file")
@@ -263,38 +290,20 @@ site__ipath :: proc(
   return Path__Input(site__relative(site, site.content_root, target))
 }
 
-// NOTE: we do not handle ".." segments
-@(private = "file")
-site__absolute :: proc(
-  site: ^Site,
-  base: Path__Absolute,
-  target: $T/Path__Relative,
-  alloc: Site_Alloc = .Forever,
-) -> Path__Absolute {
-  if target == "." do return base
-  str := fmt.aprintf("%v/%v", base, target, allocator=site__alloc(site, alloc))
-  return Path__Absolute(str)
-}
-
-// NOTE: we do not handle ".." segments
 site__resolve :: proc(
   site: ^Site,
   base: $T/Path__Relative,
   target: Path,
   alloc: Site_Alloc = .Forever,
 ) -> T {
-  // Unicode does not exist and cannot hurt me
-  // NOTE: I have no idea if this works on Windows
   switch {
-  case len(target) > 0 && target[0] == '/':
-    return T(target[1:])
-  case base == ".": 
+  case slashpath.is_abs(string(target)):
     return T(target)
-  case target == ".": 
-    return base
   case:
-    str := fmt.aprintf("%v/%v", base, target, allocator=site__alloc(site, alloc))
-    return T(str)
+    return T(slashpath.join(
+      {string(base), string(target)},
+      site__alloc(site, alloc),
+    ))
   }
 }
 
@@ -302,9 +311,9 @@ site__resolve :: proc(
 site__url :: proc(
   site: ^Site, path: Path__Output, alloc: Site_Alloc = .Stack
 ) -> URL {
-  if path == "." do return site.base_url
   alloc := site__alloc(site, alloc)
-  return URL(fmt.aprintf("%v/%v", site.base_url, path, allocator=alloc))
+  relative := slashpath.join({".", string(path)}, site__alloc(site, .Stack))
+  return URL(fmt.aprintf("%v/%v", site.base_url, relative, allocator=alloc))
 }
 // }}}
 // {{{ XML building
