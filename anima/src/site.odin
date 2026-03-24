@@ -89,7 +89,8 @@ site__destroy :: proc(site: ^Site) {
   arena__destroy(&site.statistics.site_forever_arena, &site.forever_arena)
   arena__destroy(&site.statistics.site_stack_arena, &site.stack_arena)
 }
-
+// }}}
+// {{{ Error reporting
 site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
 	exparr__push(&site.errors, Error{loc, msg})
 }
@@ -97,8 +98,7 @@ site__error :: proc(site: ^Site, loc: Error_Location, msg: string) {
 site__errorf :: proc(
   site: ^Site, loc: Error_Location, format: string, args: ..any
 ) {
-	allocator := virtual.arena_allocator(&site.forever_arena)
-	msg := fmt.aprintf(format, ..args, allocator = allocator)
+	msg := fmt.aprintf(format, ..args, allocator = site__alloc(site))
 	site__error(site, loc, msg)
 }
 
@@ -111,6 +111,45 @@ site__check_errors :: proc(site: ^Site) {
 
     os.exit(1)
   }
+}
+// }}}
+// {{{ Allocators
+Site_Alloc :: enum { 
+  Forever, // Stuff allocated on here will last as long as the site struct
+  Stack,   // A dynamic stack arena
+}
+
+site__alloc :: proc(site: ^Site, alloc: Site_Alloc = .Forever) -> mem.Allocator {
+  switch alloc {
+  case .Forever: return virtual.arena_allocator(&site.forever_arena)
+  case .Stack:   return virtual.arena_allocator(&site.stack_arena)
+  }
+
+  log.panic("Impossible")
+}
+
+// Begin a dynamic stack frame
+@(deferred_in_out=site__frame_end)
+site__frame :: proc(site: ^Site, ignored := false) -> virtual.Arena_Temp {
+  return virtual.arena_temp_begin(&site.stack_arena)
+}
+
+@(private="file")
+site__frame_end :: proc(site: ^Site, ignored: bool, temp: virtual.Arena_Temp) {
+  site__update_stack_stats(site)
+  if ignored {
+    virtual.arena_temp_ignore(temp)
+  } else {
+    virtual.arena_temp_end(temp)
+  }
+}
+
+// Since the code uses dynamic stacks, the usual arena stat tracking no longer
+// works (since the arena is always zeroed at the beginning/end). Instead, we
+// manually call this at key points.
+site__update_stack_stats :: proc(site: ^Site) {
+  size := &site.statistics.site_stack_arena
+  size^ = max(size^, Bytes(site.stack_arena.total_used))
 }
 // }}}
 // {{{ Checking 
@@ -200,44 +239,71 @@ site__check :: proc(site: ^Site) {
 // Smaller components, I guess
 // {{{ Path & url handling
 URL :: distinct string
+Path :: distinct string // Considered absolute if and only if it starts with /
 Path__Absolute :: distinct string
 Path__Relative :: distinct string
+Path__Input :: distinct Path__Relative // A path relative to the content root
+Path__Output :: distinct Path__Relative // A path reliative to the output root
 
 @(private = "file")
-site__path :: proc(site: ^Site, str: string) -> Path__Absolute {
-  allocator := virtual.arena_allocator(&site.forever_arena)
-  clone, err := strings.clone(str, allocator)
-  log.assert(err == nil)
-  return Path__Absolute(clone)
-}
-
-@(private = "file")
-site__relative_path :: proc(
+site__relative :: proc(
   site: ^Site, base, target: Path__Absolute
 ) -> Path__Relative {
-  allocator := virtual.arena_allocator(&site.forever_arena)
+  allocator := site__alloc(site)
   path, err := os.get_relative_path(string(base), string(target), allocator)
   log.assertf(err == nil, "Path %v cannot be made relative to %v", target, base)
   return Path__Relative(path)
 }
 
+@(private = "file")
+site__ipath :: proc(
+  site: ^Site, target: Path__Absolute
+) -> Path__Input {
+  return Path__Input(site__relative(site, site.content_root, target))
+}
+
 // NOTE: we do not handle ".." segments
 @(private = "file")
-site__absolute_path :: proc(
-  site: ^Site, base: Path__Absolute, target: Path__Relative
+site__absolute :: proc(
+  site: ^Site,
+  base: Path__Absolute,
+  target: $T/Path__Relative,
+  alloc: Site_Alloc = .Forever,
 ) -> Path__Absolute {
   if target == "." do return base
-  allocator := virtual.arena_allocator(&site.forever_arena)
-  str := fmt.aprintf("%v/%v", string(base), string(target), allocator=allocator)
+  str := fmt.aprintf("%v/%v", base, target, allocator=site__alloc(site, alloc))
   return Path__Absolute(str)
 }
 
 // NOTE: we do not handle ".." segments
-site__url_at :: proc(site: ^Site, url: URL, path: Path__Relative) -> URL {
-  if path == "." do return url
-  allocator := virtual.arena_allocator(&site.forever_arena)
-  str := fmt.aprintf("%v/%v", string(url), string(path), allocator=allocator)
-  return URL(str)
+site__resolve :: proc(
+  site: ^Site,
+  base: $T/Path__Relative,
+  target: Path,
+  alloc: Site_Alloc = .Forever,
+) -> T {
+  // Unicode does not exist and cannot hurt me
+  // NOTE: I have no idea if this works on Windows
+  switch {
+  case len(target) > 0 && target[0] == '/':
+    return T(target[1:])
+  case base == ".": 
+    return T(target)
+  case target == ".": 
+    return base
+  case:
+    str := fmt.aprintf("%v/%v", base, target, allocator=site__alloc(site, alloc))
+    return T(str)
+  }
+}
+
+// NOTE: we do not handle ".." segments
+site__url :: proc(
+  site: ^Site, path: Path__Output, alloc: Site_Alloc = .Stack
+) -> URL {
+  if path == "." do return site.base_url
+  alloc := site__alloc(site, alloc)
+  return URL(fmt.aprintf("%v/%v", site.base_url, path, allocator=alloc))
 }
 // }}}
 // {{{ Virtual-arena based string builders
@@ -351,7 +417,7 @@ xml__escape :: proc(gen: ^Xml_Gen, formatted: string) -> string {
   }
 }
 
-xml__attr :: proc(gen: ^Xml_Gen, name: string, value: string) {
+xml__attr :: proc(gen: ^Xml_Gen, name: string, value: any) {
   xml__attrf(gen, name, "%v", value)
 }
 
@@ -434,7 +500,7 @@ xml__tag_end :: proc(gen: ^Xml_Gen) {
 
 @(private="file")
 site__xml :: proc(site: ^Site) -> string {
-  allocator := virtual.arena_allocator(&site.forever_arena)
+  allocator := site__alloc(site)
   clone, err := strings.clone(strings.to_string(site.xml.builder), allocator)
   log.assert(err == nil)
   return clone
@@ -459,12 +525,12 @@ site__collect :: proc(site: ^Site) {
 
     for info in os.read_directory_iterator(&iter) {
       if spath, err := os.read_directory_iterator_error(&iter); err != nil {
-        path := site__path(site, spath)
+        path := site__ipath(site, Path__Absolute(spath))
         site__errorf(site, path, "Failed to read file: %v", err)
         continue
       }
 
-      path := site__path(site, info.fullpath)
+      path := Path__Absolute(info.fullpath)
 
       // NOTE: we do not handle symlinks
       #partial switch info.type {
@@ -473,11 +539,12 @@ site__collect :: proc(site: ^Site) {
       case .Regular: 
         ext := os.base(info.fullpath)
         if ext == "page.anima" {
-          allocator := virtual.arena_allocator(&site.forever_arena)
+          allocator := site__alloc(site)
           bytes, err := os.read_entire_file_from_path(info.fullpath, allocator)
 
           if err != nil {
-            site__errorf(site, path, "Failed to read page: %v", err)
+            ipath := site__ipath(site, path)
+            site__errorf(site, ipath, "Failed to read page: %v", err)
             continue
           }
 
@@ -488,17 +555,11 @@ site__collect :: proc(site: ^Site) {
 
           fullpath, clone_err := strings.clone(info.fullpath, allocator)
           log.assert(clone_err == nil)
-          file.name = fullpath
+          file.path = site__ipath(site, Path__Absolute(info.fullpath))
 
           page: Page
           if parser__eval(site, site.page_codec, file, &page) {
-            page.source_path = path
-            page.site_path = site__relative_path(
-              site,
-              site.content_root,
-              directory
-            )
-
+            page.source_path = site__ipath(site, directory)
             exparr__push(&site.pages, page)
           }
         }
@@ -506,8 +567,8 @@ site__collect :: proc(site: ^Site) {
     }
 
     if spath, err := os.read_directory_iterator_error(&iter); err != nil {
-      path := Path__Absolute(spath)
-      site__errorf(site, path, "Failed to read directory: %v", err)
+      ipath := site__ipath(site, Path__Absolute(spath))
+      site__errorf(site, ipath, "Failed to read directory: %v", err)
     }
   }
 
@@ -546,14 +607,6 @@ arena__clear :: proc(bytes: ^Bytes, arena: ^virtual.Arena) {
 arena__destroy :: proc(bytes: ^Bytes, arena: ^virtual.Arena)  {
   bytes^ = max(Bytes(arena.total_used), bytes^)
   virtual.arena_destroy(arena)
-}
-
-// Since the code uses dynamic stacks, the usual arena stat tracking no longer
-// works (since the arena is always zeroed at the beginning/end). Instead, we
-// manually call this at key points.
-site__update_stack_stats :: proc(site: ^Site) {
-  size := &site.statistics.site_stack_arena
-  size^ = max(size^, Bytes(site.stack_arena.total_used))
 }
 // }}}
 
@@ -605,7 +658,7 @@ site__sitemap :: proc(site: ^Site) -> string {
 @(private = "file")
 site__feed :: proc(
   site: ^Site, base: Page, feed: Def__Feed
-) -> (path: Path__Relative, content: string) {
+) -> (path: Path__Output, content: string) {
   g := &site.xml
   defer xml__clear(g)
 
@@ -632,7 +685,7 @@ site__feed :: proc(
       }
 
       if xml__tag(g, "atom:link", true) {
-        xml__attrf(g, "href", "%v", feed.url)
+        xml__attr(g, "href", site__url(site, feed.site_path, .Stack))
         xml__attr(g, "rel", "self")
         xml__attr(g, "type", "application/rss+xml")
       }
@@ -697,12 +750,12 @@ site__feed :: proc(
 @(private = "file")
 File_Gen_Content :: union {
   string,
-  Path__Absolute,
+  Path__Input,
 }
 
 @(private = "file")
 File_Gen_Entry :: struct {
-  path:     Path__Relative,
+  path:    Path__Output,
   content: File_Gen_Content,
 }
 
@@ -710,7 +763,7 @@ File_Gen_Entry :: struct {
 // must call "site__commit" for that to take place.
 @(private = "file")
 site__add_file :: proc(
-  site: ^Site, path: Path__Relative, content: File_Gen_Content
+  site: ^Site, path: Path__Output, content: File_Gen_Content
 ) {
   site.statistics.files_generated += 1
   entry := File_Gen_Entry { path, content }
@@ -719,10 +772,12 @@ site__add_file :: proc(
 
 // Commit the site's generated files to disk.
 site__commit :: proc(site: ^Site) {
+  site__frame(site)
+
   // Nuke directory & contents if they exists
   if os.exists(string(site.out_root)) {
     // The following allocates, with no other way to override said allocation
-    context.allocator = virtual.arena_allocator(&site.forever_arena)
+    context.allocator = site__alloc(site, .Stack)
     err := os.remove_all(string(site.out_root))
     if err != nil {
       site__errorf(site, site.out_root, "Failed to clean directory: %v", err)
@@ -737,10 +792,10 @@ site__commit :: proc(site: ^Site) {
     return
   }
 
-  for i in 0..<site.files.len {
-    entry := exparr__get(site.files, i)
+  for iter := iter__mk(site.files); entry in iter__next(&iter) {
+    site__frame(site)
 
-    full_path := site__absolute_path(site, site.out_root, entry.path)
+    full_path := site__absolute(site, site.out_root, entry.path, .Stack)
     dir, _ := os.split_path(string(full_path))
 
     if !os.exists(dir) {
@@ -764,8 +819,9 @@ site__commit :: proc(site: ^Site) {
         site__errorf(site, full_path, "Failed to write file: %v", err)
         continue
       }
-    case Path__Absolute:
-      err = os.copy_file(string(full_path), string(inner))
+    case Path__Input:
+      path := site__absolute(site, site.content_root, inner, .Stack)
+      err = os.copy_file(string(full_path), string(path))
       if err != nil {
         site__errorf(site, full_path, "Failed to copy file: %v", err)
         continue
@@ -776,8 +832,8 @@ site__commit :: proc(site: ^Site) {
 // }}}
 // {{{ Site
 site__generate :: proc(site: ^Site) {
-  forever := virtual.arena_allocator(&site.forever_arena)
-  site__add_file(site, Path__Relative("sitemap.xml"), site__sitemap(site))
+  forever := site__alloc(site)
+  site__add_file(site, Path__Output("sitemap.xml"), site__sitemap(site))
   for i in 0..<site.pages.len {
     page := exparr__get(site.pages, i)
 
@@ -787,9 +843,7 @@ site__generate :: proc(site: ^Site) {
       site__add_file(site, feed_path, feed_content)
     }
 
-    page_path := Path__Relative(fmt.aprintf(
-      "%v/index.html", page.site_path, allocator=forever
-    ))
+    page_path := site__resolve(site, page.site_path, "index.html")
 
     {
       defer xml__clear(&site.xml)
@@ -801,9 +855,8 @@ site__generate :: proc(site: ^Site) {
     {
       iter := iter__mk(page.styles)
       for style in iter__next(&iter) {
-        rel_path := Path__Relative(style.path)
-        abs_path := site__absolute_path(site, site.content_root, rel_path)
-        site__add_file(site, rel_path, abs_path)
+        in_path := site__resolve(site, page.source_path, style.at)
+        site__add_file(site, style.site_path, in_path)
       }
     }
 
@@ -811,12 +864,9 @@ site__generate :: proc(site: ^Site) {
       // Add guard pages to page aliases, thus erroring out on path conflicts.
       iter := iter__mk(page.aliases)
       for alias in iter__next(&iter) {
-        alias_path_str := fmt.aprintf("%v/index.html", alias^, allocator=forever)
-        alias_path := Path__Relative(alias_path_str)
-
         site__add_file(
           site,
-          alias_path,
+          site__resolve(site, alias^, "index.html"),
           fmt.aprintf(
             "This page has moved to <a href=\"%[0]v\">%[0]v</a>. " + \
             "You were supposed to get redirected there, but I guess " + \

@@ -11,7 +11,7 @@ import "core:time"
 import "core:unicode"
 
 // {{{ Page
-// TODO: assets?, imports, (anima) comments
+// TODO: imports, (anima) comments
 Page :: struct {
   compact:          bool, // Whether the page should not contain the post layout
   public:           bool, // Whether the page should be included in the sitemap
@@ -38,11 +38,12 @@ Page :: struct {
   feeds:     Exparr(Def__Feed),
 	footnotes: Exparr(Def__Footnote),
   styles:    Exparr(Def__Stylesheet),
-  aliases:   Exparr(string), // Locations to redirect from
+  assets:    Exparr(Def__Asset),
+  aliases:   Exparr(Path__Output), // Locations to redirect from
 
   // These attributes are not part of the markup itself
-  source_path: Path__Absolute,
-  site_path:   Path__Relative,
+  source_path: Path__Input,
+  site_path:   Path__Output,
   url:         URL,
   word_count:  uint, // Merely an estimate!
   in_feeds:    Exparr(^Def__Feed),
@@ -76,18 +77,21 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   bmarkup    := codec__block_markup(k)
   timestamp  := codec__timestamp(k)
   stylesheet := codec__stylesheet(k)
+  out_path   := codec__out_path(k)
 
   feeds_payload   := codec__exparr(k, codec__at(k, "feed",       codec__feed(k)))
   tags_payload    := codec__exparr(k, codec__at(k, "tag",        codec__tag(k)))
   changes_payload := codec__exparr(k, codec__at(k, "change",     codec__change(k)))
-  aliases_payload := codec__exparr(k, codec__at(k, "alias",      ctext))
+  aliases_payload := codec__exparr(k, codec__at(k, "alias",      out_path))
   styles_payload  := codec__exparr(k, codec__at(k, "stylesheet", stylesheet))
+  assets_payload  := codec__exparr(k, codec__at(k, "asset",      codec__asset(k)))
 
   feeds   := codec__field(k, "feeds",     Page, feeds_payload)
   tags    := codec__field(k, "tags",      Page, tags_payload)
   changes := codec__field(k, "changelog", Page, changes_payload)
   aliases := codec__field(k, "aliases",   Page, aliases_payload)
   styles  := codec__field(k, "styles",    Page, styles_payload)
+  assets  := codec__field(k, "assets",    Page, assets_payload)
 
   content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
   title       := codec__field_at(k, "title", Page, imarkup, ONCE)
@@ -108,9 +112,9 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
 
   inner_loop := codec__sum(
     k, Page,
-    content, feeds, tags, aliases, styles, public, title, description, compact,
-    smaller_headings, created, published, filename, changefreq, priority,
-    changes,
+    content, feeds, tags, aliases, styles, assets, public, title, description,
+    compact, smaller_headings, created, published, filename, changefreq,
+    priority, changes,
   )
 
   lens :: proc(kit: ^Lens_Kit) {
@@ -167,32 +171,27 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
     meta(g, "property", "twitter:description", desc)
     meta(g, "name", "fediverse:creator", FEDI_USER)
 
-    {
-      iter := iter__mk(page.in_feeds)
-      for feed in iter__next(&iter) {
-        feed := feed^
-        xml__tag(g, "link")
-        xml__attr(g, "rel", "alternate")
-        xml__attr(g, "type", "application/rss+xml")
-        xml__attrf(g, "title", "Moonythm | %v", strings.trim_space(feed.name))
-        xml__attrf(g, "href", "%v", feed.url)
-      }
+    for iter := iter__mk(page.in_feeds); feed in iter__next(&iter) {
+      feed := feed^
+      xml__tag(g, "link")
+      xml__attr(g, "rel", "alternate")
+      xml__attr(g, "type", "application/rss+xml")
+      xml__attrf(g, "title", "Moonythm | %v", strings.trim_space(feed.name))
+      xml__attr(g, "href", site__url(site, feed.site_path, .Stack))
     }
-    {
-      iter := iter__mk(page.in_styles)
-      for style in iter__next(&iter) {
-        style := style^
-        if style.preload {
-          xml__tag(g, "link")
-          xml__attr(g, "rel", "preload")
-          xml__attr(g, "as", "stylesheet")
-          xml__attr(g, "href", style.path)
-        }
 
+    for iter := iter__mk(page.in_styles); style in iter__next(&iter) {
+      style := style^
+      if style.preload {
         xml__tag(g, "link")
-        xml__attr(g, "rel", "stylesheet")
-        xml__attr(g, "href", style.path)
+        xml__attr(g, "rel", "preload")
+        xml__attr(g, "as", "stylesheet")
+        xml__attr(g, "href", site__url(site, style.site_path, .Stack))
       }
+
+      xml__tag(g, "link")
+      xml__attr(g, "rel", "stylesheet")
+      xml__attr(g, "href", site__url(site, style.site_path, .Stack))
     }
 
     if xml__tag(g, "title") do inline_markup__html(site, page^, page.title)
@@ -277,58 +276,48 @@ page__html :: proc(site: ^Site, page: ^Page, mode: Page_Gen_Mode) {
 // }}}
 // {{{ Checking
 page__check :: proc(site: ^Site, page: ^Page) {
-  forever := virtual.arena_allocator(&site.forever_arena)
   inline_markup__check(site, page, &page.description)
   block_markup__check(site, page, &page.content)
 
   // TODO: apply the filename option
-  page.url = site__url_at(site, site.base_url, page.site_path)
+  page.site_path = Path__Output(page.source_path)
+  page.url = site__url(site, page.site_path)
 
   // TODO: move link resolution checking here
 
-  for i in 0..<page.footnotes.len {
-    footnote := exparr__get(page.footnotes, i)
+  for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
     block_markup__check(site, page, &footnote.content)
   }
 
-  for i in 0..<page.links.len {
-    link := exparr__get(page.links, i)
+  for iter := iter__mk(page.links); link in iter__next(&iter) {
     inline_markup__check(site, page, &link.label)
   }
 
-  {
-    iter := iter__mk(site.pages)
-    for other_page in iter__next(&iter) {
-      {
-        iter := iter__mk(other_page.feeds)
-        for feed in iter__next(&iter) {
-          page_filter__all__eval(other_page^, page^, feed.under) or_continue
-          exparr__push(&page.in_feeds, feed)
-        }
-      }
-      {
-        iter := iter__mk(other_page.styles)
-        for style in iter__next(&iter) {
-          page_filter__all__eval(other_page^, page^, style.scope) or_continue
-          exparr__push(&page.in_styles, style)
-        }
-      }
+  // Collect all the styles/feeds affecting the page
+  for iter := iter__mk(site.pages); other_page in iter__next(&iter) {
+    for iter := iter__mk(other_page.feeds); feed in iter__next(&iter) {
+      page_filter__all__eval(other_page^, page^, feed.under) or_continue
+      exparr__push(&page.in_feeds, feed)
+    }
+
+    for iter := iter__mk(other_page.styles); style in iter__next(&iter) {
+      page_filter__all__eval(other_page^, page^, style.scope) or_continue
+      exparr__push(&page.in_styles, style)
     }
   }
 
-  {
-    // Generate feed urls
-    iter := iter__mk(page.feeds)
-    for feed in iter__next(&iter) {
-      feed_path_str := fmt.aprintf("%v.xml", feed.at, allocator=forever)
-      feed.site_path = Path__Relative(feed_path_str)
-      feed.url = site__url_at(site, site.base_url, feed.site_path)
-    }
+  // Generate feed paths
+  for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
+    feed.site_path = site__resolve(site, page.site_path, feed.at)
+  }
+
+  // Generate stylesheet paths
+  for iter := iter__mk(page.styles); style in iter__next(&iter) {
+    style.site_path = site__resolve(site, page.site_path, style.at)
   }
 
   level: uint = 1 // the title is equivalent to a h1
-  for i in 0..<page.headings.len {
-    heading := exparr__get(page.headings, i)
+  for iter := iter__mk(page.headings); heading in iter__next(&iter) {
     inline_markup__check(site, page, &heading.content)
 
     if heading.level > level + 1 {
@@ -547,19 +536,14 @@ codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
 // }}}
 // {{{ Feed definitions
 Def__Feed :: struct {
-  // NOTE: this path is currently always assumed to be relative to the root of
-  // the website. I might or might not support paths relative to the current
-  // page (with absolute paths being considered relative to the website root) in
-  // the future (if I feel the need for something like that).
-  at:          string,
+  at:          Path,
   name:        string,
   description: string,
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
 
-  site_path:   Path__Relative,
-  url:         URL,
+  site_path:   Path__Output,
 }
 
 @(private = "file")
@@ -567,10 +551,9 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
   Self :: Def__Feed
 
   text := codec__text(k)
-  ctext := codec__contiguous_text(k)
   filter := codec__page_filter__all(k)
 
-	at := codec__field(k, "at", Self, ctext, REQUIRED)
+	at := codec__field(k, "at", Self, codec__path(k), REQUIRED)
 	name := codec__field_at(k, "name", Self, text, REQUIRED)
 	desc := codec__field_at(k, "description", Self, text, REQUIRED)
 	under := codec__field_at(k, "under", Self, filter, ONCE, UNIQUE)
@@ -582,21 +565,35 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
 // {{{ Stylesheet definitions
 Def__Stylesheet :: struct {
   scope:   Page_Filter__All,
-  path:    string,
   preload: bool,
+  at:      Path,
+
+  // Generated
+  site_path: Path__Output,
 }
 
 @(private = "file")
 codec__stylesheet :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Stylesheet) {
   Self :: Def__Stylesheet
-
-  filter__all := codec__page_filter__all(k)
-  ctext       := codec__contiguous_text(k)
-
-	scope := codec__field(k, "scope", Self, filter__all)
-	path := codec__field_at(k, "path", Self, ctext, ONCE)
+	scope := codec__field(k, "scope", Self, codec__page_filter__all(k))
+	path := codec__field_at(k, "at", Self, codec__path(k), ONCE)
   preload := codec__flag_at(k, "preload", Self)
   return codec__loop(k, codec__sum(k, Self, scope, path, preload))
+}
+// }}}
+// {{{ Assets
+Def__Asset :: struct {
+  from: Path,
+  to:   Path,
+}
+
+@(private = "file")
+codec__asset :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Asset) {
+  Self :: Def__Asset
+  path := codec__path(k)
+	from := codec__field(k, "from", Self, path, ONCE)
+	to   := codec__field_at(k, "to", Self, path, ONCE)
+  return codec__loop(k, codec__sum(k, Self, from, to))
 }
 // }}}
 // {{{ Headings
@@ -834,6 +831,17 @@ codec__text_impl :: proc(
 	)
 }
 // }}}
+// {{{ Paths
+@(private = "file")
+codec__path :: proc(k: ^Codec_Kit) -> Typed_Codec(Path) {
+  return codec__transmute(k, Path, codec__contiguous_text(k))
+}
+
+@(private = "file")
+codec__out_path :: proc(k: ^Codec_Kit) -> Typed_Codec(Path__Output) {
+  return codec__transmute(k, Path__Output, codec__contiguous_text(k))
+}
+// }}}
 // {{{ Tags
 Tag :: distinct string
 
@@ -1005,8 +1013,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
           inner := cast(^^Exparr(Inline_Markup__Atom))kit.inner
 
           found_substantial := false
-          iter := iter__mk(inner^^)
-          for elem in iter__next(&iter) {
+          for iter := iter__mk(inner^^); elem in iter__next(&iter) {
             if _, ok := elem.(Inline_Markup__Space); !ok {
               found_substantial = true
               break
@@ -1639,8 +1646,7 @@ block_markup__atom__html :: proc(
   case Article_List:
     xml__tag(g, "ol")
     xml__attr(g, "class", "article-list")
-    iter := iter__mk(site.pages)
-    for article in iter__next(&iter) {
+    for iter := iter__mk(site.pages); article in iter__next(&iter) {
       page_filter__eval(page, article^, inner.filter) or_continue
 
       xml__tag(g, "li")
@@ -1712,7 +1718,25 @@ block_markup__atom__html :: proc(
   case Block_Markup__Aside:  // TODO
   case Block_Markup__Image:  // TODO
   case Block_Markup__Figure: // TODO
-  case Table: // TODO
+  case Table:
+    if mem__non_zero(inner.caption) {
+      xml__tag(g, "caption")
+      inline_markup__html(site, page, inner.caption)
+    }
+
+    row__html :: proc(site: ^Site, page: Page, row: Table__Row, kind: string) {
+      g := &site.xml
+      xml__tag(g, "tr")
+      for iter := iter__mk(row.cells); cell in iter__next(&iter) {
+        xml__tag(g, kind)
+        inline_markup__html(site, page, cell.content)
+      }
+    }
+
+    row__html(site, page, inner.header, "th")
+    for iter := iter__mk(inner.rows); row in iter__next(&iter) {
+      row__html(site, page, row^, "td")
+    }
   }
 }
 
@@ -1746,9 +1770,8 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   }
   if !has_headings do return
 
-  allocator := virtual.arena_allocator(&site.forever_arena)
   sectioned: Block_Markup // The root section we write to
-  sectioned.elements.allocator = allocator
+  sectioned.elements.allocator = site__alloc(site, .Forever)
 
   stack: small_array.Small_Array(MAX_HEADING_LEVEL, ^Block_Markup__Section)
   for i in 0..<bm.elements.len {
@@ -1762,7 +1785,7 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
       }
 
       inner_content: Block_Markup
-      inner_content.elements.allocator = allocator
+      inner_content.elements.allocator = site__alloc(site, .Forever)
       atom := Block_Markup__Section {
         heading = heading,
         content = inner_content,

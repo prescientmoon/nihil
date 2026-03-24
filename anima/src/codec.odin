@@ -124,8 +124,8 @@ Codec_Kit :: struct {
 codec__kit__make :: proc(site: ^Site) -> (kit: Codec_Kit) {
   kit.site = site
   kit.temp = virtual.arena_temp_begin(&site.stack_arena)
-	kit.memoized.allocator = virtual.arena_allocator(&site.stack_arena)
-	kit.forever = virtual.arena_allocator(&site.forever_arena)
+	kit.memoized.allocator = site__alloc(site, .Stack)
+	kit.forever = site__alloc(site, .Forever)
   return kit
 }
 

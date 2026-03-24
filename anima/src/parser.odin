@@ -19,6 +19,7 @@ Source_Range :: [2]Source_Loc
 @(private = "package")
 Error_Location :: union {
   Path__Absolute,
+  Path__Input,
   ^File,
   Source_Loc,
   Token,
@@ -33,7 +34,7 @@ Error :: struct {
 
 @(private = "package")
 File :: struct {
-  name:   string,
+  path:   Path__Input,
   source: string
 }
 
@@ -296,9 +297,9 @@ Tokens :: Exparr(Indented_Token, 10)
 // Allocates the token array on the stack arena.
 @(private = "package")
 parser__lex :: proc(site: ^Site, file: ^File) -> (tokens: Tokens, ok: bool) {
-  forever := virtual.arena_allocator(&site.forever_arena)
+  forever := site__alloc(site, .Forever)
 	lexer := lexer__make(file, forever) or_return
-  tokens.allocator = virtual.arena_allocator(&site.stack_arena)
+  tokens.allocator = site__alloc(site, .Stack)
 
 	for {
     tok: Token
@@ -466,7 +467,7 @@ codec__mark_completed :: proc(instance: Parser, could_be_completed := true) {
 }
 
 codec__make_completed_state :: proc(instance: ^Parser) {
-	allocator := virtual.arena_allocator(&instance.site.stack_arena)
+	allocator := site__alloc(instance.site, .Stack)
 
 	completed_codecs := make_dynamic_array_len_cap(
 		[dynamic](^Codec),
@@ -515,9 +516,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 		mem.copy(instance.output, &tok.content, size_of(string))
 		return true
 	case Codec__Raw:
-		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
-		defer virtual.arena_temp_end(temp)
-    defer site__update_stack_stats(instance.site)
+    site__frame(instance.site)
 
 		log.assertf(
 			instance.codec.type == string,
@@ -525,8 +524,8 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 			instance.codec.type,
 		)
 
-    forever_alloc := virtual.arena_allocator(&instance.site.forever_arena)
-    temp_alloc    := virtual.arena_allocator(&instance.site.stack_arena)
+    forever_alloc := site__alloc(instance.site, .Forever)
+    temp_alloc    := site__alloc(instance.site, .Stack)
     lines: Exparr(string)
     lines.allocator = temp_alloc
 
@@ -598,23 +597,15 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 		mem.copy(instance.output, inner.value, reflect.size_of_typeid(instance.codec.type))
 		return true
 	case Codec__Focus:
-		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
-		defer if instance.scratch {
-      virtual.arena_temp_ignore(temp)
-    } else {
-      virtual.arena_temp_end(temp)
-    }
-
+		site__frame(instance.site, instance.scratch)
     defer site__update_stack_stats(instance.site)
 
-    inner_alloc: mem.Allocator
-    if instance.scratch {
-      inner_alloc = virtual.arena_allocator(&instance.site.stack_arena)
-    } else {
-      inner_alloc = virtual.arena_allocator(&instance.site.forever_arena)
-    }
+    inner_alloc := site__alloc(
+      instance.site,
+      .Stack if instance.scratch else .Forever
+    )
 
-    temp_alloc := virtual.arena_allocator(&instance.site.stack_arena)
+    temp_alloc := site__alloc(instance.site, .Stack)
 		inner_output := mem__reflected_new(inner.inner.type, temp_alloc)
     kit := Lens_Kit {
       outer           = instance.output,
@@ -625,7 +616,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       allocator       = inner_alloc,
       temp_allocator  = temp_alloc,
       surrounded_at   = instance.surrounded_at,
-      error_allocator = virtual.arena_allocator(&instance.site.forever_arena),
+      error_allocator = site__alloc(instance.site, .Forever),
     }
 
     kit.errors.allocator = kit.temp_allocator
@@ -718,14 +709,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 		if tok.content != inner.name do return false
 		parser__advance(instance)
 
-		temp := virtual.arena_temp_begin(&instance.site.stack_arena)
-		defer if instance.scratch {
-      virtual.arena_temp_ignore(temp)
-    } else {
-      virtual.arena_temp_end(temp)
-    }
-
-    defer site__update_stack_stats(instance.site)
+		site__frame(instance.site, instance.scratch)
 
 		inner_instance := instance
 		inner_instance.codec = inner.inner
@@ -859,9 +843,7 @@ codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
 parser__eval :: proc(
   site: ^Site, codec: ^Codec, file: ^File, output: rawptr
 ) -> (ok: bool)  {
-	temp := virtual.arena_temp_begin(&site.stack_arena)
-	defer virtual.arena_temp_end(temp)
-  defer site__update_stack_stats(site)
+  site__frame(site)
 
   tokens := parser__lex(site, file) or_return
 	instance := Parser {
@@ -870,8 +852,8 @@ parser__eval :: proc(
 		output   = output,
     tokens   = tokens,
     // We could keep these on the proper stack but idrc
-    token    = new(uint, virtual.arena_allocator(&site.stack_arena)),
-    ok       = new_clone(true, virtual.arena_allocator(&site.stack_arena)),
+    token    = new(uint, site__alloc(site, .Stack)),
+    ok       = new_clone(true, site__alloc(site, .Stack)),
 	}
 
 	codec__make_completed_state(&instance)

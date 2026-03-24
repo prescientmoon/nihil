@@ -4,8 +4,7 @@
 \compact
 \public
 
-\stylesheet \preload
-  \path /styles.css
+\stylesheet \preload \at styles.css
 
 \change \at 2025-08-14T19:10:53+00:00
   Add myself to a webring!

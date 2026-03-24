@@ -511,7 +511,7 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
 
   for i in 0..<page.aliases.len {
     alias := exparr__get(page.aliases, i)^
-    mps__labeled_str(mps, "alias", alias)
+    mps__labeled_str(mps, "alias", string(alias))
   }
 
   mps__block_markup(mps, page.content)
@@ -520,7 +520,7 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
 mps__feed :: proc(mps: ^Markup_Printer_State, feed: Def__Feed) {
   mps__deeper(mps, "feed")
 
-  mps__labeled_str(mps, "at", feed.at)
+  mps__labeled_str(mps, "at", string(feed.at))
 
   {mps__deeper(mps, "members"); mps__page_filter__many(mps, feed.members)}
   {mps__deeper(mps, "under"); mps__page_filter__many(mps, feed.under)}
@@ -540,13 +540,15 @@ pretty_error :: proc(error: Error) -> string {
   switch inner in error.loc {
   case Path__Absolute: 
     fmt.sbprintf(&builder, "%v", string(inner))
+  case Path__Input: 
+    fmt.sbprintf(&builder, "%v", string(inner))
   case ^File:
-    fmt.sbprintf(&builder, "%v", inner.name)
+    fmt.sbprintf(&builder, "%v", inner.path)
   case Source_Loc:
-    fmt.sbprintf(&builder, "%v(%v:%v)", inner.file.name, inner.line, inner.col)
+    fmt.sbprintf(&builder, "%v(%v:%v)", inner.file.path, inner.line, inner.col)
   case Token:
     pos := inner.from
-    fmt.sbprintf(&builder, "%v(%v:%v)", pos.file.name, pos.line, pos.col)
+    fmt.sbprintf(&builder, "%v(%v:%v)", pos.file.path, pos.line, pos.col)
   case Source_Range:
     from := inner[0]
     to   := inner[1]   
@@ -555,7 +557,7 @@ pretty_error :: proc(error: Error) -> string {
     fmt.sbprintf(
       &builder,
       "%v(%v:%v-%v:%v)",
-      from.file.name,
+      from.file.path,
       from.line,
       from.col,
       to.line,
