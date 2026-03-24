@@ -27,8 +27,8 @@ Page :: struct {
 
   // We don't bother defining sitemap-specific types since those options are
   // seldom used in practice.
-  changefreq:   string, // Override the change frequency for the page
-  priority:     string, // Assign a priority to the sitemap entry
+  changefreq: string, // Override the change frequency for the page
+  priority:   string, // Assign a priority to the sitemap entry
 
   tags:      Exparr(Tag),
   changelog: Exparr(Change),
@@ -63,12 +63,23 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
 
 page__last_updated :: proc(page: Page) -> (t: time.Time) {
   t = time__max(page.created_at, page.published_at)
-  for i in 0..<page.changelog.len {
-    change := exparr__get(page.changelog, i)
+  for iter := iter__mk(page.changelog); change in iter__next(&iter) {
     t = time__max(t, change.at)
   }
 
   return t
+}
+
+// When a page moves, we want to keep using the old URL as the RSS GUID.
+page__guid :: proc(
+  site: ^Site, page: Page, alloc: Site_Alloc = .Forever
+) -> URL {
+  if page.aliases.len == 0 {
+    return page.url
+  } else {
+    first := exparr__get(page.aliases, 0)
+    return site__url(site, first^, alloc)
+  }
 }
 
 codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
@@ -306,14 +317,22 @@ page__check :: proc(site: ^Site, page: ^Page) {
     }
   }
 
-  // Generate feed paths
+  // Generate feed paths & redirects
   for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
     feed.site_path = site__resolve(site, page.site_path, feed.at)
+    for iter := iter__mk(feed.aliases); alias in iter__next(&iter) {
+      exparr__push(&site.redirects, Redirect{alias^, feed.site_path})
+    }
   }
 
   // Generate stylesheet paths
   for iter := iter__mk(page.styles); style in iter__next(&iter) {
     style.site_path = site__resolve(site, page.site_path, style.at)
+  }
+
+  // Set up alias redirects
+  for iter := iter__mk(page.aliases); alias in iter__next(&iter) {
+    exparr__push(&site.redirects, Redirect{alias^, page.site_path})
   }
 
   level: uint = 1 // the title is equivalent to a h1
@@ -542,6 +561,7 @@ Def__Feed :: struct {
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
+  aliases: Exparr(Path__Output), // Locations to redirect from
 
   site_path:   Path__Output,
 }
@@ -559,7 +579,11 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
 	under := codec__field_at(k, "under", Self, filter, ONCE, UNIQUE)
 	members := codec__field_at(k, "members", Self, filter, ONCE)
 
-  return codec__loop(k, codec__sum(k, Self, at, under, members, name, desc))
+  aliases_payload := codec__exparr(k, codec__at(k, "alias", codec__out_path(k)))
+  aliases := codec__field(k, "aliases", Self, aliases_payload)
+
+  all := codec__sum(k, Self, at, under, members, aliases, name, desc)
+  return codec__loop(k, all)
 }
 // }}}
 // {{{ Stylesheet definitions
@@ -842,14 +866,6 @@ codec__out_path :: proc(k: ^Codec_Kit) -> Typed_Codec(Path__Output) {
   return codec__transmute(k, Path__Output, codec__contiguous_text(k))
 }
 // }}}
-// {{{ Tags
-Tag :: distinct string
-
-@(private = "file")
-codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
-  return codec__transmute(k, Tag, codec__contiguous_text(k))
-}
-// }}}
 // {{{ Article lists
 Article_List :: struct {
   filter:  Page_Filter__All,
@@ -866,6 +882,20 @@ codec__article_list :: proc(k: ^Codec_Kit) -> Typed_Codec(Article_List) {
   heading := codec__field_at(k, "heading", Article_List, u8, UNIQUE)
   looped := codec__loop(k, codec__sum(k, Article_List, filter, heading))
 	return codec__loc(k, looped)
+}
+// }}}
+// {{{ Tags
+Tag :: distinct string
+
+@(private = "file")
+codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
+  return codec__transmute(k, Tag, codec__contiguous_text(k))
+}
+// }}}
+// {{{ Redirects
+Redirect :: struct {
+  from: Path__Output,
+  to:   Path__Output,
 }
 // }}}
 

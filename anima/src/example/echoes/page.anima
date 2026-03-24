@@ -6,6 +6,15 @@
 \compact
 \public
 
+\feed feed.xml
+  \alias /rss.xml
+  \name Echoes
+  \under{}
+  \members \public \tag{echo}
+  \description
+    This is the RSS feed for my ethereal realm (read: website). Feel free to
+    poke around :3
+
 \description \_! \"!
   Remnants of the One who once dwelled within the Silver of the Sky. They now
   wander endlessly through the mists of the heavens, at times drawn to lost

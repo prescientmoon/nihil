@@ -44,6 +44,9 @@ Site :: struct {
   // The result of parsing the various files.
   pages:      Exparr(Page),
 
+  // Cool URLs never change!
+  redirects:  Exparr(Redirect),
+
   // The output file data, to be generated in one go.
   files:      Exparr(File_Gen_Entry),
 
@@ -73,9 +76,10 @@ site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
 	log.assert(err == nil)
 
   forever := virtual.arena_allocator(&site.forever_arena)
-  site.pages.allocator  = forever
-  site.errors.allocator = forever
-  site.files.allocator  = forever
+  site.pages.allocator     = forever
+  site.redirects.allocator = forever
+  site.errors.allocator    = forever
+  site.files.allocator     = forever
 
 	codec_kit := codec__kit__make(site)
   site.page_codec = codec__page(&codec_kit)
@@ -446,7 +450,7 @@ xml__raw_stringf :: proc(gen: ^Xml_Gen, fstr: string, args: ..any) {
   fmt.sbprintf(&gen.builder, fstr, ..args)
 }
 
-xml__string :: proc(gen: ^Xml_Gen, value: string) {
+xml__string :: proc(gen: ^Xml_Gen, value: any) {
   xml__stringf(gen, "%v", value)
 }
 
@@ -674,10 +678,10 @@ site__feed :: proc(
       
       name := strings.trim_space(feed.name)
       if xml__tag(g, "title") do xml__stringf(g, "Moonythm | %v", name)
-      if xml__tag(g, "link") do xml__stringf(g, "%v", site.base_url)
+      if xml__tag(g, "link") do xml__string(g, site.base_url)
 
       description := strings.trim_space(feed.description)
-      if xml__tag(g, "description") do xml__stringf(g, "%v", description)
+      if xml__tag(g, "description") do xml__string(g, description)
       if xml__tag(g, "language") do xml__string(g, "en")
       if xml__tag(g, "generator") do xml__string(g, GENERATOR)
       if xml__tag(g, "webMaster") {
@@ -691,8 +695,7 @@ site__feed :: proc(
       }
 
       last_update: time.Time
-      for i in 0..<site.pages.len {
-        page := exparr__get(site.pages, i)
+      for iter := iter__mk(site.pages); page in iter__next(&iter) {
         page_filter__all__eval(base, page^, feed.members) or_continue
 
         last_update = time__max(last_update, page__last_updated(page^))
@@ -703,14 +706,15 @@ site__feed :: proc(
         }
 
         if xml__tag(g, "title") {
-          xml__stringf(g, "%v", inline_markup__formatter(site, page, &page.title))
+          xml__string(g, inline_markup__formatter(site, page, &page.title))
         }
 
         if xml__tag(g, "description") {
           if mem__iz(page.description) {
             xml__string(g, ":3")
           } else  {
-            xml__stringf(g, "%v",
+            xml__string(
+              g,
               inline_markup__formatter(site, page, &page.description)
             )
           }
@@ -718,26 +722,26 @@ site__feed :: proc(
 
         if page.published_at != {} {
           if xml__tag(g, "pubDate") {
-            xml__stringf(g, "%v", Rfc2822(page.published_at))
+            xml__string(g, Rfc2822(page.published_at))
           }
         }
 
-        if xml__tag(g, "link") do xml__stringf(g, "%v", page.url)
+        if xml__tag(g, "link") do xml__string(g, page.url)
         if xml__tag(g, "guid") {
           xml__attr(g, "isPermaLink", "true")
-          xml__stringf(g, "%v", page.url)
+          xml__string(g, page__guid(site, page^, .Stack))
         }
 
         for j in 0..<page.tags.len {
           tag := exparr__get(page.tags, j)^
           xml__tag(g, "category")
-          xml__stringf(g, "%v", tag)
+          xml__string(g, tag)
         }
       }
 
       if last_update != {} {
         if xml__tag(g, "lastBuildDate") {
-          xml__stringf(g, "%v", Rfc2822(last_update))
+          xml__string(g, Rfc2822(last_update))
         }
       }
     }
@@ -834,11 +838,8 @@ site__commit :: proc(site: ^Site) {
 site__generate :: proc(site: ^Site) {
   forever := site__alloc(site)
   site__add_file(site, Path__Output("sitemap.xml"), site__sitemap(site))
-  for i in 0..<site.pages.len {
-    page := exparr__get(site.pages, i)
-
-    for j in 0..<page.feeds.len {
-      feed := exparr__get(page.feeds, j)
+  for iter := iter__mk(site.pages); page in iter__next(&iter) {
+    for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
       feed_path, feed_content := site__feed(site, page^, feed^)
       site__add_file(site, feed_path, feed_content)
     }
@@ -848,36 +849,29 @@ site__generate :: proc(site: ^Site) {
     {
       defer xml__clear(&site.xml)
       page__html(site, page, .Self)
-
       site__add_file(site, page_path, site__xml(site))
     }
 
-    {
-      iter := iter__mk(page.styles)
-      for style in iter__next(&iter) {
-        in_path := site__resolve(site, page.source_path, style.at)
-        site__add_file(site, style.site_path, in_path)
-      }
+    for iter := iter__mk(page.styles); style in iter__next(&iter) {
+      in_path := site__resolve(site, page.source_path, style.at)
+      site__add_file(site, style.site_path, in_path)
     }
+  }
 
-    {
-      // Add guard pages to page aliases, thus erroring out on path conflicts.
-      iter := iter__mk(page.aliases)
-      for alias in iter__next(&iter) {
-        site__add_file(
-          site,
-          site__resolve(site, alias^, "index.html"),
-          fmt.aprintf(
-            "This page has moved to <a href=\"%[0]v\">%[0]v</a>. " + \
-            "You were supposed to get redirected there, but I guess " + \
-            "something went wrong in the process. Consider clicking said " + \
-            "link manually :3",
-            page.url,
-            allocator = forever
-          )
-        )
-      }
-    }
+  // Add guard pages to redirects, thus erroring out on path conflicts.
+  for iter := iter__mk(site.redirects); redirect in iter__next(&iter) {
+    site__add_file(
+      site,
+      site__resolve(site, redirect.from, "index.html"),
+      fmt.aprintf(
+        "This page has moved to <a href=\"%[0]v\">%[0]v</a>. " + \
+        "You were supposed to get redirected there, but I guess " + \
+        "something went wrong in the process. Consider clicking said " + \
+        "link manually :3",
+        site__url(site, redirect.to),
+        allocator = forever
+      )
+    )
   }
 }
 // }}}
