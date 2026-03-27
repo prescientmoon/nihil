@@ -81,7 +81,7 @@ page__guid :: proc(
   }
 }
 
-codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
+codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
   ctext      := codec__contiguous_text(k)
   imarkup    := codec__inline_markup(k)
   bmarkup    := codec__block_markup(k)
@@ -121,7 +121,7 @@ codec__page :: proc(k: ^Codec_Kit) -> Typed_Codec(Page) {
   )
 
   inner_loop := codec__sum(
-    k, Page,
+    k,
     content, feeds, tags, aliases, styles, assets, public, title, description,
     compact, smaller_headings, created, published, filename, changefreq,
     priority, changes,
@@ -384,12 +384,12 @@ Change :: struct {
   message: Inline_Markup,
 }
 
-codec__change :: proc(k: ^Codec_Kit) -> Typed_Codec(Change) {
+codec__change :: proc(k: ^Codec_Kit) -> ^Codec {
   imarkup := codec__inline_markup(k)
   at := codec__field_at(k, "at", Change, codec__timestamp(k), ONCE)
   message := codec__field(k, "message", Change, imarkup, REQUIRED)
 
-  return codec__loop(k, codec__sum(k, Change, at, message))
+  return codec__loop(k, codec__sum(k, at, message))
 }
 // }}}
 // {{{ Page filtering
@@ -457,11 +457,12 @@ page_filter__all__eval :: proc(
 @(private = "file")
 codec__page_filter__atom :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Page_Filter__Atom) {
+) -> ^Codec {
   return codec__memo(
   	k,
   	"page_filter__atom",
-  	proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__Atom) {
+    Page_Filter__Atom,
+  	proc(k: ^Codec_Kit) -> ^Codec {
       atom := codec__page_filter__atom(k)
       many := codec__page_filter__many(k)
 
@@ -472,15 +473,15 @@ codec__page_filter__atom :: proc(
       any := codec__trans_at(k, "any", Page_Filter__Any, many)
       tag := codec__trans_at(k, "tag", Page_Filter__Tag, codec__tag(k))
 
-      return codec__sum(
+      return codec__union(
         k,
         Page_Filter__Atom,
-        codec__variant(k, Page_Filter__Atom, local),
-        codec__variant(k, Page_Filter__Atom, public),
-        codec__variant(k, Page_Filter__Atom, not),
-        codec__variant(k, Page_Filter__Atom, all),
-        codec__variant(k, Page_Filter__Atom, any),
-        codec__variant(k, Page_Filter__Atom, tag),
+        { Page_Filter__Local,  local  },
+        { Page_Filter__Public, public },
+        { Page_Filter__Not,    not    },
+        { Page_Filter__All,    all    },
+        { Page_Filter__Any,    any    },
+        { Page_Filter__Tag,    tag    },
       )
     },
   )
@@ -489,11 +490,12 @@ codec__page_filter__atom :: proc(
 @(private = "file")
 codec__page_filter__many :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Page_Filter__Many) {
+) -> ^Codec {
 	return codec__memo(
 		k,
 		"page_filter__many",
-		proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__Many) {
+    Page_Filter__Many,
+		proc(k: ^Codec_Kit) -> ^Codec {
       inner := codec__spaced_exparr(k, codec__page_filter__atom(k))
 			return codec__transmute(k, Page_Filter__Many, inner)
 		},
@@ -503,11 +505,12 @@ codec__page_filter__many :: proc(
 @(private = "file")
 codec__page_filter__all :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Page_Filter__All) {
+) -> ^Codec {
 	return codec__memo(
 		k,
 		"page_filter__all",
-		proc(k: ^Codec_Kit) -> Typed_Codec(Page_Filter__All) {
+    Page_Filter__All,
+		proc(k: ^Codec_Kit) -> ^Codec {
 			return codec__transmute(k, Page_Filter__All, codec__page_filter__many(k))
 		},
 	)
@@ -529,7 +532,7 @@ Def__Icon :: struct {
 }
 
 @(private = "file")
-codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
+codec__deficon :: proc(k: ^Codec_Kit) -> ^Codec {
   Self :: Def__Icon
 
 	id := codec__field(k, "id", Self, codec__contiguous_text(k), REQUIRED)
@@ -537,7 +540,7 @@ codec__deficon :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Icon) {
 	scope := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
 	favicon := codec__flag_at(k, "favicon", Self)
 
-  inner_loop := codec__loop(k, codec__sum(k, Self, id, path, favicon, scope))
+  inner_loop := codec__loop(k, codec__sum(k, id, path, favicon, scope))
 	return codec__remote_push(k, "icons", Page, codec__loc(k, inner_loop))
 }
 // }}}
@@ -550,14 +553,14 @@ Def__Link :: struct {
 }
 
 @(private = "file")
-codec__deflink :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Link) {
+codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)
 
 	id := codec__field(k, "id", Def__Link, ctext, REQUIRED)
   target := codec__field_at(k, "target", Def__Link, ctext, ONCE)
   label := codec__field_at(k, "label", Def__Link, imarkup, UNIQUE)
-  inner_loop := codec__loop(k, codec__sum(k, Def__Link, label, target, id))
+  inner_loop := codec__loop(k, codec__sum(k, label, target, id))
 	return codec__remote_push(k, "links", Page, inner_loop)
 }
 // }}}
@@ -569,13 +572,13 @@ Def__Footnote :: struct {
 }
 
 @(private = "file")
-codec__defnote :: proc(k: ^Codec_Kit) -> Typed_Codec(^Def__Footnote) {
+codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
   ctext := codec__contiguous_text(k)
   bmarkup := codec__block_markup(k)
 
 	id := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
   content := codec__field(k, "content", Def__Footnote, bmarkup, REQUIRED)
-  inner_loop := codec__loop(k, codec__sum(k, Def__Footnote, content, id))
+  inner_loop := codec__loop(k, codec__sum(k, content, id))
 	return codec__remote_push(k, "footnotes", Page, inner_loop)
 }
 // }}}
@@ -594,7 +597,7 @@ Def__Feed :: struct {
 }
 
 @(private = "file")
-codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
+codec__feed :: proc(k: ^Codec_Kit) -> ^Codec {
   Self :: Def__Feed
 
   text := codec__text(k)
@@ -609,7 +612,7 @@ codec__feed :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Feed) {
   aliases_payload := codec__exparr(k, codec__at(k, "alias", codec__out_path(k)))
   aliases := codec__field(k, "aliases", Self, aliases_payload)
 
-  all := codec__sum(k, Self, at, under, members, aliases, name, desc)
+  all := codec__sum(k, at, under, members, aliases, name, desc)
   return codec__loop(k, all)
 }
 // }}}
@@ -624,12 +627,12 @@ Def__Stylesheet :: struct {
 }
 
 @(private = "file")
-codec__stylesheet :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Stylesheet) {
+codec__stylesheet :: proc(k: ^Codec_Kit) -> ^Codec {
   Self :: Def__Stylesheet
 	scope := codec__field(k, "scope", Self, codec__page_filter__all(k))
 	path := codec__field_at(k, "at", Self, codec__path(k), ONCE)
   preload := codec__flag_at(k, "preload", Self)
-  return codec__loop(k, codec__sum(k, Self, scope, path, preload))
+  return codec__loop(k, codec__sum(k, scope, path, preload))
 }
 // }}}
 // {{{ Assets
@@ -639,12 +642,12 @@ Def__Asset :: struct {
 }
 
 @(private = "file")
-codec__asset :: proc(k: ^Codec_Kit) -> Typed_Codec(Def__Asset) {
+codec__asset :: proc(k: ^Codec_Kit) -> ^Codec {
   Self :: Def__Asset
   path := codec__path(k)
 	from := codec__field(k, "from", Self, path, ONCE)
 	to   := codec__field_at(k, "to", Self, path, UNIQUE)
-  return codec__loop(k, codec__sum(k, Self, from, to))
+  return codec__loop(k, codec__sum(k, from, to))
 }
 // }}}
 // {{{ Headings
@@ -657,7 +660,7 @@ Heading :: struct {
 }
 
 @(private = "file")
-codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
+codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
   // This would benefit from having a "tap"-style helper, but oh well.
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^Heading)kit.outer
@@ -667,7 +670,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
     case .Project: inner^ = outer^
     case .Inject:
       outer^ = inner^
-      outer.level = uint(uintptr(kit.user_data))
+      outer.level = mem.reinterpret_copy(uint, kit.user_data)
       log.assert(0 < outer.level)
       log.assert(outer.level <= MAX_HEADING_LEVEL)
     }
@@ -678,8 +681,8 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> Typed_Codec(^Heading) {
 
 	id := codec__field_at(k, "id", Heading, ctext, UNIQUE)
   content := codec__field(k, "content", Heading, imarkup, REQUIRED)
-  looped := codec__loop(k, codec__sum(k, Heading, content, id))
-  with_level := codec__focus(k, Heading, looped, lens, rawptr(uintptr(level)))
+  looped := codec__loop(k, codec__sum(k, content, id))
+  with_level := codec__focus(k, Heading, looped, lens, level)
 	return codec__remote_push(k, "headings", Page, codec__loc(k, with_level))
 }
 // }}}
@@ -699,7 +702,7 @@ Table :: struct {
 }
 
 @(private = "file")
-codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
+codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
   imarkup := codec__inline_markup(k)
 	cell_payload := codec__field(k, "content", Table__Cell, imarkup)
 	cell := codec__at(k, "cell", cell_payload)
@@ -711,7 +714,7 @@ codec__table :: proc(k: ^Codec_Kit) -> Typed_Codec(Table) {
   rows_payload := codec__exparr(k, codec__at(k, "row", row))
 	rows := codec__field(k, "rows", Table, rows_payload)
 
-	return codec__loop(k, codec__sum(k, Table, caption, header, rows))
+	return codec__loop(k, codec__sum(k, caption, header, rows))
 }
 
 table__check :: proc(site: ^Site, page: ^Page, table: ^Table) {
@@ -731,7 +734,7 @@ table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
 // }}}
 // {{{ Timestamps
 @(private = "file")
-codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
+codec__timestamp :: proc(k: ^Codec_Kit) -> ^Codec {
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^time.Time)kit.outer
     inner := cast(^string)kit.inner
@@ -781,7 +784,7 @@ codec__timestamp :: proc(k: ^Codec_Kit) -> Typed_Codec(time.Time) {
 // NOTE: this does not currently handle signed integers (and *will* overflow for
 // large enough integers).
 @(private = "file")
-codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
+codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> ^Codec {
   lens :: proc(kit: ^Lens_Kit) {
     outer := cast(^T)kit.outer
     inner := cast(^string)kit.inner
@@ -818,19 +821,17 @@ codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> Typed_Codec(T) {
 // {{{ Text
 // A sequence of text where all the whitespace in the source is discarded
 @(private = "file")
-codec__contiguous_text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+codec__contiguous_text :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__text_impl(k, false)
 }
 
 @(private = "file")
-codec__text :: proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+codec__text :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__text_impl(k, true)
 }
 
 @(private = "file")
-codec__text_impl :: proc(
-  k: ^Codec_Kit, $spaces: bool
-) -> Typed_Codec(string) {
+codec__text_impl :: proc(k: ^Codec_Kit, $spaces: bool) -> ^Codec {
   lens :: proc(kit: ^Lens_Kit) {
     inner := cast(^Exparr(string))kit.inner
     outer := cast(^string)kit.outer
@@ -857,11 +858,12 @@ codec__text_impl :: proc(
 	return codec__memo(
 		k,
 		"text" when spaces else "contiguous_text",
-		proc(k: ^Codec_Kit) -> Typed_Codec(string) {
+    string,
+		proc(k: ^Codec_Kit) -> ^Codec {
       when spaces {
         str   := codec__string(k)
-        space := codec__space(k, string, " ")
-        inner := codec__exparr(k, codec__sum(k, string, str, space))
+        space := codec__space(k, " ")
+        inner := codec__exparr(k, codec__sum(k, str, space))
       } else {
         inner := codec__spaced_exparr(k, codec__string(k))
       }
@@ -879,12 +881,12 @@ codec__text_impl :: proc(
 // }}}
 // {{{ Paths
 @(private = "file")
-codec__path :: proc(k: ^Codec_Kit) -> Typed_Codec(Path) {
+codec__path :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__transmute(k, Path, codec__contiguous_text(k))
 }
 
 @(private = "file")
-codec__out_path :: proc(k: ^Codec_Kit) -> Typed_Codec(Path__Output) {
+codec__out_path :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__transmute(k, Path__Output, codec__contiguous_text(k))
 }
 // }}}
@@ -896,13 +898,13 @@ Article_List :: struct {
 }
 
 @(private = "file")
-codec__article_list :: proc(k: ^Codec_Kit) -> Typed_Codec(Article_List) {
+codec__article_list :: proc(k: ^Codec_Kit) -> ^Codec {
   filter__all := codec__page_filter__all(k)
   u8 := codec__integer(k, u8)
 
 	filter := codec__field(k, "filter", Article_List, filter__all)
   heading := codec__field_at(k, "heading", Article_List, u8, UNIQUE)
-  looped := codec__loop(k, codec__sum(k, Article_List, filter, heading))
+  looped := codec__loop(k, codec__sum(k, filter, heading))
 	return codec__loc(k, looped)
 }
 // }}}
@@ -910,7 +912,7 @@ codec__article_list :: proc(k: ^Codec_Kit) -> Typed_Codec(Article_List) {
 Tag :: distinct string
 
 @(private = "file")
-codec__tag :: proc(k: ^Codec_Kit) -> Typed_Codec(Tag) {
+codec__tag :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__transmute(k, Tag, codec__contiguous_text(k))
 }
 // }}}
@@ -989,23 +991,23 @@ Inline_Markup__Atom :: union {
 @(private = "file")
 codec__inline_markup__timestamp :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Inline_Markup__Timestamp) {
+) -> ^Codec {
   Self :: Inline_Markup__Timestamp
 
   time := codec__field(k, "time", Self, codec__timestamp(k), ONCE)
   compact := codec__flag_at(k, "compact", Self)
 
-  return codec__loop(k, codec__sum(k, Self, time, compact))
+  return codec__loop(k, codec__sum(k, time, compact))
 }
 
 @(private = "file")
 codec__inline_markup__atom :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Inline_Markup__Atom) {
+) -> ^Codec {
 	imarkup := codec__inline_markup(k)
 	ctext := codec__contiguous_text(k)
 
-	space := codec__space(k, Inline_Markup__Space, Inline_Markup__Space{})
+	space := codec__space(k, Inline_Markup__Space{})
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
 	ellipsis := codec__const(k, "...", Inline_Markup__Ellipsis{})
 	emph := codec__trans_at(k, "_", Inline_Markup__Emph, imarkup)
@@ -1023,7 +1025,7 @@ codec__inline_markup__atom :: proc(
   Link :: Inline_Markup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
   link_label := codec__field_at(k, "label", Link, imarkup, UNIQUE)
-  link_sum := codec__sum(k, Link, link_label, link_id)
+  link_sum := codec__sum(k, link_label, link_id)
   link_payload := codec__loc(k, codec__loop(k, link_sum))
   link := codec__ref(k, codec__at(k, "link", link_payload))
 
@@ -1031,31 +1033,32 @@ codec__inline_markup__atom :: proc(
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
   datetime := codec__trans_at(k, "datetime", Inline_Markup__Datetime, timestamp)
 
-	return codec__sum(
+	return codec__union(
 		k,
-		Inline_Markup__Atom,
-		codec__variant(k, Inline_Markup__Atom, space),
-		codec__variant(k, Inline_Markup__Atom, text),
-		codec__variant(k, Inline_Markup__Atom, ellipsis),
-		codec__variant(k, Inline_Markup__Atom, emph),
-		codec__variant(k, Inline_Markup__Atom, strong),
-		codec__variant(k, Inline_Markup__Atom, strike),
-		codec__variant(k, Inline_Markup__Atom, mono),
-		codec__variant(k, Inline_Markup__Atom, quote),
-		codec__variant(k, Inline_Markup__Atom, icon),
-		codec__variant(k, Inline_Markup__Atom, fn),
-		codec__variant(k, Inline_Markup__Atom, link),
-		codec__variant(k, Inline_Markup__Atom, date),
-		codec__variant(k, Inline_Markup__Atom, datetime),
+    Inline_Markup__Atom,
+    { Inline_Markup__Space,         space    },
+    { Inline_Markup__Text,          text     },
+    { Inline_Markup__Ellipsis,      ellipsis },
+    { Inline_Markup__Emph,          emph     },
+    { Inline_Markup__Strong,        strong   },
+    { Inline_Markup__Strikethrough, strike   },
+    { Inline_Markup__Mono,          mono     },
+    { Inline_Markup__Quote,         quote    },
+    { Inline_Markup__Date,          date     },
+    { Inline_Markup__Datetime,      datetime },
+    { ^Inline_Markup__Icon,         icon     },
+    { ^Inline_Markup__Fn,           fn       },
+    { ^Inline_Markup__Link,         link     },
 	)
 }
 
 @(private="file")
-codec__inline_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
+codec__inline_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
 		"inline_markup",
-		proc(k: ^Codec_Kit) -> Typed_Codec(Inline_Markup) {
+    Inline_Markup,
+		proc(k: ^Codec_Kit) -> ^Codec {
       // This lens marks runs only consisting of spaces as ignored.
       lens :: proc(kit: ^Lens_Kit) {
         switch kit.mode {
@@ -1158,6 +1161,7 @@ inline_markup__atom__fmt :: proc(
 inline_markup__fmt :: proc(
   fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
 ) {
+  if im.elements == nil do return
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
     inline_markup__atom__fmt(fi, site, page, chunk^)
   }
@@ -1422,29 +1426,29 @@ Block_Markup :: struct {
 @(private = "file")
 codec__block_markup__image :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__Image) {
+) -> ^Codec {
   ctext := codec__contiguous_text(k)
 	imarkup := codec__inline_markup(k)
 	source_ref := codec__field_at(k, "source", Block_Markup__Image, ctext, ONCE)
 	alt_ref := codec__field(k, "alt", Block_Markup__Image, imarkup, ONCE)
-	return codec__loop(k, codec__sum(k, Block_Markup__Image, source_ref, alt_ref))
+	return codec__loop(k, codec__sum(k, source_ref, alt_ref))
 }
 
 @(private = "file")
 codec__block_markup__figure :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__Figure) {
+) -> ^Codec {
   imarkup := codec__inline_markup(k)
   bmarkup := codec__block_markup(k)
 	caption := codec__field_at(k, "caption", Block_Markup__Figure, imarkup, UNIQUE)
 	content := codec__field(k, "content", Block_Markup__Figure, bmarkup, ONCE)
-	return codec__loop(k, codec__sum(k, Block_Markup__Figure, caption, content))
+	return codec__loop(k, codec__sum(k, caption, content))
 }
 
 @(private = "file")
 codec__block_markup__aside :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__Aside) {
+) -> ^Codec {
   Self :: Block_Markup__Aside
 
   ctext   := codec__contiguous_text(k)
@@ -1459,7 +1463,7 @@ codec__block_markup__aside :: proc(
 
 	return codec__loop(
     k, 
-    codec__sum(k, Self, content, id, icon, title, collapse, content)
+    codec__sum(k, content, id, icon, title, collapse, content)
   )
 }
 
@@ -1469,7 +1473,7 @@ codec__block_markup__aside :: proc(
 // field of the kit to filter out the invalid ones.
 codec__block_markup__list :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__List) {
+) -> ^Codec {
   Self :: Block_Markup__List
 
   ilens :: proc(kit: ^Lens_Kit) {
@@ -1500,7 +1504,7 @@ codec__block_markup__list :: proc(
 
   ordered := codec__flag_at(k, "ordered", Self)
   block := codec__flag_at(k, "block", Self)
-  flags := codec__sum(k, Self, ordered, block)
+  flags := codec__sum(k, ordered, block)
 
   imarkup := codec__inline_markup(k)
   ielem := codec__at(k, "-", imarkup)
@@ -1510,26 +1514,26 @@ codec__block_markup__list :: proc(
   belem := codec__at(k, "-", bmarkup)
   bcontent := codec__focus(k, Self, codec__spaced_exparr(k, belem), blens)
 
-  content := codec__sum(k, Self, icontent, bcontent)
-	return codec__loop(k, codec__seq(k, Self, flags, content))
+  content := codec__sum(k, icontent, bcontent)
+	return codec__loop(k, codec__seq(k, flags, content))
 }
 
 codec__block_markup__code :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__Code) {
+) -> ^Codec {
   Self :: Block_Markup__Code
 
   ctext := codec__contiguous_text(k)
   lang := codec__field(k, "language", Self, ctext, ONCE)
   content := codec__field_at(k, "content", Self, codec__raw(k), ONCE)
 
-	return codec__loop(k, codec__sum(k, Self, lang, content))
+	return codec__loop(k, codec__sum(k, lang, content))
 }
 
 @(private = "file")
 codec__block_markup__atom :: proc(
   k: ^Codec_Kit
-) -> Typed_Codec(Block_Markup__Atom) {
+) -> ^Codec {
 	imarkup := codec__inline_markup(k)
 	bmarkup := codec__block_markup(k)
 
@@ -1553,36 +1557,37 @@ codec__block_markup__atom :: proc(
 	h3 := codec__at(k, "##", codec__heading(k, 3))
 	h4 := codec__at(k, "###", codec__heading(k, 4))
 
-	return codec__sum(
+  return codec__union(
 		k,
-		Block_Markup__Atom,
-		codec__variant(k, Block_Markup__Atom, blockquote),
-		codec__variant(k, Block_Markup__Atom, description),
-		codec__variant(k, Block_Markup__Atom, table_of_contents),
-		codec__variant(k, Block_Markup__Atom, thematic_break),
-		codec__variant(k, Block_Markup__Atom, image),
-		codec__variant(k, Block_Markup__Atom, figure),
-		codec__variant(k, Block_Markup__Atom, table),
-		codec__variant(k, Block_Markup__Atom, h2),
-		codec__variant(k, Block_Markup__Atom, h3),
-		codec__variant(k, Block_Markup__Atom, h4),
-		codec__variant(k, Block_Markup__Atom, article_list),
-		codec__variant(k, Block_Markup__Atom, list),
-		codec__variant(k, Block_Markup__Atom, code),
-		codec__variant(k, Block_Markup__Atom, aside),
-		codec__variant(k, Block_Markup__Atom, deflink),
-		codec__variant(k, Block_Markup__Atom, defnote),
-		codec__variant(k, Block_Markup__Atom, deficon),
-		codec__variant(k, Block_Markup__Atom, para),
+    Block_Markup__Atom,
+    { Block_Markup__Blockquote,        blockquote        },
+    { Block_Markup__Description,       description       },
+    { Block_Markup__Table_Of_Contents, table_of_contents },
+    { Block_Markup__Thematic_Break,    thematic_break    },
+    { Block_Markup__Image,             image             },
+    { Block_Markup__Figure,            figure            },
+    { Table,                           table             },
+    { ^Heading,                        h2                },
+    { ^Heading,                        h3                },
+    { ^Heading,                        h4                },
+    { Article_List,                    article_list      },
+    { Block_Markup__List,              list              },
+    { Block_Markup__Code,              code              },
+    { Block_Markup__Aside,             aside             },
+    { ^Def__Link,                      deflink           },
+    { ^Def__Footnote,                  defnote           },
+    { ^Def__Icon,                      deficon           },
+    { Block_Markup__Paragraph,         para              },
 	)
 }
 
 @(private="file")
-codec__block_markup :: proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
+codec__block_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
 		"block_markup",
-		proc(kit: ^Codec_Kit) -> Typed_Codec(Block_Markup) {
+    Block_Markup,
+		proc(kit: ^Codec_Kit) -> ^Codec {
 			return codec__transmute(
 				kit,
 				Block_Markup,

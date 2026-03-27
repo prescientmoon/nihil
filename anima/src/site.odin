@@ -61,7 +61,7 @@ Site :: struct {
   files:      Exparr(File_Gen_Entry),
 
   // The main codec used to parse pages.
-  page_codec: Typed_Codec(Page),
+  page_codec: ^Codec,
 }
 
 site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {

@@ -3,29 +3,54 @@
 package anima
 
 import "base:runtime"
+import "core:log"
 import "core:mem"
+import "core:reflect"
 import "core:strings"
 import "core:time"
-import "core:log"
+
+reflect__type_info_of :: proc(type: typeid) -> ^reflect.Type_Info {
+	ti := type_info_of(type)
+  log.assertf(ti != nil, "No type info for %v", type)
+  return ti
+}
 
 // Similar to the standard library's "new", except the type of the allocation
 // need not be known at compile time.
 mem__reflected_new :: proc(type: typeid, allocator: mem.Allocator) -> rawptr {
-	if ti := type_info_of(type); ti != nil {
-		ptr, err := mem.alloc(
-      size = ti.size,
-      alignment = ti.align,
-      allocator = allocator
-    )
+	ti := reflect__type_info_of(type)
+  log.assertf(ti != nil, "No type info for %v", type)
 
-		assert(err == nil)
-		return ptr
-	}
+  ptr, err := mem.alloc(
+    size = ti.size,
+    alignment = ti.align,
+    allocator = allocator
+  )
 
-	return nil
+  log.assert(err == nil)
+  return ptr
 }
 
-mem__offset :: proc(ptr: rawptr, offset: uintptr) -> rawptr {
+// Similar to the standard library's "new_clone", except the type of the
+// allocation need not be known at compile time.
+mem__reflected_clone :: proc(
+  type: typeid, data: rawptr, allocator: mem.Allocator
+) -> rawptr {
+	ti := type_info_of(type)
+  log.assertf(ti != nil, "No type info for %v", type)
+
+  ptr, err := mem.alloc(
+    size = ti.size,
+    alignment = ti.align,
+    allocator = allocator
+  )
+
+  log.assert(err == nil)
+  mem.copy(ptr, data, ti.size)
+  return ptr
+}
+
+mem__offset :: proc(ptr: rawptr, #any_int offset: uintptr) -> rawptr {
   return rawptr(uintptr(ptr) + offset)
 }
 
@@ -68,6 +93,7 @@ fcdyn__push :: proc(fcdyn: ^[dynamic; $N]$E, e: E) {
 // Push a values onto the given structure. Panics when out of space.
 push :: proc {
   exparr__push,
+  exparr__repr__push,
   fcdyn__push,
 }
 

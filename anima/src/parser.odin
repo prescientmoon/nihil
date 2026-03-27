@@ -603,6 +603,8 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     kit := Lens_Kit {
       outer           = instance.output,
       inner           = inner_output,
+      outer_codec     = instance.codec,
+      inner_codec     = inner.inner,
       user_data       = inner.user_data,
       document        = instance.document,
       mode            = .Project,

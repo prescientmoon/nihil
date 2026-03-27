@@ -28,3 +28,9 @@
 [doc("Run `anima` inside `valgrind`")]
 @grind: build-debug
   valgrind --leak-check=full ./build/debug/anima.bin
+
+[group("debug")]
+[doc("Type-check the `anima` codebase")]
+@check:
+  odin check src -show-timings
+    

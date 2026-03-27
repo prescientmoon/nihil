@@ -4,6 +4,9 @@ import "base:intrinsics"
 import "core:mem"
 import "core:log"
 
+PLATFORM_BITS :: 8 * size_of(uint)
+EXPARR__DEFAULT_FCE :: 3
+
 // An array that allocates chunks in exponentially increasing sizes. As a
 // result, pointers to elements are guaranteed to remain stable. Moreover,
 // acceses remain relatively fast since the exact chunk & index computations
@@ -31,9 +34,16 @@ import "core:log"
 // These sizes are small in the grand scheme of things, but they can quickly add
 // up when used inside union branches for the various markup trees since, unless
 // boxed, padding gets introduced for the surrounding branches as well.
-Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
+Exparr :: struct($V: typeid, $first_chunk_exp: uint = EXPARR__DEFAULT_FCE) {
+  // TODO: make this keep nothing except the repr
 	allocator: mem.Allocator,
+	chunks:    [][^]V,
+	len:       uint,
+}
 
+// Untyped representation of the data held by an exponential array.
+Exparr__Repr :: struct {
+	allocator: mem.Allocator,
   // A possible simplification is just imposing a max chunk-count (perhaps 30?),
 	// and using a fixed-size array here. Since the chunk size grows
 	// exponentially, the number of chunks remains quite bounded. For example, the
@@ -41,18 +51,17 @@ Exparr :: struct($V: typeid, $first_chunk_exp: uint = 3) {
 	// takes up a single byte, and we start with first_chunk_exp = 0), a size
 	// we should never really hit in practice. Oh well, for now a dynamic array
 	// will have to do...
-	chunks:    [][^]V,
+	chunks:    []rawptr,
 	len:       uint,
 }
 
 @(private = "file")
 exprarr__destructure_ix :: proc(
-  $FCE: uint, #any_int ix: uint
+  FCE: uint, #any_int ix: uint
 ) -> (chunk: uint, local_ix: uint) {
-	total_bits :: uint(8 * size_of(uint))
-	ghost_chunk :: 1 << FCE
+	ghost_chunk := uint(1 << FCE)
 	adjusted_ix := ix + ghost_chunk
-	chunk = total_bits - 1 - FCE - intrinsics.count_leading_zeros(adjusted_ix)
+	chunk = PLATFORM_BITS - 1 - FCE - intrinsics.count_leading_zeros(adjusted_ix)
 	mask: uint = (ghost_chunk << chunk) - 1
 	local_ix = adjusted_ix & mask
 	return chunk, local_ix
@@ -66,48 +75,83 @@ exparr__get :: proc(
 	return &exparr.chunks[chunk][local_ix]
 }
 
-exparr__push :: proc(
-  exparr: ^Exparr($V, $FCE), element: V, loc := #caller_location
-) -> ^V {
+// The untyped version of `exparr__push`. Pushes an empty element onto the
+// untyped exparr representation and returns a pointer to it.
+exparr__repr__push :: proc(
+  exparr: ^Exparr__Repr,
+  FCE: uint,
+  size, alignment: int,
+  loc := #caller_location,
+) -> rawptr {
 	log.assert(exparr.allocator != {}, loc=loc)
 	chunk, lix := exprarr__destructure_ix(FCE, exparr.len)
 
-	// Grow chunk array
 	if chunk >= len(exparr.chunks) {
+    // Grow chunk array (doubling the size each time). With a FCE parameter of
+    // 3, this means we must reallocate after growing past:
+    // - 8 elements
+    // - 24 elements
+    // - 120 elements
+    // - 2040 elements
+    // - ...
+    // As you can see, this grows very quickly (exponentially exponential).
+    // There is an argument that we should start with enough space for 2
+    // pointers right away, but I don't think it really matters right now. If I
+    // ever feel like tuning this then I might add an additional type parameter
+    // to the typed Exparr struct (although that would induce a lot of pain, so
+    // I might also just not).
     data, length := mem.slice_to_components(exparr.chunks)
     new_length := max(1, 2 * length)
-    stride := max(size_of([^]V), align_of([^]V))
+    stride := max(size_of(rawptr), align_of(rawptr))
 
     raw, err := mem.resize(
       data,
       stride * length,
       stride * new_length,
-      align_of([^]V),
+      align_of(rawptr),
       exparr.allocator,
     )
 
 		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
-		exparr.chunks = mem.slice_ptr(cast(^[^]V)raw, new_length)
+		exparr.chunks = mem.slice_ptr(cast(^rawptr)raw, new_length)
   }
+
+  stride := max(size, alignment)
 
   // Commit a new multipointer to the chunk array
   if exparr.chunks[chunk] == nil {
-		multiptr, err := mem.make_multi_pointer(
-			[^]V,
-			1 << (FCE + chunk),
+    count := 1 << (FCE + chunk)
+
+		multiptr, err := mem.alloc(
+      size      = stride * count,
+      alignment = alignment,
 			allocator = exparr.allocator,
 		)
+
 		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
     exparr.chunks[chunk] = multiptr
   }
 
-	ptr := &exparr.chunks[chunk][lix]
-	ptr^ = element
+	ptr := mem__offset(exparr.chunks[chunk], uint(stride) * lix)
 	exparr.len += 1
 	return ptr
 }
 
-// {{{ Value iterator
+exparr__push :: proc(
+  exparr: ^Exparr($V, $FCE), element: V, loc := #caller_location
+) -> ^V {
+  ptr := cast(^V)exparr__repr__push(
+    cast(^Exparr__Repr)exparr,
+    FCE,
+    size_of(V),
+    align_of(V),
+    loc=loc
+  )
+
+	ptr^ = element
+	return ptr
+}
+
 Exparr__Iter :: struct($T: typeid, $FCE: uint) {
   exparr: Exparr(T, FCE),
   index:  uint,
@@ -124,4 +168,3 @@ exparr__iter__next :: proc(
   defer iter.index += 1
   return exparr__get(iter.exparr, iter.index), iter.index, true
 }
-// }}}
