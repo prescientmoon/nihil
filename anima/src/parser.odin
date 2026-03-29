@@ -375,6 +375,61 @@ parser__advance :: proc(instance: Parser) {
 	instance.token^ += 1
 }
 
+
+// Unlike the parser's .surrounding_kind, this has an explicit .Ambient
+// branch.
+Apparition_Kind :: enum { Bracketed, Indented, Ambient }
+
+parser__begin_apparition :: proc(
+  instance: Parser, inner_instance: ^Parser, starter: Token
+) -> (
+  kind: Apparition_Kind
+) {
+  inner_instance.in_paragraph = false
+  inner_instance.surrounded_at = starter.from
+  next_tok := parser__get_token(instance)
+  #partial switch next_tok.kind {
+  case .LCurly:
+    parser__advance(instance)
+    inner_instance.surrounding_kind = .Bracketed
+    inner_instance.indentation = instance.indentation
+    kind = .Bracketed
+  case .Bang:
+    parser__advance(instance)
+    inner_instance.indentation = instance.indentation
+    kind = .Ambient
+  case:
+    inner_instance.surrounding_kind = .Indented
+    inner_instance.indentation = starter.from.col
+    kind = .Indented
+  }
+
+  return kind
+}
+
+parser__end_apparition :: proc(
+  instance: Parser, kind: Apparition_Kind, starter: Token
+) {
+  last_tok := parser__get_token(instance)
+
+  if kind == .Bracketed {
+    if last_tok.kind == .RCurly {
+      parser__advance(instance)
+    } else {
+      instance.ok^ = false
+      site__errorf(
+        instance.site,
+        last_tok,
+        "I don't know how to parse this token. Common causes:\n" +
+        "- missing closing brackets\n" +
+        "- trying to use a unique apparition more than once per scope\n" +
+        "Did you perhaps forget to close the apparition starting at %v?",
+        Error_Location(starter),
+      )
+    }
+  }
+}
+
 parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 	itok := get(instance.tokens, instance.token^)^
 
@@ -382,12 +437,13 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 		return {from = tok.from}
 	}
 
-	// Paragraphs get terminated by consecutive newlines.
+	// Paragraphs get terminated by consecutive newlines. This will do a bunch of
+  // repeated work for each space in a multi-space sequence, althhough the lexer
+  // already merges those, so this shoudln't happen in practice.
 	if instance.in_paragraph && itok.kind == .Newline {
 		offset: uint = 1
 		for {
-      index     := instance.token^ + offset
-			next_itok := get(instance.tokens, index)^
+			next_itok := get(instance.tokens, instance.token^ + offset)^
 
 			if next_itok.kind == .Space {
 				offset += 1
@@ -399,10 +455,35 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 		}
 	}
 
+  // Comment handling
+  if itok.kind == .Apparition && itok.content == "--" {
+    parser__advance(instance)
+
+		inner_instance := instance
+		inner_instance.codec = nil
+
+    kind := parser__begin_apparition(instance, &inner_instance, itok.token)
+
+    loop: for {
+      tok := parser__get_token(inner_instance) 
+      switch {
+      case tok.kind == .None:
+        break loop
+      case inner_instance.surrounding_kind == .Bracketed && tok.kind == .RCurly:
+        break loop
+      case:
+        parser__advance(inner_instance)
+      }
+    }
+
+    parser__end_apparition(instance, kind, itok.token)
+		return parser__get_token(instance)
+  }
+
 	return itok.token
 }
 // }}}
-// {{{ Codec evaluation
+// {{{ Completion tracking
 // Count the number of codecs in the current block that care about keeping track
 // of whether they've been completed or not.
 codec__count_completable :: proc(instance: Parser) -> uint {
@@ -474,7 +555,8 @@ codec__make_completed_state :: proc(instance: ^Parser) {
 	completed_codecs.allocator = mem.panic_allocator()
 	instance.completed_codecs = new_clone(completed_codecs, allocator)
 }
-
+// }}}
+// {{{ Codec evaluation
 parser__skip_spaces :: proc(instance: Parser) -> (consumed: bool) {
 	for {
 		tok := parser__get_token(instance)
@@ -500,7 +582,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     return consumed
 	case Codec__Text:
 		log.assertf(
-			instance.codec.type == string,
+      mem__same_layout(instance.codec.type, string),
 			"Expected codec of type string. Got %v instead.",
 			instance.codec.type,
 		)
@@ -612,9 +694,8 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       temp_allocator  = temp_alloc,
       surrounded_at   = instance.surrounded_at,
       error_allocator = site__alloc(instance.site, .Forever),
+      errors          = { allocator = temp_alloc },
     }
-
-    kit.errors.allocator = kit.temp_allocator
 
 		inner.lens(&kit)
     pos__pre := parser__get_pos(instance)
@@ -707,49 +788,12 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		inner_instance.in_paragraph = false
-    inner_instance.surrounded_at = tok.from
 		codec__make_completed_state(&inner_instance)
 
-    // Unlike the parser's .surrounding_kind, this has an explicit .Ambient
-    // branch.
-    Kind :: enum { Bracketed, Indented, Ambient }
-    kind: Kind
-
-		next_tok := parser__get_token(instance)
-		#partial switch next_tok.kind {
-		case .LCurly:
-			parser__advance(instance)
-			inner_instance.surrounding_kind = .Bracketed
-			inner_instance.indentation = instance.indentation
-			kind = .Bracketed
-		case .Bang:
-			parser__advance(instance)
-			inner_instance.indentation = instance.indentation
-			kind = .Ambient
-		case:
-			inner_instance.surrounding_kind = .Indented
-			inner_instance.indentation = tok.from.col
-			kind = .Indented
-		}
-
+    kind := parser__begin_apparition(instance, &inner_instance, tok)
 		codec__eval_instance(inner_instance)
 		last_tok := parser__get_token(instance)
-
-		if kind == .Bracketed {
-			if last_tok.kind == .RCurly {
-				parser__advance(instance)
-			} else {
-        instance.ok^ = false
-				site__errorf(
-					instance.site,
-					last_tok,
-					"I don't know how to parse this token. Common causes:\n" +
-          "- missing closing brackets\n" +
-          "- trying to use a unique apparition more than once per scope",
-				)
-			}
-		}
+    parser__end_apparition(instance, kind, tok)
 
     codec__check_flags(tok, inner_instance)
 		return true
@@ -791,7 +835,8 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
 	log.panic("impossible", instance.codec)
 }
-
+// }}}
+// {{{ Flag checking
 @(private = "package")
 codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   inner_instance := instance
@@ -832,7 +877,7 @@ codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   }
 }
 // }}}
-// {{{ Paring entrypoint
+// {{{ Parsing entrypoint
 @(private = "package")
 parser__eval :: proc(
   site: ^Site, codec: ^Codec, file: ^File, output: rawptr

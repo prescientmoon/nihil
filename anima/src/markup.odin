@@ -10,7 +10,7 @@ import "core:time"
 import "core:unicode"
 
 // {{{ Page
-// TODO: imports, (anima) comments
+// TODO: imports
 Page :: struct {
   compact:          bool, // Whether the page should not contain the post layout
   public:           bool, // Whether the page should be included in the sitemap
