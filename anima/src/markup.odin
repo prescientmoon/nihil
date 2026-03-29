@@ -286,14 +286,12 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
 // }}}
 // {{{ Checking
 page__check :: proc(site: ^Site, page: ^Page) {
-  inline_markup__check(site, page, &page.description)
-  block_markup__check(site, page, &page.content)
-
   // TODO: apply the filename option
   page.site_path = Path__Output(page.source_path)
   page.url = site__url(site, page.site_path)
 
-  // TODO: move link/icon resolution checking here
+  inline_markup__check(site, page, &page.description)
+  block_markup__check(site, page, &page.content)
 
   for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
     block_markup__check(site, page, &footnote.content)
@@ -414,6 +412,9 @@ Page_Filter__Atom :: union {
   Page_Filter__Public,
 }
 
+// Behaves like \local when empty and like \all otherwise
+Page_Filter__Scope :: distinct Page_Filter__All
+
 page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
   switch inner in filter {
   case Page_Filter__Not: 
@@ -440,18 +441,22 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
   log.panic("impossible")
 }
 
-page_filter__all__eval :: proc(
-  base, page: Page, all: Page_Filter__All, local_first := false
-) -> bool {
-  if local_first && all.elements.len == 0 {
-    return page_filter__eval(base, page, Page_Filter__Local{})
-  }
-
+page_filter__all__eval :: proc(base, page: Page, all: Page_Filter__All) -> bool {
   for iter := iter__mk(all.elements); filter in iter__next(&iter) {
     if !page_filter__eval(base, page, filter^) do return false
   }
 
   return true
+}
+
+page_filter__scope__eval :: proc(
+  base, page: Page, scope: Page_Filter__Scope
+) -> bool {
+  if scope.elements.len == 0 {
+    return page_filter__eval(base, page, Page_Filter__Local{})
+  } else {
+    return page_filter__all__eval(base, page, Page_Filter__All(scope))
+  }
 }
 
 @(private = "file")
@@ -469,8 +474,8 @@ codec__page_filter__atom :: proc(
       local := codec__const(k, "local", Page_Filter__Local{})
       public := codec__const(k, "public", Page_Filter__Public{})
       not := codec__trans_at(k, "not", Page_Filter__Not, codec__ref(k, atom))
-      all := codec__trans_at(k, "all", Page_Filter__All, many)
-      any := codec__trans_at(k, "any", Page_Filter__Any, many)
+      all := codec__trans_at(k, "all", Page_Filter__All, many, {}, {})
+      any := codec__trans_at(k, "any", Page_Filter__Any, many, {}, {})
       tag := codec__trans_at(k, "tag", Page_Filter__Tag, codec__tag(k))
 
       return codec__union(
@@ -520,7 +525,7 @@ codec__page_filter__all :: proc(
 Def__Icon :: struct {
   id:    string,
   at:    Path,
-  scope: Page_Filter__All,
+  scope: Page_Filter__Scope,
 
   // When set to true, makes this the website's favicon. Favicons are currently
   // global and cannot be set on a per-page basis.
@@ -549,19 +554,22 @@ Def__Link :: struct {
 	id:     string,
 	target: string, // url
 	label:  Inline_Markup,
-  scope:  Page_Filter__All, // Link definitions can affect other pages
+  scope:  Page_Filter__Scope, // Link definitions can affect other pages
+  loc:    Source_Loc,
 }
 
 @(private = "file")
 codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
+  Self :: Def__Link
   ctext := codec__contiguous_text(k)
   imarkup := codec__inline_markup(k)
 
-	id := codec__field(k, "id", Def__Link, ctext, REQUIRED)
-  target := codec__field_at(k, "target", Def__Link, ctext, ONCE)
-  label := codec__field_at(k, "label", Def__Link, imarkup, UNIQUE)
-  inner_loop := codec__loop(k, codec__sum(k, label, target, id))
-	return codec__remote_push(k, "links", Page, inner_loop)
+	id     := codec__field(k, "id", Self, ctext, REQUIRED)
+  target := codec__field_at(k, "target", Self, ctext, ONCE)
+  label  := codec__field_at(k, "label", Self, imarkup, UNIQUE)
+  scope  := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
+  loop   := codec__loop(k, codec__sum(k, label, target, scope, id))
+	return codec__remote_push(k, "links", Page, codec__loc(k, loop))
 }
 // }}}
 // {{{ Footnote definitions
@@ -569,6 +577,7 @@ Def__Footnote :: struct {
 	id:      string,
 	content: Block_Markup,
   index:   uint, // The page-local number used to display the footnote
+  loc:     Source_Loc,
 }
 
 @(private = "file")
@@ -576,10 +585,10 @@ codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
   ctext := codec__contiguous_text(k)
   bmarkup := codec__block_markup(k)
 
-	id := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
+	id      := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
   content := codec__field(k, "content", Def__Footnote, bmarkup, REQUIRED)
-  inner_loop := codec__loop(k, codec__sum(k, content, id))
-	return codec__remote_push(k, "footnotes", Page, inner_loop)
+  loop    := codec__loop(k, codec__sum(k, content, id))
+	return codec__remote_push(k, "footnotes", Page, codec__loc(k, loop))
 }
 // }}}
 // {{{ Feed definitions
@@ -1288,6 +1297,31 @@ inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
 }
 
 @(private="file")
+ambiguous_reference_error :: proc(
+  site: ^Site,
+  id: string,                  // The referenced ID we couldn't resolve
+  loc: Source_Loc,             // Where did the reference occurr
+  options: Exparr(Source_Loc), // The possible things the ID could've resolve to
+) {
+  log.assert(options.len > 1)
+  options := options // We refer to this by pointer below.
+
+  site__errorf(
+    site,
+    loc,
+    "Ambiguous reference to '%v': cannot decide between %v.",
+    id,
+    fmt__freeze1(&options, proc(fi: ^fmt.Info, options: ^Exparr(Source_Loc)) {
+      for iter := iter__mk(options^); option, i in iter__next(&iter) {
+        if i > 0 do fmt.wprint(fi.writer, ", ")
+        if i == options.len - 1 do fmt.wprint(fi.writer, "and ")
+        fmt.wprint(fi.writer, option^)
+      }
+    })
+  )
+}
+
+@(private="file")
 inline_markup__atom__check :: proc(
   site: ^Site, page: ^Page, atom: ^Inline_Markup__Atom
 ) {
@@ -1320,37 +1354,61 @@ inline_markup__atom__check :: proc(
       inline_markup__check(site, page, &inner.label)
     }
 
+    site__frame(site)
+    options := Exparr(Source_Loc) { allocator = site__alloc(site, .Stack) }
+
     for iter := iter__mk(site.pages); defsite in iter__next(&iter) {
       for iter := iter__mk(defsite.links); link in iter__next(&iter) {
         (link.id == inner.id) or_continue
-        page_filter__all__eval(defsite^, page^, link.scope, true) or_continue
+        page_filter__scope__eval(defsite^, page^, link.scope) or_continue
+        push(&options, link.loc)
         inner.def = link
-        return
       }
     }
 
-    site__errorf(site, inner.loc, "Link '%v' is not in scope.", inner.id)
+    if inner.def == nil {
+      site__errorf(site, inner.loc, "Link '%v' is not in scope.", inner.id)
+    } else if options.len > 1 {
+      ambiguous_reference_error(site, inner.id, inner.loc, options)
+    }
   case ^Inline_Markup__Fn:
     log.assert(inner.def == nil)
+
+    site__frame(site)
+    options := Exparr(Source_Loc) { allocator = site__alloc(site, .Stack) }
+
     for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
       (footnote.id == inner.id) or_continue
+      push(&options, footnote.loc)
       inner.def = footnote
-      return
     }
 
-    site__errorf(site, inner.loc, "Footnote '%v' is not in scope.", inner.id)
+    if inner.def == nil {
+      site__errorf(site, inner.loc, "Footnote '%v' is not in scope.", inner.id)
+    } else if options.len > 1 {
+      ambiguous_reference_error(site, inner.id, inner.loc, options)
+    }
+
   case ^Inline_Markup__Icon:
     log.assert(inner.def == nil)
+
+    site__frame(site)
+    options := Exparr(Source_Loc) { allocator = site__alloc(site, .Stack) }
+
     for iter := iter__mk(site.pages); defsite in iter__next(&iter) {
       for iter := iter__mk(defsite.icons); icon in iter__next(&iter) {
         (icon.id == inner.id) or_continue
-        page_filter__all__eval(defsite^, page^, icon.scope, true) or_continue
+        page_filter__scope__eval(defsite^, page^, icon.scope) or_continue
+        push(&options, icon.loc)
         inner.def = icon
-        return
       }
     }
 
-    site__errorf(site, inner.loc, "Icon '%v' is not in scope.", inner.id)
+    if inner.def == nil {
+      site__errorf(site, inner.loc, "Icon '%v' is not in scope.", inner.id)
+    } else if options.len > 1 {
+      ambiguous_reference_error(site, inner.id, inner.loc, options)
+    }
   }
 }
 // }}}
@@ -1576,11 +1634,11 @@ codec__block_markup__atom :: proc(
     { Block_Markup__Thematic_Break,    thematic_break    },
     { Block_Markup__Image,             image             },
     { Block_Markup__Figure,            figure            },
-    { Table,                           table             },
-    { ^Heading,                        h2                },
-    { ^Heading,                        h3                },
-    { ^Heading,                        h4                },
-    { Article_List,                    article_list      },
+    { Table,                          table             },
+    { ^Heading,                       h2                },
+    { ^Heading,                       h3                },
+    { ^Heading,                       h4                },
+    { Article_List,                   article_list      },
     { Block_Markup__List,              list              },
     { Block_Markup__Code,              code              },
     { Block_Markup__Aside,             aside             },

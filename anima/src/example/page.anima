@@ -53,6 +53,7 @@ You can message me in the following places \`{:3}
 \deflink mail
   \target mailto://hi@moonythm.dev
   \label hi@moonythm.dev
+  \scope \all
 
 \deflink discord
   \target https://discord.com/users/385759924917108740
