@@ -479,16 +479,16 @@ mps__page :: proc(mps: ^Markup_Printer_State, page: Page) {
   if page.created_at   != {} do timestamp(mps, "created",   page.created_at)
   if page.published_at != {} do timestamp(mps, "published", page.published_at)
 
-  if mem__nz(page.filename)   do str(mps, "filename",   page.filename)
-  if mem__nz(page.priority)   do str(mps, "priority",   page.priority)
-  if mem__nz(page.changefreq) do str(mps, "changefreq", page.changefreq)
+  if mem__non_zero(page.filename)   do str(mps, "filename",   page.filename)
+  if mem__non_zero(page.priority)   do str(mps, "priority",   page.priority)
+  if mem__non_zero(page.changefreq) do str(mps, "changefreq", page.changefreq)
 
-  if mem__nz(page.title) {
+  if mem__non_zero(page.title) {
     mps__deeper(mps, "title")
     mps__inline_markup(mps, page.title)
   }
 
-  if mem__nz(page.description) {
+  if mem__non_zero(page.description) {
     mps__deeper(mps, "description")
     mps__inline_markup(mps, page.description)
   }

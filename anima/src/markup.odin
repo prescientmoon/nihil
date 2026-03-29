@@ -822,61 +822,62 @@ codec__integer :: proc(k: ^Codec_Kit, $T: typeid) -> ^Codec {
 // A sequence of text where all the whitespace in the source is discarded
 @(private = "file")
 codec__contiguous_text :: proc(k: ^Codec_Kit) -> ^Codec {
-  return codec__text_impl(k, false)
+	return codec__memo(
+		k, "contiguous_text", string,
+		proc(k: ^Codec_Kit) -> ^Codec {
+			return codec__focus(
+				k,
+				string,
+				codec__spaced_exparr(k, codec__string(k)),
+        codec__text__lens,
+        scratch = true
+			)
+		},
+	)
 }
 
 @(private = "file")
 codec__text :: proc(k: ^Codec_Kit) -> ^Codec {
-  return codec__text_impl(k, true)
-}
-
-@(private = "file")
-codec__text_impl :: proc(k: ^Codec_Kit, $spaces: bool) -> ^Codec {
-  lens :: proc(kit: ^Lens_Kit) {
-    inner := cast(^Exparr(string))kit.inner
-    outer := cast(^string)kit.outer
-
-    switch kit.mode {
-    case .Project:
-      inner.allocator = kit.temp_allocator
-      push(inner, outer^)
-    case .Inject:
-      size: uint = 0
-      for iter := iter__mk(inner^); x in iter__next(&iter) do size += len(x)
-
-      builder := strings__fixed_builder(size, kit.allocator)
-      for iter := iter__mk(inner^); chunk in iter__next(&iter) {
-        size := len(builder.buf)
-        if chunk^ == " " && size > 0 && builder.buf[size - 1] == ' ' do continue
-        strings.write_string(&builder, chunk^)
-      }
-
-      outer^ = strings.to_string(builder)
-    }
-  }
-
 	return codec__memo(
-		k,
-		"text" when spaces else "contiguous_text",
-    string,
+		k, "text", string,
 		proc(k: ^Codec_Kit) -> ^Codec {
-      when spaces {
-        str   := codec__string(k)
-        space := codec__space(k, " ")
-        inner := codec__exparr(k, codec__sum(k, str, space))
-      } else {
-        inner := codec__spaced_exparr(k, codec__string(k))
-      }
+      str   := codec__string(k)
+      space := codec__space(k, " ")
+      inner := codec__exparr(k, codec__sum(k, str, space))
 
 			return codec__focus(
 				k,
 				string,
 				inner,
-        lens,
+        codec__text__lens,
         scratch = true
 			)
 		},
 	)
+}
+
+@(private = "file")
+codec__text__lens :: proc(kit: ^Lens_Kit) {
+  inner := cast(^Exparr(string))kit.inner
+  outer := cast(^string)kit.outer
+
+  switch kit.mode {
+  case .Project:
+    inner.allocator = kit.temp_allocator
+    push(inner, outer^)
+  case .Inject:
+    size: uint = 0
+    for iter := iter__mk(inner^); x in iter__next(&iter) do size += len(x)
+
+    builder := strings__fixed_builder(size, kit.allocator)
+    for iter := iter__mk(inner^); chunk in iter__next(&iter) {
+      size := len(builder.buf)
+      if chunk^ == " " && size > 0 && builder.buf[size - 1] == ' ' do continue
+      strings.write_string(&builder, chunk^)
+    }
+
+    outer^ = strings.to_string(builder)
+  }
 }
 // }}}
 // {{{ Paths
@@ -1271,6 +1272,7 @@ inline_markup__html :: proc(
 @(private="file")
 inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
   if im.elements == nil do return
+
   // TODO: remove spirious space here
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
     inline_markup__atom__check(site, page, chunk)

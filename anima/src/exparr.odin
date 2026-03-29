@@ -35,10 +35,7 @@ EXPARR__DEFAULT_FCE :: 3
 // up when used inside union branches for the various markup trees since, unless
 // boxed, padding gets introduced for the surrounding branches as well.
 Exparr :: struct($V: typeid, $first_chunk_exp: uint = EXPARR__DEFAULT_FCE) {
-  // TODO: make this keep nothing except the repr
-	allocator: mem.Allocator,
-	chunks:    [][^]V,
-	len:       uint,
+  using repr: Exparr__Repr,
 }
 
 // Untyped representation of the data held by an exponential array.
@@ -67,12 +64,27 @@ exprarr__destructure_ix :: proc(
 	return chunk, local_ix
 }
 
+exparr__repr__get :: proc(
+  exparr: Exparr__Repr,
+  FCE: uint,
+  layout: Layout,
+  #any_int ix: uint,
+  loc := #caller_location,
+) -> rawptr {
+	log.assert(ix < exparr.len, loc = loc)
+	chunk, local_ix := exprarr__destructure_ix(FCE, ix)
+	return mem__index(exparr.chunks[chunk], layout, local_ix)
+}
+
 exparr__get :: proc(
   exparr: Exparr($V, $FCE), #any_int ix: uint, loc := #caller_location
 ) -> ^V {
-	log.assert(ix < exparr.len, loc = loc)
-	chunk, local_ix := exprarr__destructure_ix(FCE, ix)
-	return &exparr.chunks[chunk][local_ix]
+  return cast(^V)exparr__repr__get(exparr.repr, FCE, mem__layout(V), ix, loc)
+}
+
+exparr__last :: proc(x: Exparr($V, $FCE), loc := #caller_location) -> ^V {
+	log.assert(x.len > 0, loc = loc)
+  return cast(^V)exparr__repr__get(x.repr, FCE, mem__layout(V), x.len - 1, loc)
 }
 
 // The untyped version of `exparr__push`. Pushes an empty element onto the
@@ -80,7 +92,7 @@ exparr__get :: proc(
 exparr__repr__push :: proc(
   exparr: ^Exparr__Repr,
   FCE: uint,
-  size, alignment: int,
+  layout: Layout,
   loc := #caller_location,
 ) -> rawptr {
 	log.assert(exparr.allocator != {}, loc=loc)
@@ -102,37 +114,27 @@ exparr__repr__push :: proc(
     // I might also just not).
     data, length := mem.slice_to_components(exparr.chunks)
     new_length := max(1, 2 * length)
-    stride := max(size_of(rawptr), align_of(rawptr))
 
-    raw, err := mem.resize(
+    layout := mem__layout(rawptr)
+    raw := mem__resize(
       data,
-      stride * length,
-      stride * new_length,
-      align_of(rawptr),
+      layout__array(layout, length),
+      layout__array(layout, new_length),
       exparr.allocator,
     )
 
-		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
 		exparr.chunks = mem.slice_ptr(cast(^rawptr)raw, new_length)
   }
 
-  stride := max(size, alignment)
-
   // Commit a new multipointer to the chunk array
   if exparr.chunks[chunk] == nil {
-    count := 1 << (FCE + chunk)
-
-		multiptr, err := mem.alloc(
-      size      = stride * count,
-      alignment = alignment,
-			allocator = exparr.allocator,
-		)
-
-		log.assertf(err == nil, "Failed to expand exponential array: %v", err)
-    exparr.chunks[chunk] = multiptr
+    exparr.chunks[chunk] = mem__alloc(
+      layout__array(layout, 1 << (FCE + chunk)),
+      exparr.allocator,
+    )
   }
 
-	ptr := mem__offset(exparr.chunks[chunk], uint(stride) * lix)
+	ptr := mem__index(exparr.chunks[chunk], layout, lix)
 	exparr.len += 1
 	return ptr
 }
@@ -141,10 +143,9 @@ exparr__push :: proc(
   exparr: ^Exparr($V, $FCE), element: V, loc := #caller_location
 ) -> ^V {
   ptr := cast(^V)exparr__repr__push(
-    cast(^Exparr__Repr)exparr,
+    &exparr.repr,
     FCE,
-    size_of(V),
-    align_of(V),
+    mem__layout(V),
     loc=loc
   )
 

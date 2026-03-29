@@ -599,7 +599,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     )
 
     temp_alloc := site__alloc(instance.site, .Stack)
-		inner_output := mem__reflected_new(inner.inner.type, temp_alloc)
+		inner_output := mem__reflect__new(inner.inner.type, temp_alloc)
     kit := Lens_Kit {
       outer           = instance.output,
       inner           = inner_output,

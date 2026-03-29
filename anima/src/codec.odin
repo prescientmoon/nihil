@@ -135,7 +135,7 @@ codec__make :: proc(kit: ^Codec_Kit, ty: typeid) -> ^Codec {
 
 codec__space :: proc(kit: ^Codec_Kit, box: any) -> ^Codec {
 	codec := codec__make(kit, box.id)
-	codec.data = Codec__Space(mem__reflected_clone(box.id, box.data, kit.forever))
+	codec.data = Codec__Space(mem__reflect__clone(box.id, box.data, kit.forever))
 
 	return codec
 }
@@ -144,7 +144,7 @@ codec__const :: proc(kit: ^Codec_Kit, name: string, box: any) -> ^Codec {
 	codec := codec__make(kit, box.id)
 	codec.data = Codec__Constant {
 		name  = name,
-		value = mem__reflected_clone(box.id, box.data, kit.forever),
+		value = mem__reflect__clone(box.id, box.data, kit.forever),
 	}
 
 	return codec
@@ -186,7 +186,7 @@ codec__focus :: proc(
 ) -> ^Codec {
   user_data_ptr: rawptr
   if user_data != nil {
-    user_data_ptr = mem__reflected_clone(
+    user_data_ptr = mem__reflect__clone(
       user_data.id, user_data.data, kit.forever
     )
   }
@@ -203,14 +203,13 @@ codec__focus :: proc(
 }
 
 codec__transmute :: proc(kit: ^Codec_Kit, to: typeid, inner: ^Codec) -> ^Codec {
-  log.assert(reflect.size_of_typeid(to) == reflect.size_of_typeid(inner.type))
-  log.assert(reflect.align_of_typeid(to) == reflect.align_of_typeid(inner.type))
+  log.assert(mem__same_layout(to, inner.type))
 	return inner
 }
 
 @(private="file")
 get_field_of_type :: proc(
-  outer, inner: typeid, name: string, strict_checking := false, loc := #caller_location
+  outer, inner: typeid, name: string, loc := #caller_location
 ) -> reflect.Struct_Field {
 	field := reflect.struct_field_by_name(outer, name)
 
@@ -222,17 +221,8 @@ get_field_of_type :: proc(
     loc=loc
   )
 
-  are_the_same := false
-  if strict_checking {
-    are_the_same = field.type.id == inner
-  } else {
-    are_the_same = \
-      field.type.size == reflect.size_of_typeid(inner) && \
-      field.type.align == reflect.align_of_typeid(inner)
-  }
-
-	log.assertf(
-		are_the_same,
+  log.assertf(
+    mem__same_layout(field.type.id, inner),
 		"Type missmatch for field %v of %v: expected %v, got %v instead.",
 		name,
 		outer,
@@ -279,21 +269,19 @@ codec__field :: proc(
 
 codec__ref :: proc(kit: ^Codec_Kit, inner: ^Codec) -> ^Codec {
   lens :: proc(kit: ^Lens_Kit) {
-    ty := kit.inner_codec.type
-    size := reflect.size_of_typeid(ty)
+    layout := reflect__layout(kit.inner_codec.type)
     as_ptr := cast(^rawptr)kit.outer
 
     switch kit.mode {
     case .Project: 
-      if as_ptr^ == nil do as_ptr^ = mem__reflected_new(ty, kit.allocator)
-      mem.copy(kit.inner, as_ptr^, size)
+      if as_ptr^ == nil do as_ptr^ = mem__alloc(layout, kit.allocator)
+      mem.copy(kit.inner, as_ptr^, int(layout.size))
     case .Inject: 
       log.assert(as_ptr^ != nil)
-      mem.copy(as_ptr^, kit.inner, size)
+      mem.copy(as_ptr^, kit.inner, int(layout.size))
     }
   }
 
-  // TODO: make this have the correct type (for unions and the like)
 	return codec__focus(kit, rawptr, inner, lens)
 }
 
@@ -308,9 +296,9 @@ codec__exparr_elem :: proc(
       data  := cast(^User_Data)kit.user_data
       outer := cast(^Exparr__Repr)kit.outer
       outer.allocator = kit.allocator
-      ti := reflect__type_info_of(kit.inner_codec.type)
-      ptr := push(outer, data.fce, ti.size, ti.align)
-      mem.copy(ptr, kit.inner, reflect.size_of_typeid(kit.inner_codec.type))
+      layout := reflect__layout(kit.inner_codec.type)
+      ptr := push(outer, data.fce, layout)
+      mem.copy(ptr, kit.inner, int(layout.size))
     }
   }
 
@@ -364,15 +352,15 @@ codec__remote_push :: proc(
     data := cast(^User_Data)kit.user_data
 		field := cast(^Exparr__Repr)mem__offset(kit.document, data.offset)
     outer := cast(^rawptr)kit.outer
-    ti := reflect__type_info_of(kit.inner_codec.type)
+    layout := reflect__layout(kit.inner_codec.type)
 
     switch kit.mode {
     case .Project: 
-      if outer^ == nil do outer^ = push(field, data.fce, ti.size, ti.align)
-      mem.copy(kit.inner, outer^, ti.size)
+      if outer^ == nil do outer^ = push(field, data.fce, layout)
+      mem.copy(kit.inner, outer^, int(layout.size))
     case .Inject:
       log.assert(outer^ != nil)
-      mem.copy(outer^, kit.inner, ti.size)
+      mem.copy(outer^, kit.inner, int(layout.size))
     }
   }
 
@@ -380,17 +368,11 @@ codec__remote_push :: proc(
 }
 
 codec__seq :: proc(kit: ^Codec_Kit, codecs: ..^Codec) -> ^Codec {
-  ty: typeid
-  for codec in codecs {
-    if ty == nil {
-      ty = codec.type
-    } else {
-      log.assertf(
-        ty == codec.type, "Missmatched codec types: %v and %v", ty, codec.type,
-      )
-    }
-  }
-  log.assert(ty != nil, "Codec sequences cannot be empty")
+  log.assert(len(codecs) > 0, "Codec sequences cannot be empty")
+  ty := codecs[0].type
+  for codec in codecs[1:] do log.assertf(
+    ty == codec.type, "Missmatched codec types: %v and %v", ty, codec.type,
+  )
 
 	codec := codec__make(kit, ty)
   allocator := kit.forever
@@ -401,17 +383,11 @@ codec__seq :: proc(kit: ^Codec_Kit, codecs: ..^Codec) -> ^Codec {
 }
 
 codec__sum :: proc(kit: ^Codec_Kit, codecs: ..^Codec) -> ^Codec {
-  ty: typeid
-  for codec in codecs {
-    if ty == nil {
-      ty = codec.type
-    } else {
-      log.assertf(
-        ty == codec.type, "Missmatched codec types: %v and %v", ty, codec.type,
-      )
-    }
-  }
-  log.assert(ty != nil, "Codec sums cannot be empty")
+  log.assert(len(codecs) > 0, "Codec sums cannot be empty")
+  ty := codecs[0].type
+  for codec in codecs[1:] do log.assertf(
+    ty == codec.type, "Missmatched codec types: %v and %v", ty, codec.type,
+  )
 
 	codec := codec__make(kit, ty)
 	slice := make_slice([]Codec, len(codecs), kit.forever)
@@ -450,7 +426,7 @@ codec__union :: proc(
 	codec := codec__make(kit, outer)
 	slice := make_slice([]Codec, len(variants), kit.forever)
 	for variant, i in variants {
-    // TODO: assert same size
+    log.assert(mem__same_layout(variant.type, variant.codec.type))
     slice[i] = codec__focus(kit, outer, variant.codec, lens, variant.type)^
   }
 

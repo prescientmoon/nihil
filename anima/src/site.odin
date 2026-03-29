@@ -65,7 +65,7 @@ Site :: struct {
 }
 
 site__make :: proc(site: ^Site, base_url, content_root, out_root: string) {
-  log.assert(mem__iz(site^))
+  log.assert(mem__is_zero(site^))
 
   if !os.exists(content_root) {
     fmt.eprintfln("Path %v not found", content_root)
@@ -692,7 +692,7 @@ site__feed :: proc(
         }
 
         if xml__tag(g, "description") {
-          if mem__iz(page.description) {
+          if mem__is_zero(page.description) {
             xml__string(g, ":3")
           } else  {
             xml__string(
