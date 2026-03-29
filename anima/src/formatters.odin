@@ -275,7 +275,7 @@ formatters__init :: proc(allocator: mem.Allocator) {
 			loc := (cast(^Source_Loc)arg.data)^
       (verb == 'v') or_return
 
-      fmt.wprintf(fi.writer, "%v(%v:%v)", loc.file.path, loc.line, loc.col)
+      fmt.wprintf(fi.writer, "%v(%v:%v)", loc.path, loc.line, loc.col)
       return true
     },
 	)
@@ -289,12 +289,12 @@ formatters__init :: proc(allocator: mem.Allocator) {
 
       from := range[0]
       to   := range[1]   
-      log.assert(from.file == to.file)
+      log.assert(from.path == to.path)
 
       fmt.wprintf(
         fi.writer,
         "%v(%v:%v-%v:%v)",
-        from.file.path,
+        from.path,
         from.line,
         from.col,
         to.line,
@@ -323,11 +323,9 @@ formatters__init :: proc(allocator: mem.Allocator) {
         fmt.wprintf(fi.writer, "%v", inner)
       case Source_Range:
         fmt.wprintf(fi.writer, "%v", inner)
-      case ^File:
-        fmt.wprintf(fi.writer, "%v", inner.path)
       case Token:
         pos := inner.from
-        fmt.wprintf(fi.writer, "%v(%v:%v)", pos.file.path, pos.line, pos.col)
+        fmt.wprintf(fi.writer, "%v(%v:%v)", pos.path, pos.line, pos.col)
       }
 
       return true

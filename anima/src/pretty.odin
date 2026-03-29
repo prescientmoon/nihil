@@ -394,8 +394,10 @@ mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
 // {{{ Tokens
 // Prints every token in a file
 @(private = "package")
-mps_tokens :: proc(mps: ^Markup_Printer_State, file: ^File) {
-	lexer, ok := lexer__make(file, context.temp_allocator)
+mps_tokens :: proc(
+  mps: ^Markup_Printer_State, path: Path__Input, source: string
+) {
+	lexer, ok := lexer__make(path, source, context.temp_allocator)
 
 	if ok {
 		for {

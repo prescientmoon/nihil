@@ -196,7 +196,6 @@ site__relative :: proc(
 }
 
 // NOTE: this is *not* cross-platform.
-@(private = "file")
 site__absolute :: proc(
   site: ^Site,
   base: Path__Absolute,
@@ -456,8 +455,9 @@ site__collect :: proc(site: ^Site) {
       case .Regular: 
         ext := os.base(info.fullpath)
         if ext == "page.anima" {
-          allocator := site__alloc(site)
-          bytes, err := os.read_entire_file_from_path(info.fullpath, allocator)
+          site__frame(site)
+          temp := site__alloc(site, .Stack)
+          bytes, err := os.read_entire_file_from_path(info.fullpath, temp)
 
           if err != nil {
             ipath := site__ipath(site, path)
@@ -465,17 +465,12 @@ site__collect :: proc(site: ^Site) {
             continue
           }
 
+          site.statistics.files_read += 1
           site.statistics.pages += 1
 
-          file := new(File, allocator)
-          file.source = string(bytes)
-
-          fullpath, clone_err := strings.clone(info.fullpath, allocator)
-          log.assert(clone_err == nil)
-          file.path = site__ipath(site, Path__Absolute(info.fullpath))
-
           page: Page
-          if parser__eval(site, site.page_codec, file, &page) {
+          path := site__ipath(site, Path__Absolute(info.fullpath))
+          if parser__eval(site, site.page_codec, path, string(bytes), &page) {
             page.source_path = site__ipath(site, directory)
             push(&site.pages, page)
           }
@@ -505,6 +500,7 @@ Statistics :: struct {
   xml_attrs:           uint,
   pages:               uint,
   directories_visited: uint,
+  files_read:          uint,
   files_generated:     uint,
 
   system_arena:       Bytes,

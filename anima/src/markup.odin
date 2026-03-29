@@ -10,7 +10,6 @@ import "core:time"
 import "core:unicode"
 
 // {{{ Page
-// TODO: imports
 Page :: struct {
   compact:          bool, // Whether the page should not contain the post layout
   public:           bool, // Whether the page should be included in the sitemap
@@ -122,9 +121,9 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
 
   inner_loop := codec__sum(
     k,
-    content, feeds, tags, aliases, styles, assets, public, title, description,
-    compact, smaller_headings, created, published, filename, changefreq,
-    priority, changes,
+    feeds, tags, aliases, styles, assets, public, title, description, compact,
+    smaller_headings, created, published, filename, changefreq, priority,
+    changes, content,
   )
 
   lens :: proc(kit: ^Lens_Kit) {
@@ -873,7 +872,7 @@ codec__text__lens :: proc(kit: ^Lens_Kit) {
   switch kit.mode {
   case .Project:
     inner.allocator = kit.temp_allocator
-    push(inner, outer^)
+    if outer^ != "" do push(inner, outer^)
   case .Inject:
     size: uint = 0
     for iter := iter__mk(inner^); x in iter__next(&iter) do size += len(x)

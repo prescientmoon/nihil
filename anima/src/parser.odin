@@ -5,6 +5,8 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
+import "core:os"
+import "core:path/slashpath"
 import "core:reflect"
 import "core:strings"
 import "core:unicode/utf8"
@@ -21,7 +23,6 @@ Error_Location :: union {
   Path__Absolute,
   Path__Input,
   Path__Output,
-  ^File,
   Source_Loc,
   Token,
   Source_Range,
@@ -33,17 +34,11 @@ Error :: struct {
 	msg: string,
 }
 
-@(private = "package")
-File :: struct {
-  path:   Path__Input,
-  source: string
-}
-
 // This is a bit fatter than we could get away with, but it doesn't really 
 // matter, and having everything in one place makes a lot of stuff easier.
 @(private = "package")
 Source_Loc :: struct {
-  file:  ^File,
+  path:  Path__Input,
 	index: uint,
 	line:  uint,
 	col:   uint,
@@ -95,12 +90,12 @@ Lexer :: struct {
 
 @(private = "package")
 lexer__make :: proc(
-  file: ^File, forever: mem.Allocator,
+  path: Path__Input, source: string, forever: mem.Allocator,
 ) -> (lexer: Lexer, ok: bool) {
 	lexer = Lexer {
     forever = forever,
-		source = file.source,
-		pos = Source_Loc{file = file, line = 1, col = 0, index = 0},
+		source = source,
+		pos = Source_Loc{path = path, line = 1, col = 0, index = 0},
 		curr = 0,
 		next_index = 0,
 	}
@@ -291,9 +286,11 @@ Tokens :: Exparr(Indented_Token, 10)
 
 // Allocates the token array on the stack arena.
 @(private = "package")
-parser__lex :: proc(site: ^Site, file: ^File) -> (tokens: Tokens, ok: bool) {
+parser__lex :: proc(
+  site: ^Site, path: Path__Input, source: string
+) -> (tokens: Tokens, ok: bool) {
   forever := site__alloc(site, .Forever)
-	lexer := lexer__make(file, forever) or_return
+	lexer := lexer__make(path, source, forever) or_return
   tokens.allocator = site__alloc(site, .Stack)
 
 	for {
@@ -339,15 +336,17 @@ parser__lex :: proc(site: ^Site, file: ^File) -> (tokens: Tokens, ok: bool) {
 // together with its state.
 Parser :: struct {
   // Data given to us from the outside
-  site:          ^Site,
-	codec:         ^Codec, // Dictates what parsing will look like
-	tokens:        Tokens, // Read-only
-	token:         ^uint, // The index of the current token
-  ok:            ^bool, // Set to false if we've ever emitted an error
+  site:   ^Site,
+	codec:  ^Codec, // Dictates what parsing will look like
+	tokens: Tokens, // Read-only
+	token:  ^uint, // The index of the current token
+  ok:     ^bool, // Set to false if we've ever emitted an error
+  path:   Path__Input, // Where are we currently parsing?
 
   // Data that is local to the current instance
 	output:       rawptr,
 	in_paragraph: bool,
+  can_import:   bool, // When false, a higher import point already exists
   scratch:      bool, // Are we (possibly deep) inside a scratch focus codec?
 	document:     rawptr, // Top-level context any function can access
 
@@ -375,7 +374,6 @@ parser__advance :: proc(instance: Parser) {
 	instance.token^ += 1
 }
 
-
 // Unlike the parser's .surrounding_kind, this has an explicit .Ambient
 // branch.
 Apparition_Kind :: enum { Bracketed, Indented, Ambient }
@@ -386,6 +384,7 @@ parser__begin_apparition :: proc(
   kind: Apparition_Kind
 ) {
   inner_instance.in_paragraph = false
+  inner_instance.can_import   = true
   inner_instance.surrounded_at = starter.from
   next_tok := parser__get_token(instance)
   #partial switch next_tok.kind {
@@ -430,7 +429,9 @@ parser__end_apparition :: proc(
   }
 }
 
-parser__get_token :: proc(instance: Parser) -> (tok: Token) {
+parser__get_token :: proc(
+  instance: Parser, skip_comments := true
+) -> (tok: Token) {
 	itok := get(instance.tokens, instance.token^)^
 
 	if itok.indentation <= instance.indentation {
@@ -455,8 +456,7 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
 		}
 	}
 
-  // Comment handling
-  if itok.kind == .Apparition && itok.content == "--" {
+  if skip_comments && itok.kind == .Apparition && itok.content == "--" {
     parser__advance(instance)
 
 		inner_instance := instance
@@ -465,7 +465,8 @@ parser__get_token :: proc(instance: Parser) -> (tok: Token) {
     kind := parser__begin_apparition(instance, &inner_instance, itok.token)
 
     loop: for {
-      tok := parser__get_token(inner_instance) 
+      tok := parser__get_token(inner_instance, skip_comments = false) 
+
       switch {
       case tok.kind == .None:
         break loop
@@ -542,7 +543,7 @@ codec__mark_completed :: proc(instance: Parser, could_be_completed := true) {
 	append_elem(instance.completed_codecs, instance.codec)
 }
 
-codec__make_completed_state :: proc(instance: ^Parser) {
+make_completion_state :: proc(instance: ^Parser) {
 	allocator := site__alloc(instance.site, .Stack)
 
 	completed_codecs := make_dynamic_array_len_cap(
@@ -556,6 +557,39 @@ codec__make_completed_state :: proc(instance: ^Parser) {
 	instance.completed_codecs = new_clone(completed_codecs, allocator)
 }
 // }}}
+// {{{ Text parsing
+parser__parse_word :: proc(instance: Parser) -> (out: string, ok: bool) {
+  tok := parser__get_token(instance)
+  (tok.kind == .Word || tok.kind == .Bang) or_return
+  parser__advance(instance)
+  return tok.content, true
+}
+
+parser__parse_contiguous_text :: proc(
+  instance: Parser
+) -> (out: string, ok: bool) {
+  chunks := Exparr(string) { allocator = site__alloc(instance.site, .Stack) }
+  for chunk in parser__parse_word(instance) do push(&chunks, chunk)
+
+  size: uint = 0
+  for iter := iter__mk(chunks); chunk in iter__next(&iter) {
+    size += len(chunk)
+  }
+
+  if chunks.len == 0 {
+    return "", false
+  } else if chunks.len == 1 {
+    return get(chunks, 0)^, true
+  }
+
+  builder := strings__fixed_builder(size, site__alloc(instance.site, .Stack))
+  for iter := iter__mk(chunks); chunk in iter__next(&iter) {
+    strings.write_string(&builder, chunk^)
+  }
+
+  return strings.to_string(builder), true
+}
+// }}}
 // {{{ Codec evaluation
 parser__skip_spaces :: proc(instance: Parser) -> (consumed: bool) {
 	for {
@@ -566,6 +600,67 @@ parser__skip_spaces :: proc(instance: Parser) -> (consumed: bool) {
 	}
 
 	return consumed
+}
+
+parser__import :: proc(instance: Parser) -> (is_import, consumed: bool) {
+  instance.can_import or_return
+  tok := parser__get_token(instance)
+  if tok.kind == .Apparition && tok.content == "import" {
+    parser__advance(instance)
+    site := instance.site
+
+    inner_instance := instance
+    inner_instance.codec = nil
+
+    kind := parser__begin_apparition(instance, &inner_instance, tok)
+    parser__skip_spaces(instance)
+    path, path_ok := parser__parse_contiguous_text(instance)
+    parser__skip_spaces(instance)
+    parser__end_apparition(instance, kind, tok)
+
+    if !path_ok {
+      site__errorf(site, tok, "Import path not specified")
+      return
+    } 
+
+    is_import = true
+    site__frame(site, instance.scratch)
+    allocator := site__alloc(site, .Stack)
+
+    dir_path := Path__Input(slashpath.dir(string(instance.path), allocator))
+    file_path := site__resolve(site, dir_path, Path(path))
+
+    full_path := site__absolute(site, site.content_root, file_path, .Stack)
+    bytes, err := os.read_entire_file_from_path(string(full_path), allocator)
+    if err != nil {
+      site__errorf(site, file_path, "Failed to read import: %v", err)
+      return
+    }
+    
+    site.statistics.files_read += 1
+    tokens := parser__lex(site, file_path, string(bytes)) or_return
+
+    file_instance := instance
+    file_instance.tokens           = tokens
+    file_instance.token            = new(uint, allocator)
+    file_instance.ok               = new_clone(true, allocator)
+    file_instance.in_paragraph     = false
+    file_instance.indentation      = 0
+    file_instance.surrounding_kind = .Indented
+
+    consumed = codec__eval_instance(file_instance)
+    instance.ok^ &&= file_instance.ok^
+    if !file_instance.ok^ do return
+
+    tok := parser__get_token(file_instance)
+    if tok.kind != .Eof {
+      site__error(site, tok, "Unexpected token. Expected end of file.")
+    }
+
+    return
+  }
+
+  return
 }
 
 codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
@@ -587,19 +682,27 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 			instance.codec.type,
 		)
 
-		tok := parser__get_token(instance)
-		if tok.kind != .Word && tok.kind != .Bang do return false
-		parser__advance(instance)
-		mem.copy(instance.output, &tok.content, size_of(string))
+    if ok, consumed := parser__import(instance); ok do return consumed
+    site__frame(instance.site, instance.scratch)
+    str := parser__parse_contiguous_text(instance) or_return
+
+    if !instance.scratch {
+      clone, err := strings.clone(str, site__alloc(instance.site))
+      log.assert(err == nil)
+      str = clone
+    }
+
+		mem.copy(instance.output, &str, size_of(string))
 		return true
 	case Codec__Raw:
-    site__frame(instance.site)
-
 		log.assertf(
 			instance.codec.type == string,
 			"Expected codec of type string. Got %v instead.",
 			instance.codec.type,
 		)
+
+    if ok, consumed := parser__import(instance); ok do return consumed
+    site__frame(instance.site)
 
     forever_alloc := site__alloc(instance.site, .Forever)
     temp_alloc    := site__alloc(instance.site, .Stack)
@@ -612,7 +715,8 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
     should_continue := true
     for should_continue {
       for {
-        tok := parser__get_token(instance) 
+        tok := parser__get_token(instance, skip_comments = false) 
+
         if tok.kind == .None do should_continue = false
         switch instance.surrounding_kind {
         case .Indented:
@@ -768,10 +872,13 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
 		return false
 	case Codec__Sum:
+    if ok, consumed := parser__import(instance); ok do return consumed
+
     tok := instance.token^
 		for &codec in inner {
 			inner_instance := instance
 			inner_instance.codec = &codec
+      inner_instance.can_import = false
 
 			consumed := codec__eval_instance(inner_instance)
       if consumed || instance.token^ > tok do return consumed
@@ -788,14 +895,13 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
 		inner_instance := instance
 		inner_instance.codec = inner.inner
-		codec__make_completed_state(&inner_instance)
+		make_completion_state(&inner_instance)
 
     kind := parser__begin_apparition(instance, &inner_instance, tok)
 		codec__eval_instance(inner_instance)
-		last_tok := parser__get_token(instance)
     parser__end_apparition(instance, kind, tok)
-
     codec__check_flags(tok, inner_instance)
+
 		return true
 	case Codec__Tracked:
 		inner_instance := instance
@@ -813,13 +919,20 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 	case Codec__Loop:
 		inner_instance := instance
 		inner_instance.codec = cast(^Codec)inner
+    inner_instance.can_import = false
 
 		tok := instance.token^
 		for {
+		  defer tok = instance.token^
+
+      if ok, consumed_now := parser__import(instance); ok {
+        consumed ||= consumed_now
+        continue
+      } 
+
       consumed_now := codec__eval_instance(inner_instance)
-		  (consumed_now || instance.token^ > tok) or_break
+      (consumed_now || instance.token^ > tok) or_break
       consumed ||= consumed_now
-		  tok = instance.token^
 		}
 
 		return consumed
@@ -880,22 +993,24 @@ codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
 // {{{ Parsing entrypoint
 @(private = "package")
 parser__eval :: proc(
-  site: ^Site, codec: ^Codec, file: ^File, output: rawptr
+  site: ^Site, codec: ^Codec, path: Path__Input, source: string, output: rawptr,
 ) -> (ok: bool)  {
   site__frame(site)
 
-  tokens := parser__lex(site, file) or_return
+  tokens := parser__lex(site, path, source) or_return
 	instance := Parser {
-    site     = site,
-		codec    = codec,
-		output   = output,
-    tokens   = tokens,
+    site       = site,
+    path       = path,
+		codec      = codec,
+		output     = output,
+    tokens     = tokens,
+    can_import = true,
     // We could keep these on the proper stack but idrc
-    token    = new(uint, site__alloc(site, .Stack)),
-    ok       = new_clone(true, site__alloc(site, .Stack)),
+    token      = new(uint, site__alloc(site, .Stack)),
+    ok         = new_clone(true, site__alloc(site, .Stack)),
 	}
 
-	codec__make_completed_state(&instance)
+	make_completion_state(&instance)
 
 	_ = codec__eval_instance(instance)
   if !instance.ok^ do return
@@ -906,7 +1021,7 @@ parser__eval :: proc(
     return
   }
 
-  codec__check_flags(file, instance)
+  codec__check_flags(path, instance)
   if !instance.ok^ do return
 
   return true
