@@ -1273,7 +1273,15 @@ inline_markup__html :: proc(
 inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
   if im.elements == nil do return
 
-  // TODO: remove spirious space here
+  // Remove spurious leading/trailing spaces.
+  for _ in 0..<2 {
+    exparr__reverse(im.elements^)
+    for chunk in exparr__try_last(im.elements^) {
+      _ = chunk.(Inline_Markup__Space) or_break
+      exparr__pop(im.elements)
+    }
+  }
+
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
     inline_markup__atom__check(site, page, chunk)
   }

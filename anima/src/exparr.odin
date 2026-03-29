@@ -64,6 +64,7 @@ exprarr__destructure_ix :: proc(
 	return chunk, local_ix
 }
 
+// {{{ Get particular elements
 exparr__repr__get :: proc(
   exparr: Exparr__Repr,
   FCE: uint,
@@ -82,11 +83,20 @@ exparr__get :: proc(
   return cast(^V)exparr__repr__get(exparr.repr, FCE, mem__layout(V), ix, loc)
 }
 
+exparr__try_last :: proc(
+  x: Exparr($V, $FCE), loc := #caller_location
+) -> (ptr: ^V, ok: bool) {
+	(x.len > 0) or_return
+  ptr = cast(^V)exparr__repr__get(x.repr, FCE, mem__layout(V), x.len - 1, loc)
+  return ptr, true
+}
+
 exparr__last :: proc(x: Exparr($V, $FCE), loc := #caller_location) -> ^V {
 	log.assert(x.len > 0, loc = loc)
   return cast(^V)exparr__repr__get(x.repr, FCE, mem__layout(V), x.len - 1, loc)
 }
-
+// }}}
+// {{{ Push
 // The untyped version of `exparr__push`. Pushes an empty element onto the
 // untyped exparr representation and returns a pointer to it.
 exparr__repr__push :: proc(
@@ -152,6 +162,35 @@ exparr__push :: proc(
 	ptr^ = element
 	return ptr
 }
+// }}}
+// {{{ Pop
+exparr__pop :: proc(x: ^Exparr($V, $FCE), loc := #caller_location) -> V {
+  v := exparr__last(x^, loc = loc)^
+  x.len -= 1
+  return v
+}
+// }}}
+// {{{ Reverse
+exparr__repr__reverse :: proc(
+  x: Exparr__Repr,
+  FCE: uint,
+  layout: Layout,
+  temp: rawptr, // A temporary variable used for swapping things
+) {
+  for i in 0 ..< x.len / 2 {
+    a := exparr__repr__get(x, FCE, layout, i)
+    b := exparr__repr__get(x, FCE, layout, x.len - 1 - i)
+    mem.copy(temp, a,    int(layout.size))
+    mem.copy(a,    b,    int(layout.size))
+    mem.copy(b,    temp, int(layout.size))
+  }
+}
+
+exparr__reverse :: proc(x: Exparr($V, $FCE)) {
+  temp: V
+  exparr__repr__reverse(x, FCE, mem__layout(V), &temp)
+}
+// }}}
 
 Exparr__Iter :: struct($T: typeid, $FCE: uint) {
   exparr: Exparr(T, FCE),
