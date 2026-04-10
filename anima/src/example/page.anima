@@ -1,6 +1,6 @@
 \title Hiii
-\created_at 2026-03-18T00:26:39+01:00
-\published_at 2026-03-18T00:26:39+01:00
+\created-at 2026-03-18T00:26:39+01:00
+\published-at 2026-03-18T00:26:39+01:00
 \compact
 \public
 
@@ -20,17 +20,17 @@ Welcome to my ethereal realm (read: website). This place is still being
 conjured (read: under construction), hence some things might be startlingly
 empty.
 
-I'm known as \`{prescientmoon}, or sometimes \`{PGW}. I study mathematics, but
+I'm known as `prescientmoon`, or sometimes `PGW`. I study mathematics, but
 I also really like coding and all computer-related sorcery. I love games of all
 kinds, although rhythm games have a special place in my heart.
 
-You can message me in the following places \`{:3}
+You can message me in the following places `:3`
 
 \list
-  \- via email at \link{mail}
-  \- on discord as \link{discord}
-  \- on certain \link{irc} networks as \`{prescientmoon}
-  \- (WIP) on the \link{fedi} at \link{fedi-profile}
+  * via email at [mail]
+  * on discord as [discord]
+  * on certain [irc] networks as `prescientmoon`
+  * (WIP) on the [fedi] at [fedi-profile]
 
 \deflink mail
   \target mailto://hi@moonythm.dev
@@ -53,21 +53,21 @@ You can message me in the following places \`{:3}
   \target https://social.moonythm.dev/@prescientmoon
   \label prescientmoon@moonythm.dev
 
-\# Lore
+# Lore
 
 Some pages will have lore bits sprinkled throughout. English is not my native
 tongue, so writing in a more archaic-sounding style comes difficult to me, but
 I'm doing my best. That is, some of the lore snippets might sound utterly
 meaningless, although I guess that's half the vibe.
 
-\# Webrings
+# Webrings
 
-I'm not part of a ton of \link{webring \label webrings}, but oh well.
+I'm not part of a ton of [webring | webrings], but oh well.
 
 \deflink webring \target https://indieweb.org/webring
 
 \list
-  \- \link{sillyring} (\link{sillyring-prev}, \link{sillyring-next})
+  * [sillyring] ([sillyring-prev], [sillyring-next])
 
 \deflink sillyring \target https://silly.moonythm.dev/
 \deflink sillyring-prev 
@@ -77,15 +77,15 @@ I'm not part of a ton of \link{webring \label webrings}, but oh well.
   \target https://silly.moonythm.dev/prescientmoon/next
   \label next»
 
-\## Source Code
+## Source Code
 
-\link{nihil \label The source} for this site's static site generator is
+[nihil | The source] for this site's static site generator is
 publicly available. The repository containing the source of the content is
 intentionally not public, although the source for any individual page can be
-downloaded by appending \`{/index.dj} to the URL (for example, here's
-\link{source \label the source for this page}). You can similarly access the
-changelog of any page by appending \`{/changelog} to the URL (as above, here's
-\link{changelog \label the changelog for this page}).
+downloaded by appending `/index.dj` to the URL (for example, here's
+[source | the source for this page]). You can similarly access the
+changelog of any page by appending `/changelog` to the URL (as above, here's
+[changelog | the changelog for this page]).
 
 \deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
 \deflink source \target{/index.dj} \label Home Page Source

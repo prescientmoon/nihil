@@ -16,8 +16,24 @@ Codec__Constant :: struct {
 	value: rawptr,
 }
 
+Codec__Token :: struct {
+	kind:  Token_Kind,
+	value: rawptr,
+}
+
 Codec__At :: struct {
 	name:  string,
+	inner: ^Codec,
+}
+
+Codec__Leaded :: struct {
+	by: Token_Kind,
+	inner: ^Codec,
+}
+
+Codec__Delimited :: struct {
+	opener: Token_Kind,
+	closer: Token_Kind,
 	inner: ^Codec,
 }
 
@@ -63,7 +79,10 @@ Codec :: struct {
 		Codec__Space,
 		Codec__Raw,
 		Codec__Constant,
+		Codec__Token,
 		Codec__At,
+    Codec__Leaded,
+		Codec__Delimited,
 		Codec__Tracked,
 		Codec__Seq,
 		Codec__Sum,
@@ -150,6 +169,16 @@ codec__const :: proc(kit: ^Codec_Kit, name: string, box: any) -> ^Codec {
 	return codec
 }
 
+codec__token :: proc(kit: ^Codec_Kit, kind: Token_Kind, box: any) -> ^Codec {
+	codec := codec__make(kit, box.id)
+	codec.data = Codec__Token {
+		kind  = kind,
+		value = mem__reflect__clone(box.id, box.data, kit.forever),
+	}
+
+	return codec
+}
+
 codec__string :: proc(kit: ^Codec_Kit) -> ^Codec {
 	codec := codec__make(kit, string)
 	codec.data = Codec__Text{}
@@ -173,6 +202,29 @@ codec__at :: proc(
 ) -> ^Codec {
 	codec := codec__make(kit, inner.type)
 	codec.data = Codec__At { name, inner }
+  return codec__tracked(kit, codec, name, flags)
+}
+
+codec__leaded :: proc(
+  kit: ^Codec_Kit, by: Token_Kind, inner: ^Codec, flags: Apparition_Flags = {}
+) -> ^Codec {
+	codec := codec__make(kit, inner.type)
+	codec.data = Codec__Leaded { by, inner }
+  return codec__tracked(kit, codec, Token_Kind__Symbol[by], flags)
+}
+
+codec__delim :: proc(
+  kit: ^Codec_Kit, l, r: Token_Kind, inner: ^Codec, flags: Apparition_Flags = {}
+) -> ^Codec {
+	codec := codec__make(kit, inner.type)
+	codec.data = Codec__Delimited { l, r, inner }
+  name := fmt.aprintf(
+    "%v...%v",
+    Token_Kind__Symbol[l],
+    Token_Kind__Symbol[r],
+    allocator = kit.forever
+  )
+
   return codec__tracked(kit, codec, name, flags)
 }
 

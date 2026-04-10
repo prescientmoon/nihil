@@ -205,7 +205,7 @@ mps__inline_markup__atom :: proc(
 		mps__inline_markup(mps, Inline_Markup(inner))
 	case Inline_Markup__Mono:
 		mps__deeper(mps, "mono")
-		mps__inline_markup(mps, Inline_Markup(inner))
+		mps__leaf_str(mps, string(inner), allow_inline = true)
 	case Inline_Markup__Quote:
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
@@ -388,53 +388,6 @@ mps__block_markup :: proc(mps: ^Markup_Printer_State, markup: Block_Markup) {
 	for i in 0 ..< markup.elements.len {
 		inner := get(markup.elements, i)
 		mps__block_markup__atom(mps, inner^)
-	}
-}
-// }}}
-// {{{ Tokens
-// Prints every token in a file
-@(private = "package")
-mps_tokens :: proc(
-  mps: ^Markup_Printer_State, path: Path__Input, source: string
-) {
-	lexer, ok := lexer__make(path, source, context.temp_allocator)
-
-	if ok {
-		for {
-			tok := tokenize(&lexer) or_break
-			switch tok.kind {
-			case .Bang, .LCurly, .RCurly, .Word:
-				mps__leaf_str(mps, tok.content, allow_inline = true)
-			case .None:
-				mps__leaf(mps, "token›none", allow_inline = true)
-			case .Eof:
-				mps__leaf(mps, "eof", allow_inline = true)
-			case .Newline:
-				mps__leaf(mps, "newline", allow_inline = true)
-			case .Space:
-				mps__leaf(mps, "space", allow_inline = true)
-			case .Apparition:
-				mps__leaf(
-					mps,
-					fmt.tprintf("\\%v", tok.content),
-					allow_inline = true,
-				)
-			}
-			if tok.kind == .Eof do break
-		}
-	}
-
-	if lexer.error != {} {
-		mps__deeper(mps, "error")
-		mps__leaf_str(mps, lexer.error.msg)
-
-		pos := fmt.tprintf(
-			"%v:%v",
-			lexer.error.pos.line,
-			lexer.error.pos.col,
-		)
-
-		mps__labeled_str(mps, "loc", pos)
 	}
 }
 // }}}

@@ -1,6 +1,6 @@
 \title Explaining TS's handling of array variance checking
-\created_at 2025-06-18T21:50:15+02:00
-\published_at 2025-06-18T21:50:15+02:00
+\created-at 2025-06-18T21:50:15+02:00
+\published-at 2025-06-18T21:50:15+02:00 -- I don't have the actual date, heh
 \alias echoes/ts-array-variance-standup
 \smaller-headings
 \public
@@ -8,10 +8,10 @@
 
 \description
   Short post going over some well-known Typescript behaviour brought up on
-  \link{the-standup}.
+  [the-standup].
 
-I just finished watching the \link{the-primeagen}'s live podcast 
-\"{\link the-standup}. Near the end, the cast started discussing some code that
+I just finished watching the [the-primeagen]'s live podcast 
+"[the-standup]". Near the end, the cast started discussing some code that
 looks like this:
 
 \deflink the-standup
@@ -36,34 +36,34 @@ looks like this:
 
 The cast sounded quite ill informed about the reason this happens, so I thought
 I'd go over it quickly. TypeScript' type system is based around the idea of
-\_{\link{subtyping}}. A type \`{A} is said to be a subtype of type \`{B} if the
+_[subtyping]_. A type `A` is said to be a subtype of type `B` if the
 former can be used whenever the latter could be used. In particular:
 
 \list
-  \- \`{A} is always a subtype of \`{A | B}
-  \- If \`{A} is a subtype of \`{B}, then \`{A[]} is a subtype of \`{B[]}
+  * `A` is always a subtype of `A | B`
+  * If `A` is a subtype of `B`, then `A[]` is a subtype of `B[]`
 
-From the above, it follows that \`{number[]} is a subtype of type \`{(string |
-number)[]}, hence why the code compiles.
+From the above, it follows that `number[]` is a subtype of type `(string |
+number)[]`, hence why the code compiles.
 
 \deflink subtyping
   \target https://en.wikipedia.org/wiki/Subtyping
   \label Subtyping
 
-\# Variance
+# Variance
 
-The proper way to fix this is to track the \_{\link variance} of type arguments
-(\`{A[]} is just syntactic sugar for \`{Array<A>}, hence why the inner type is
-a \"{type argument}). Every type argument can naturally fall in one of three
+The proper way to fix this is to track the _[variance]_ of type arguments
+(`A[]` is just syntactic sugar for `Array<A>`, hence why the inner type is
+a "type argument"). Every type argument can naturally fall in one of three
 camps:
 
 \list \block \ordered
-  \- A type argument is \_{covariant} if whenever \`{A} is a subtype of \`{B},
-    then \`{P<A>} is a subtype of \`{P<B>}. This is how TypeScript treats
+  * A type argument is _covariant_ if whenever `A` is a subtype of `B`,
+    then `P<A>` is a subtype of `P<B>`. This is how TypeScript treats
     arrays, and the mistake causing this bug.
 
-  \- A type argument is \_{contravariant} if whenever \`{A} is a subtype of
-    \`{B}, then \`{P<B>} is a subtype of \`{P<A>} (notice the direction of the
+  * A type argument is _contravariant_ if whenever `A` is a subtype of
+    `B`, then `P<B>` is a subtype of `P<A>` (notice the direction of the
     relation got flipped!). This explains the following example:
 
     \code ts \content!
@@ -76,8 +76,8 @@ camps:
 
       test(p)
 
-  \- A type argument is \_{invariant} if \`{P<A>} is a subtype of \`{P<B>} only
-    when \`{A = B}.
+  * A type argument is _invariant_ if `P<A>` is a subtype of `P<B>` only
+    when `A = B`.
 
 \deflink variance
   \target https://en.wikipedia.org/wiki/Covariance_and_contravariance_(computer_science)
@@ -85,7 +85,7 @@ camps:
 
 The correct thing to do when implementing a type system is to make (mutable,
 i.e. the default in TypeScript) arrays invariant in their type argument
-(failing to do so is a common \link{covariant-containers \label mistake} when
+(failing to do so is a common [covariant-containers | mistake] when
 implementing type systems). TypeScript has the tools to track variance (the
 issue above has been known about for a long time), but it will (likely) never
 get fixed in order to preserve backwards compatibility (said behaviour is sadly
@@ -95,7 +95,7 @@ quite common in practice).
   \target https://counterexamples.org/general-covariance.html
   \label Covariant Containers
 
-\# So why does the error not occurr with a direct \`{.push()}?
+# So why does the error not occurr with a direct `.push()`?
 
 One thing Casey asked on stream is why the error does not occur with the
 following snippet:
@@ -105,9 +105,9 @@ following snippet:
   nums.push("oops") // type error!
 
 The issue is that (informally), at every point, TypeScript keeps track of the
-most narrow type possible for the variables involved. That is, \`{nums} has type
-\`{number[]}, hence the type mismatch. Still, we can guide TypeScript into
-widening said \"{most narrow type} with a type annotation, thus recreating the
+most narrow type possible for the variables involved. That is, `nums` has type
+`number[]`, hence the type mismatch. Still, we can guide TypeScript into
+widening said "most narrow type" with a type annotation, thus recreating the
 bug without any new functions:
 
 \code ts \content!
@@ -120,4 +120,4 @@ the issue, as the issue is not tied to procedures in the first place. As stated
 above, the issue arises from TypeScript' treatment of array variance, which
 could be trivially fixed if backwards compatibility wasn't a concern.
 
-Thanks for reading :3
+Thanks for reading :3 ...

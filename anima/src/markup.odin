@@ -107,8 +107,13 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
   description := codec__field_at(k, "description", Page, imarkup, UNIQUE)
   filename    := codec__field_at(k, "filename", Page, ctext, UNIQUE)
 
-  created   := codec__field_at(k, "created_at", Page, timestamp, ONCE, ONCE)
-  published := codec__field_at(k, "published_at", Page, timestamp, UNIQUE)
+  created   := codec__at(
+    k, "created-at", codec__field(k, "created_at", Page, timestamp), ONCE
+  )
+
+  published := codec__at(
+    k, "published-at", codec__field(k, "published_at", Page, timestamp), UNIQUE
+  )
 
   priority   := codec__field_at(k, "priority",   Page, ctext, UNIQUE)
   changefreq := codec__field_at(k, "changefreq", Page, ctext, UNIQUE)
@@ -564,7 +569,7 @@ codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
   imarkup := codec__inline_markup(k)
 
 	id     := codec__field(k, "id", Self, ctext, REQUIRED)
-  target := codec__field_at(k, "target", Self, ctext, ONCE)
+  target := codec__field_at(k, "target", Self, codec__raw(k), ONCE)
   label  := codec__field_at(k, "label", Self, imarkup, UNIQUE)
   scope  := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
   loop   := codec__loop(k, codec__sum(k, label, target, scope, id))
@@ -939,7 +944,7 @@ Inline_Markup__Text :: distinct string
 Inline_Markup__Emph :: distinct Inline_Markup
 Inline_Markup__Strong :: distinct Inline_Markup
 Inline_Markup__Strikethrough :: distinct Inline_Markup
-Inline_Markup__Mono :: distinct Inline_Markup
+Inline_Markup__Mono :: distinct string
 Inline_Markup__Quote :: distinct Inline_Markup
 
 Inline_Markup__Icon :: struct {
@@ -1018,12 +1023,28 @@ codec__inline_markup__atom :: proc(
 
 	space := codec__space(k, Inline_Markup__Space{})
 	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
-	ellipsis := codec__const(k, "...", Inline_Markup__Ellipsis{})
-	emph := codec__trans_at(k, "_", Inline_Markup__Emph, imarkup)
-	strong := codec__trans_at(k, "*", Inline_Markup__Strong, imarkup)
-	strike := codec__trans_at(k, "~", Inline_Markup__Strikethrough, imarkup)
-	mono := codec__trans_at(k, "`", Inline_Markup__Mono, imarkup)
-	quote := codec__trans_at(k, "\"", Inline_Markup__Quote, imarkup)
+	ellipsis__sugar := codec__token(k, .Ellipsis, Inline_Markup__Ellipsis{})
+	ellipsis__basic := codec__const(k, "...", Inline_Markup__Ellipsis{})
+
+  emph := codec__transmute(k, Inline_Markup__Emph, imarkup)
+	emph__sugar := codec__delim(k, .Underscore, .Underscore, emph)
+	emph__basic := codec__at(k, "emph", emph)
+
+  strong := codec__transmute(k, Inline_Markup__Strong, imarkup)
+	strong__sugar := codec__delim(k, .Asterisk, .Asterisk, strong)
+	strong__basic := codec__at(k, "strong", strong)
+
+  strike := codec__transmute(k, Inline_Markup__Strikethrough, imarkup)
+	strike__sugar := codec__delim(k, .Tilde, .Tilde, strike)
+	strike__basic := codec__at(k, "strike", strike)
+
+  mono := codec__transmute(k, Inline_Markup__Mono, codec__raw(k))
+	mono__sugar := codec__delim(k, .Backtick, .Backtick, mono)
+	mono__basic := codec__at(k, "mono", mono)
+
+  quote := codec__transmute(k, Inline_Markup__Quote, imarkup)
+	quote__sugar := codec__delim(k, .Quote, .Quote, quote)
+	quote__basic := codec__at(k, "quote", quote)
 
   icon_id := codec__field(k, "id", Inline_Markup__Icon, ctext, ONCE)
   icon := codec__ref(k, codec__at(k, "icon", codec__loc(k, icon_id)))
@@ -1033,10 +1054,14 @@ codec__inline_markup__atom :: proc(
 
   Link :: Inline_Markup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
-  link_label := codec__field_at(k, "label", Link, imarkup, UNIQUE)
+  link_label__basic := codec__at(k, "label", imarkup)
+  link_label__sugar := codec__leaded(k, .Bar, imarkup)
+  link_label__payload := codec__sum(k, link_label__basic, link_label__sugar)
+  link_label := codec__field(k, "label", Link, link_label__payload, UNIQUE)
   link_sum := codec__sum(k, link_label, link_id)
   link_payload := codec__loc(k, codec__loop(k, link_sum))
-  link := codec__ref(k, codec__at(k, "link", link_payload))
+  link__sugar := codec__ref(k, codec__at(k, "link", link_payload))
+  link__basic := codec__ref(k, codec__delim(k, .LSquare, .RSquare, link_payload))
 
   timestamp := codec__inline_markup__timestamp(k)
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
@@ -1045,19 +1070,26 @@ codec__inline_markup__atom :: proc(
 	return codec__union(
 		k,
     Inline_Markup__Atom,
-    { Inline_Markup__Space,         space    },
-    { Inline_Markup__Text,          text     },
-    { Inline_Markup__Ellipsis,      ellipsis },
-    { Inline_Markup__Emph,          emph     },
-    { Inline_Markup__Strong,        strong   },
-    { Inline_Markup__Strikethrough, strike   },
-    { Inline_Markup__Mono,          mono     },
-    { Inline_Markup__Quote,         quote    },
-    { Inline_Markup__Date,          date     },
-    { Inline_Markup__Datetime,      datetime },
-    { ^Inline_Markup__Icon,         icon     },
-    { ^Inline_Markup__Fn,           fn       },
-    { ^Inline_Markup__Link,         link     },
+    { Inline_Markup__Space,         space          },
+    { Inline_Markup__Text,          text           },
+    { Inline_Markup__Ellipsis,      ellipsis__sugar },
+    { Inline_Markup__Ellipsis,      ellipsis__basic },
+    { Inline_Markup__Emph,          emph__sugar     },
+    { Inline_Markup__Emph,          emph__basic     },
+    { Inline_Markup__Strong,        strong__sugar   },
+    { Inline_Markup__Strong,        strong__basic   },
+    { Inline_Markup__Strikethrough, strike__sugar   },
+    { Inline_Markup__Strikethrough, strike__basic   },
+    { Inline_Markup__Mono,          mono__sugar     },
+    { Inline_Markup__Mono,          mono__basic     },
+    { Inline_Markup__Quote,         quote__sugar    },
+    { Inline_Markup__Quote,         quote__basic    },
+    { Inline_Markup__Date,          date           },
+    { Inline_Markup__Datetime,      datetime       },
+    { ^Inline_Markup__Icon,         icon           },
+    { ^Inline_Markup__Fn,           fn             },
+    { ^Inline_Markup__Link,         link__sugar     },
+    { ^Inline_Markup__Link,         link__basic     },
 	)
 }
 
@@ -1128,9 +1160,7 @@ inline_markup__atom__fmt :: proc(
     inline_markup__fmt(fi, site, page, Inline_Markup(inner))
     fmt.wprint(fi.writer, "~")
   case Inline_Markup__Mono:
-    fmt.wprint(fi.writer, "`")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
-    fmt.wprint(fi.writer, "`")
+    fmt.wprintf(fi.writer, "`%v`", string(inner))
   case Inline_Markup__Quote:
     fmt.wprint(fi.writer, QUOTE_EN_LEFT)
     inline_markup__fmt(fi, site, page, Inline_Markup(inner))
@@ -1219,7 +1249,7 @@ inline_markup__atom__html :: proc(
     inline_markup__html(g, page, Inline_Markup(inner))
   case Inline_Markup__Mono:
     xml__tag(g, "code")
-    inline_markup__html(g, page, Inline_Markup(inner))
+    xml__string(g, string(inner))
   case Inline_Markup__Quote:
     xml__stringf(g, "%v", QUOTE_EN_LEFT)
     inline_markup__html(g, page, Inline_Markup(inner))
@@ -1330,6 +1360,7 @@ inline_markup__atom__check :: proc(
   case Inline_Markup__Ellipsis:
   case Inline_Markup__Date: 
   case Inline_Markup__Datetime: 
+  case Inline_Markup__Mono:
   case Inline_Markup__Text:
     for char in string(inner) {
       unicode.is_alpha(char) or_continue
@@ -1341,8 +1372,6 @@ inline_markup__atom__check :: proc(
   case Inline_Markup__Strong:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Inline_Markup__Strikethrough:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Inline_Markup__Mono:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Inline_Markup__Quote:
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
@@ -1574,11 +1603,15 @@ codec__block_markup__list :: proc(
   flags := codec__sum(k, ordered, block)
 
   imarkup := codec__inline_markup(k)
-  ielem := codec__at(k, "-", imarkup)
+  ielem__sugar := codec__at(k, "item", imarkup)
+  ielem__basic := codec__leaded(k, .Asterisk, imarkup)
+  ielem := codec__sum(k, ielem__sugar, ielem__basic)
   icontent := codec__focus(k, Self, codec__spaced_exparr(k, ielem), ilens)
 
   bmarkup := codec__block_markup(k)
-  belem := codec__at(k, "-", bmarkup)
+  belem__sugar := codec__at(k, "item", bmarkup)
+  belem__basic := codec__leaded(k, .Asterisk, bmarkup)
+  belem := codec__sum(k, belem__sugar, belem__basic)
   bcontent := codec__focus(k, Self, codec__spaced_exparr(k, belem), blens)
 
   content := codec__sum(k, icontent, bcontent)
@@ -1607,7 +1640,11 @@ codec__block_markup__atom :: proc(
 	description := codec__const(k, "embed-description", Block_Markup__Description{})
 	thematic_break := codec__const(k, "---", Block_Markup__Thematic_Break{})
 	table_of_contents := codec__const(k, "toc", Block_Markup__Table_Of_Contents{})
-	blockquote := codec__trans_at(k, ">", Block_Markup__Blockquote, bmarkup)
+
+	blockquote := codec__transmute(k, Block_Markup__Blockquote, bmarkup)
+  blockquote__sugar := codec__leaded(k, .GT, blockquote)
+  blockquote__basic := codec__at(k, ">", blockquote)
+
 	image := codec__at(k, "image", codec__block_markup__image(k))
 	figure := codec__at(k, "figure", codec__block_markup__figure(k))
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
@@ -1620,23 +1657,33 @@ codec__block_markup__atom :: proc(
   list := codec__at(k, "list", codec__block_markup__list(k))
   code := codec__at(k, "code", codec__block_markup__code(k))
 
-	h2 := codec__at(k, "#", codec__heading(k, 2))
-	h3 := codec__at(k, "##", codec__heading(k, 3))
-	h4 := codec__at(k, "###", codec__heading(k, 4))
+  h2 := codec__heading(k, 2)
+  h3 := codec__heading(k, 3)
+  h4 := codec__heading(k, 4)
+	h2__basic := codec__at(k, "h1", h2)
+	h3__basic := codec__at(k, "h2", h3)
+	h4__basic := codec__at(k, "h3", h4)
+	h2__sugar := codec__leaded(k, .Hash, h2)
+	h3__sugar := codec__leaded(k, .Double_Hash, h3)
+	h4__sugar := codec__leaded(k, .Triple_Hash, h4)
 
   return codec__union(
 		k,
     Block_Markup__Atom,
-    { Block_Markup__Blockquote,        blockquote        },
+    { Block_Markup__Blockquote,        blockquote__sugar  },
+    { Block_Markup__Blockquote,        blockquote__basic  },
     { Block_Markup__Description,       description       },
     { Block_Markup__Table_Of_Contents, table_of_contents },
     { Block_Markup__Thematic_Break,    thematic_break    },
     { Block_Markup__Image,             image             },
     { Block_Markup__Figure,            figure            },
     { Table,                          table             },
-    { ^Heading,                       h2                },
-    { ^Heading,                       h3                },
-    { ^Heading,                       h4                },
+    { ^Heading,                       h2__sugar          },
+    { ^Heading,                       h3__sugar          },
+    { ^Heading,                       h4__sugar          },
+    { ^Heading,                       h2__basic          },
+    { ^Heading,                       h3__basic          },
+    { ^Heading,                       h4__basic          },
     { Article_List,                   article_list      },
     { Block_Markup__List,              list              },
     { Block_Markup__Code,              code              },

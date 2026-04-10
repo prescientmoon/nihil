@@ -1,22 +1,21 @@
 \title Computing CMB temperature fluctuations for spherical spaces
-\created_at 2025-03-20T17:42:05+01:00
-\published_at 2025-03-20T17:42:05+01:00
-\tag{echo}
-\public
-\smaller-headings
+\created-at 2025-03-20T17:42:05+01:00
+\published-at 2025-03-20T17:42:05+01:00
+\public \smaller-headings
+\tag echo
 
 \description
   This is a paper I, together with three of my collegues wrote for the mandatory
   third year batchelor preparation project at RUG.
 
-\# Solve My Riddle!
+# Solve My Riddle!
 
 Come to us in the following weeks with the answers to the following riddles in
 order to earn a special prize!
 
 \list \ordered
-  \- What does ??? suggest?
-  \- The knowledge you are seeking lies beneath the runes engraved in
-    \link{iota \label this manuscript}
+  * What does ??? suggest?
+  * The knowledge you are seeking lies beneath the runes engraved in
+    [iota \label this manuscript]
 
 \deflink iota \target iota.txt

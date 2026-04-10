@@ -34,7 +34,7 @@ Error :: struct {
 	msg: string,
 }
 
-// This is a bit fatter than we could get away with, but it doesn't really 
+// This is a bit fatter than we could get away with, but it doesn't really
 // matter, and having everything in one place makes a lot of stuff easier.
 @(private = "package")
 Source_Loc :: struct {
@@ -47,21 +47,67 @@ Source_Loc :: struct {
 // NOTE: the "content" property might be null for certain tokens (i.e. EOF).
 @(private = "package")
 Token :: struct {
-	from:    Source_Loc,
-	content: string,
-	kind:    Token_Kind,
+	from:        Source_Loc,
+	content:     string,
+	kind:        Token_Kind,
+	indentation: uint,
 }
 
+@(private = "package")
 Token_Kind :: enum u8 {
 	None = 0,
-	Space,      // One or more spaces
-	Newline,    // Newlines (\r is not kept around at the moment)
-	Word,       // A contiguous sequence of everything else
-	Apparition, // \<word>
-	Bang,       // !
-	LCurly,     // {
-	RCurly,     // }
-	Eof,        // Special token emitted once there's nothing more to consume
+	Space,        // One or more spaces
+	Newline,      // Newlines (\r is not kept around at the moment)
+	Word,         // A contiguous sequence of everything else
+	Apparition,   // \<word>
+	Bang,         // !
+	LCurly,       // {
+	RCurly,       // }
+	LSquare,      // [
+	RSquare,      // ]
+  Asterisk,     // *
+  Underscore,   // _
+  Backtick,     // `
+  Quote,        // "
+  Ellipsis,     // ...
+  Tilde,        // ~
+  GT,           // >
+  Bar,          // |
+  Dollar,       // $
+  Hash,         // #
+  Double_Hash,  // ##
+  Triple_Hash,  // ###
+  Double_Slash, // //
+	Eof,          // Special token emitted once there's nothing more to consume
+}
+
+// Vislaul representation
+@(rodata, private = "package")
+Token_Kind__Symbol := [Token_Kind]string {
+	.None         = "none",
+	.Space        = "<space>",
+	.Newline      = "<newline>",
+	.Word         = "<word>",
+	.Apparition   = "<apparition>",
+	.Bang         = "!",
+	.LCurly       = "{",
+	.RCurly       = "}",
+	.LSquare      = "[",
+	.RSquare      = "]",
+  .Asterisk     = "*",
+  .Underscore   = "_",
+  .Backtick     = "`",
+  .Quote        = "\"",
+  .Ellipsis     = "...",
+  .Tilde        = "~",
+  .GT           = ">",
+  .Bar          = "|",
+  .Dollar       = "$",
+  .Hash         = "#",
+  .Double_Hash  = "##",
+  .Triple_Hash  = "###",
+  .Double_Slash = "//",
+	.Eof          = "<eof>",
 }
 // }}}
 
@@ -91,7 +137,7 @@ Lexer :: struct {
 @(private = "package")
 lexer__make :: proc(
   path: Path__Input, source: string, forever: mem.Allocator,
-) -> (lexer: Lexer, ok: bool) {
+) -> (lexer: Lexer) {
 	lexer = Lexer {
     forever = forever,
 		source = source,
@@ -100,14 +146,13 @@ lexer__make :: proc(
 		next_index = 0,
 	}
 
-	advance_rune(&lexer) or_return
+	advance_rune(&lexer)
 
-	return lexer, true
+	return lexer
 }
 // }}}
 // {{{ Lexing helpers
-@(require_results)
-advance_rune :: proc(lexer: ^Lexer) -> (ok: bool) {
+advance_rune :: proc(lexer: ^Lexer) {
 	if lexer.next_index >= len(lexer.source) {
 		lexer.pos.index = len(lexer.source)
 
@@ -118,7 +163,7 @@ advance_rune :: proc(lexer: ^Lexer) -> (ok: bool) {
 
 		lexer.next_index = ~uint(0)
 		lexer.curr = {}
-		return true
+    return
 	}
 
 	lexer.pos.index = lexer.next_index
@@ -133,156 +178,126 @@ advance_rune :: proc(lexer: ^Lexer) -> (ok: bool) {
 	switch {
 	case r == 0:
 		lexer.error = {lexer.pos, "Illegal character NUL"}
-		return false
 	case r >= utf8.RUNE_SELF:
 		r, w = utf8.decode_rune_in_string(lexer.source[lexer.next_index:])
 		if r == utf8.RUNE_ERROR && w == 1 {
 			lexer.error = {lexer.pos, "Illegal UTF-8 encoding"}
-			return false
 		} else if r == utf8.RUNE_BOM && lexer.next_index > 0 {
 			lexer.error = {lexer.pos, "Illegal byte order mark"}
-			return false
 		}
 	}
 
-	lexer.next_index += uint(w)
-	lexer.curr = r
-
-	return true
+  if lexer.error == {} {
+    lexer.next_index += uint(w)
+    lexer.curr = r
+  } else {
+    lexer.curr = {}
+  }
 }
 
-// Look at the lexer's next rune without actively focusing it.
-peek_rune :: proc(lexer: Lexer) -> rune {
-	copy := lexer
-	ok := advance_rune(&copy)
-	if ok {
-		return copy.curr
-	} else {
-		return {}
-	}
+lexer__rune :: proc(lexer: ^Lexer, r: rune) -> bool {
+  if lexer.curr == r {
+    advance_rune(lexer)
+    return true
+  } else {
+    return false
+  }
 }
 
-// Check whether the lexer's focused rune is a valid word character. This will
-// also handle escaping any of the special syntax characters like { or \.
-next_rune_is_text_char :: proc(lexer: Lexer) -> (width: uint) {
-	nch := peek_rune(lexer)
-	switch lexer.curr {
-	case {}:
-		return 0
-	case '\\':
-		switch nch {
-		case '{', '}', '!', '\\', '\n', '\r', '\t', ' ':
-			return 2
-		case:
-			return 0
-		}
-	case '{', '}', '!', '\n', '\r', '\t', ' ':
-		return 0
-	case:
-		return 1
-	}
-}
-// }}}
-// {{{ Word char consumer
-// Consumes any character allowed inside a word (see `next_rune_is_text_char`),
-// then resolves any escaped characters. The output string will only cause an
-// allocation if character escapes are encountered.
-consume_word_chars :: proc(lexer: ^Lexer) -> (s: string, ok: bool) {
-	copy := lexer^
+lexer__expect :: proc(lexer: ^Lexer, str: string) -> bool {
+  slice := lexer.source[lexer.pos.index:]
+  (len(slice) >= len(str)) or_return
+  (slice[:len(str)] == str) or_return
 
-	no_escapes := true
+  target := lexer.pos.index + len(str)
 
-	// Traverse word once in order to compute the maximum size taken by the output
-	// string
-	for {
-		width := next_rune_is_text_char(copy)
-		(width > 0) or_break
-		for _ in 0 ..< width do advance_rune(&copy) or_return
-		no_escapes &&= width == 1
-	}
+  for lexer.pos.index < target {
+    // We guarantee no unicode decoding errors!
+    advance_rune(lexer)
+  }
 
-	if no_escapes {
-		string := lexer.source[lexer.pos.index:copy.pos.index]
-		lexer^ = copy
-		return string, true
-	}
+  log.assert(lexer.pos.index == target)
 
-	builder := strings__fixed_builder(
-		copy.pos.index - lexer.pos.index,
-		lexer.forever,
-	)
-
-	for {
-		width := next_rune_is_text_char(lexer^)
-
-		assert(width <= 2)
-		(width > 0) or_break
-
-		// Escaped: skip the backslash
-		if width == 2 do advance_rune(lexer) or_return
-
-		strings.write_rune(&builder, lexer.curr)
-		advance_rune(lexer) or_return
-	}
-
-	return strings.to_string(builder), true
+  return true
 }
 // }}}
 // {{{ Lexing loop entrypoint
 @(private = "package")
-tokenize :: proc(lexer: ^Lexer) -> (tok: Token, ok: bool) {
-	// Skip all \r characters. Such characters cannot currently be escaped. I
-	// don't use windows, so I do not care in the end.
-	for lexer.curr == '\r' do advance_rune(lexer) or_return
+tokenize :: proc(lexer: ^Lexer, tokens: ^Tokens) {
+  for {
+    // Skip all \r characters. Such characters cannot currently be escaped. I
+    // don't use windows, so I do not care in the end.
+    for lexer__rune(lexer, '\r') {}
 
-	tok.from = lexer.pos
-	tok.kind = .Eof
+    tok := Token {
+      from = lexer.pos,
+      indentation = lexer.pos.col,
+    }
 
-	char := lexer.curr
-	switch char {
-	case {}:
-		break
-	case '{', '}', '!':
-		@(rodata, static)
-		KIND_TABLE: [128]Token_Kind = {
-			'{' = .LCurly,
-			'}' = .RCurly,
-			'!' = .Bang,
-		}
+    escaped := lexer__rune(lexer, '\\')
+    curr := lexer.pos.index
 
-		tok.kind = KIND_TABLE[char]
-		advance_rune(lexer) or_return
-		tok.content = lexer.source[tok.from.index:][:1]
-	case '\n':
-		tok.kind = .Newline
-		advance_rune(lexer) or_return
-	case '\t', ' ':
-		tok.kind = .Space
-		curr := lexer.pos.index
-		for lexer.curr == '\t' || lexer.curr == ' ' do advance_rune(lexer) or_return
-		tok.content = lexer.source[curr:lexer.pos.index]
-	case:
-		if next_rune_is_text_char(lexer^) > 0 {
-			tok.kind = .Word
-			tok.content = consume_word_chars(lexer) or_return
-		} else {
-			assert(lexer.curr == '\\')
-			tok.kind = .Apparition
-			advance_rune(lexer) or_return
-			tok.content = consume_word_chars(lexer) or_return
-		}
-	}
+    switch {
+    case lexer__rune(lexer, {}): tok.kind = .Eof
+    case lexer__rune(lexer, '\\'): tok.kind = .Word // Escaped backslash (\\)
+    case lexer__rune(lexer, '{'): tok.kind = .LCurly
+    case lexer__rune(lexer, '}'): tok.kind = .RCurly
+    case lexer__rune(lexer, '['): tok.kind = .LSquare
+    case lexer__rune(lexer, ']'): tok.kind = .RSquare
+    case lexer__rune(lexer, '*'): tok.kind = .Asterisk
+    case lexer__rune(lexer, '_'): tok.kind = .Underscore
+    case lexer__rune(lexer, '`'): tok.kind = .Backtick
+    case lexer__rune(lexer, '"'): tok.kind = .Quote
+    case lexer__rune(lexer, '!'): tok.kind = .Bang
+    case lexer__rune(lexer, '~'): tok.kind = .Tilde
+    case lexer__rune(lexer, '>'): tok.kind = .GT
+    case lexer__rune(lexer, '|'): tok.kind = .Bar
+    case lexer__rune(lexer, '$'): tok.kind = .Dollar
+    case lexer__rune(lexer, '\n'): tok.kind = .Newline
+    case lexer__rune(lexer, ' ') || lexer__rune(lexer, '\t'):
+      tok.kind = .Space
+      for lexer__rune(lexer, ' ') || lexer__rune(lexer, '\t') {}
+    case lexer__expect(lexer, "..."): tok.kind = .Ellipsis
+    case lexer__expect(lexer, "###"): tok.kind = .Triple_Hash
+    case lexer__expect(lexer, "##"): tok.kind = .Double_Hash
+    case lexer__rune(lexer, '#'): tok.kind = .Hash
+    case lexer__expect(lexer, "//"): tok.kind = .Double_Slash
+    case:
+      tok.kind = .Word
+      advance_rune(lexer)
+      loop: for {
+        switch lexer.curr {
+        case {}, '\\', '{', '}', '[', ']', '*', '_', '`', '"', '!', '~',
+             '>', '|', '$', '#', '.', '/', '\n', '\r', '\t', ' ':
+          break loop
+        case:
+          advance_rune(lexer)
+        }
+      }
+    }
 
-	return tok, true
+    tok.content = lexer.source[curr:lexer.pos.index]
+
+    if escaped {
+      #partial switch tok.kind {
+      case .Word:
+        tok.kind = .Apparition
+      case .Eof:
+        tok.kind = .Word
+        tok.content = "\\"
+      case:
+        tok.kind = .Word
+      }
+    }
+
+    exparr__push(tokens, tok)
+
+    if tok.kind == .Eof do break
+  }
 }
 // }}}
 // {{{ Running the full blown lexer
-Indented_Token :: struct {
-	using token: Token,
-	indentation: uint,
-}
-
-Tokens :: Exparr(Indented_Token, 10)
+Tokens :: Exparr(Token, 10)
 
 // Allocates the token array on the stack arena.
 @(private = "package")
@@ -290,28 +305,16 @@ parser__lex :: proc(
   site: ^Site, path: Path__Input, source: string
 ) -> (tokens: Tokens, ok: bool) {
   forever := site__alloc(site, .Forever)
-	lexer := lexer__make(path, source, forever) or_return
+	lexer := lexer__make(path, source, forever)
   tokens.allocator = site__alloc(site, .Stack)
 
-	for {
+  tokenize(&lexer, &tokens)
+  if lexer.error != {} {
     tok: Token
-		tok, ok = tokenize(&lexer)
-
-		if !ok {
-			tok.from = lexer.error.pos
-			site__error(site, tok, lexer.error.msg)
-			return
-		}
-
-		itok := Indented_Token {
-			token       = tok,
-			indentation = tok.from.col,
-		}
-
-		push(&tokens, itok)
-
-		if tok.kind == .Eof do break
-	}
+    tok.from = lexer.error.pos
+    site__error(site, tok, lexer.error.msg)
+    return
+  }
 
 	current_indentation: uint = 0
 	for i := tokens.len - 1; int(i) >= 0; i -= 1 {
@@ -351,9 +354,10 @@ Parser :: struct {
 	document:     rawptr, // Top-level context any function can access
 
   // Data about the surrounding apparition
-  indentation:      uint,
-  surrounded_at:    Source_Loc,
-  surrounding_kind: enum { Indented, Bracketed },
+  indentation:              uint,
+  surrounded_at:            Source_Loc,
+  surrounding_kind:         enum { Indented, Bracketed, Delimited },
+  surrounding_delim_closer: Token_Kind,
 
 	// The capacity for this list is computed at the start of the block, and its
 	// allocator is set to the panic allocator. We could instead store this as a
@@ -371,12 +375,14 @@ parser__get_pos :: proc(instance: Parser) -> Source_Loc {
 }
 
 parser__advance :: proc(instance: Parser) {
-	instance.token^ += 1
+  if get(instance.tokens, instance.token^).kind != .Eof {
+    instance.token^ += 1
+  }
 }
 
 // Unlike the parser's .surrounding_kind, this has an explicit .Ambient
 // branch.
-Apparition_Kind :: enum { Bracketed, Indented, Ambient }
+Apparition_Kind :: enum { Bracketed, Indented, Delimited, Ambient }
 
 parser__begin_apparition :: proc(
   instance: Parser, inner_instance: ^Parser, starter: Token
@@ -391,11 +397,9 @@ parser__begin_apparition :: proc(
   case .LCurly:
     parser__advance(instance)
     inner_instance.surrounding_kind = .Bracketed
-    inner_instance.indentation = instance.indentation
     kind = .Bracketed
   case .Bang:
     parser__advance(instance)
-    inner_instance.indentation = instance.indentation
     kind = .Ambient
   case:
     inner_instance.surrounding_kind = .Indented
@@ -410,6 +414,10 @@ parser__end_apparition :: proc(
   instance: Parser, kind: Apparition_Kind, starter: Token
 ) {
   last_tok := parser__get_token(instance)
+  msg :: "I don't know how to parse this token. Common causes:\n" +
+        "- missing closing brackets\n" +
+        "- trying to use a unique apparition more than once per scope\n" +
+        "Did you perhaps forget to close the apparition starting at %v?"
 
   if kind == .Bracketed {
     if last_tok.kind == .RCurly {
@@ -419,10 +427,20 @@ parser__end_apparition :: proc(
       site__errorf(
         instance.site,
         last_tok,
-        "I don't know how to parse this token. Common causes:\n" +
-        "- missing closing brackets\n" +
-        "- trying to use a unique apparition more than once per scope\n" +
-        "Did you perhaps forget to close the apparition starting at %v?",
+        msg,
+        Error_Location(starter),
+      )
+    }
+  } else if kind == .Delimited {
+    if last_tok.kind == instance.surrounding_delim_closer {
+      parser__advance(instance)
+    } else {
+      log.error(last_tok.kind, instance.surrounding_delim_closer)
+      instance.ok^ = false
+      site__errorf(
+        instance.site,
+        last_tok,
+        msg,
         Error_Location(starter),
       )
     }
@@ -456,16 +474,19 @@ parser__get_token :: proc(
 		}
 	}
 
-  if skip_comments && itok.kind == .Apparition && itok.content == "--" {
+  if skip_comments && (
+    itok.kind == .Double_Slash ||
+    itok.kind == .Apparition && itok.content == "--"
+  ) {
     parser__advance(instance)
 
 		inner_instance := instance
 		inner_instance.codec = nil
 
-    kind := parser__begin_apparition(instance, &inner_instance, itok.token)
+    kind := parser__begin_apparition(instance, &inner_instance, itok)
 
     loop: for {
-      tok := parser__get_token(inner_instance, skip_comments = false) 
+      tok := parser__get_token(inner_instance, skip_comments = false)
 
       switch {
       case tok.kind == .None:
@@ -477,11 +498,11 @@ parser__get_token :: proc(
       }
     }
 
-    parser__end_apparition(instance, kind, itok.token)
+    parser__end_apparition(inner_instance, kind, itok)
 		return parser__get_token(instance)
   }
 
-	return itok.token
+	return itok
 }
 // }}}
 // {{{ Completion tracking
@@ -489,7 +510,8 @@ parser__get_token :: proc(
 // of whether they've been completed or not.
 codec__count_completable :: proc(instance: Parser) -> uint {
 	switch inner in instance.codec.data {
-	case Codec__Space, Codec__Constant, Codec__Text, Codec__Raw, Codec__At, nil:
+  case Codec__Space, Codec__Constant, Codec__Token, Codec__Text, Codec__Raw,
+       Codec__At, Codec__Leaded, Codec__Delimited, nil:
 		return 0
 	case Codec__Focus:
 		inner_instance := instance
@@ -616,12 +638,12 @@ parser__import :: proc(instance: Parser) -> (is_import, consumed: bool) {
     parser__skip_spaces(instance)
     path, path_ok := parser__parse_contiguous_text(instance)
     parser__skip_spaces(instance)
-    parser__end_apparition(instance, kind, tok)
+    parser__end_apparition(inner_instance, kind, tok)
 
     if !path_ok {
       site__errorf(site, tok, "Import path not specified")
       return
-    } 
+    }
 
     is_import = true
     site__frame(site, instance.scratch)
@@ -636,7 +658,7 @@ parser__import :: proc(instance: Parser) -> (is_import, consumed: bool) {
       site__errorf(site, file_path, "Failed to read import: %v", err)
       return
     }
-    
+
     site.statistics.files_read += 1
     tokens := parser__lex(site, file_path, string(bytes)) or_return
 
@@ -654,7 +676,7 @@ parser__import :: proc(instance: Parser) -> (is_import, consumed: bool) {
 
     tok := parser__get_token(file_instance)
     if tok.kind != .Eof {
-      site__error(site, tok, "Unexpected token. Expected end of file.")
+      site__errorf(site, tok, "Unexpected token %v.", tok)
     }
 
     return
@@ -711,17 +733,23 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
     builder: strings.Builder
     strings.builder_init_none(&builder, temp_alloc)
-    
+
     should_continue := true
     for should_continue {
       for {
-        tok := parser__get_token(instance, skip_comments = false) 
+        tok := parser__get_token(instance, skip_comments = false)
 
         if tok.kind == .None do should_continue = false
         switch instance.surrounding_kind {
         case .Indented:
         case .Bracketed:
-          if tok.kind == .RCurly do should_continue = false
+          if tok.kind == .RCurly {
+            should_continue = false
+          }
+        case .Delimited:
+          if tok.kind == instance.surrounding_delim_closer {
+            should_continue = false
+          }
         }
 
         if !should_continue do break
@@ -773,7 +801,15 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 		if tok.kind != .Apparition do return false
 		if tok.content != inner.name do return false
 		parser__advance(instance)
-		mem.copy(instance.output, inner.value, reflect.size_of_typeid(instance.codec.type))
+    size := reflect.size_of_typeid(instance.codec.type)
+		mem.copy(instance.output, inner.value, size)
+		return true
+	case Codec__Token:
+		tok := parser__get_token(instance)
+		if tok.kind != inner.kind do return false
+		parser__advance(instance)
+    size := reflect.size_of_typeid(instance.codec.type)
+		mem.copy(instance.output, inner.value, size)
 		return true
 	case Codec__Focus:
 		site__frame(instance.site, instance.scratch)
@@ -899,7 +935,47 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
     kind := parser__begin_apparition(instance, &inner_instance, tok)
 		codec__eval_instance(inner_instance)
-    parser__end_apparition(instance, kind, tok)
+    parser__end_apparition(inner_instance, kind, tok)
+    codec__check_flags(tok, inner_instance)
+
+		return true
+	case Codec__Leaded:
+		tok := parser__get_token(instance)
+		if tok.kind != inner.by do return false
+		parser__advance(instance)
+
+		site__frame(instance.site, instance.scratch)
+
+		inner_instance := instance
+		inner_instance.codec = inner.inner
+		make_completion_state(&inner_instance)
+
+    kind := parser__begin_apparition(instance, &inner_instance, tok)
+		codec__eval_instance(inner_instance)
+    parser__end_apparition(inner_instance, kind, tok)
+    codec__check_flags(tok, inner_instance)
+
+		return true
+	case Codec__Delimited:
+		tok := parser__get_token(instance)
+		if tok.kind != inner.opener do return false
+    if instance.surrounding_delim_closer == inner.opener do return false
+		parser__advance(instance)
+
+		site__frame(instance.site, instance.scratch)
+
+		inner_instance := instance
+		inner_instance.codec = inner.inner
+		make_completion_state(&inner_instance)
+
+    inner_instance.in_paragraph = false
+    inner_instance.can_import   = true
+    inner_instance.surrounded_at = tok.from
+    inner_instance.surrounding_kind = .Delimited
+    inner_instance.surrounding_delim_closer = inner.closer
+
+		codec__eval_instance(inner_instance)
+    parser__end_apparition(inner_instance, .Delimited, tok)
     codec__check_flags(tok, inner_instance)
 
 		return true
@@ -928,7 +1004,7 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       if ok, consumed_now := parser__import(instance); ok {
         consumed ||= consumed_now
         continue
-      } 
+      }
 
       consumed_now := codec__eval_instance(inner_instance)
       (consumed_now || instance.token^ > tok) or_break
@@ -954,22 +1030,23 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 codec__check_flags :: proc(loc: Error_Location, instance: Parser) {
   inner_instance := instance
   switch inner in instance.codec.data {
-	case Codec__Space, Codec__Constant, Codec__Text, Codec__Raw, Codec__At, nil:
-  case Codec__Focus: 
+  case Codec__Space, Codec__Constant, Codec__Token, Codec__Text, Codec__Raw,
+       Codec__At, Codec__Leaded, Codec__Delimited, nil:
+  case Codec__Focus:
     inner_instance.codec = inner.inner
     codec__check_flags(loc, inner_instance)
-  case Codec__Loop: 
+  case Codec__Loop:
     inner_instance.codec = cast(^Codec)inner
     codec__check_flags(loc, inner_instance)
-  case Codec__Paragraph: 
+  case Codec__Paragraph:
     inner_instance.codec = cast(^Codec)inner
     codec__check_flags(loc, inner_instance)
-  case Codec__Seq: 
+  case Codec__Seq:
     for &codec in inner {
       inner_instance.codec = &codec
       codec__check_flags(loc, inner_instance)
     }
-  case Codec__Sum: 
+  case Codec__Sum:
     for &codec in inner {
       inner_instance.codec = &codec
       codec__check_flags(loc, inner_instance)
@@ -1017,7 +1094,7 @@ parser__eval :: proc(
 
   tok := parser__get_token(instance)
   if tok.kind != .Eof {
-    site__error(site, tok, "Unexpected token. Expected end of file.")
+    site__errorf(site, tok, "Unexpected token %v.", tok)
     return
   }
 

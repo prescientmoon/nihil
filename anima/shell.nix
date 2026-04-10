@@ -32,10 +32,10 @@ pkgs.mkShell rec {
     pkgs.just
     pkgs.seer
     pkgs.valgrind
+    pkgs.live-server
   ];
 
-  buildInputs = [
-  ];
+  buildInputs = [ ];
 
   LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath buildInputs;
 }
