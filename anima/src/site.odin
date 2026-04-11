@@ -727,7 +727,12 @@ site__commit :: proc(site: ^Site) {
       }
     case Path__Input:
       path := site__absolute(site, site.content_root, inner, .Stack)
-      err = os.copy_file(string(full_path), string(path))
+      if os.is_directory(string(path)) {
+        err = os.copy_directory_all(string(full_path), string(path))
+      } else {
+        err = os.copy_file(string(full_path), string(path))
+      }
+
       if err != nil {
         site__errorf(site, entry.path, "Failed to copy file: %v", err)
         continue

@@ -206,6 +206,9 @@ mps__inline_markup__atom :: proc(
 	case Inline_Markup__Mono:
 		mps__deeper(mps, "mono")
 		mps__leaf_str(mps, string(inner), allow_inline = true)
+	case Inline_Markup__LaTeX:
+		mps__deeper(mps, "math")
+		mps__leaf_str(mps, string(inner), allow_inline = true)
 	case Inline_Markup__Quote:
 		mps__deeper(mps, "quote")
 		mps__inline_markup(mps, Inline_Markup(inner))
@@ -406,6 +409,7 @@ mps__page_filter__atom :: proc(
   switch inner in atom {
   case Page_Filter__Local: mps__leaf(mps, "local")
   case Page_Filter__Public: mps__leaf(mps, "public")
+  case Page_Filter__LaTeX: mps__leaf(mps, "LaTeX")
   case Page_Filter__Not:
     mps__deeper(mps, "not")
     mps__page_filter__atom(mps, inner^)

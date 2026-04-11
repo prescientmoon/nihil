@@ -5,6 +5,8 @@ in
   pkgs ? import sources.nixpkgs { },
 }:
 pkgs.lib.fix (self: {
+  inherit (import ./anima-math-renderer { inherit pkgs; }) anima-math-renderer anima-math-assets;
+
   nihil-math-renderer = pkgs.callPackage ./nihil-math-renderer { };
   nihil-math-assets = pkgs.callPackage ./nihil-math-renderer/assets.nix { };
   nihil-highlighter = pkgs.callPackage ./nihil-highlighter { };

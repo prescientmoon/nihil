@@ -38,6 +38,7 @@ Page :: struct {
   styles:    Exparr(Def__Stylesheet),
   assets:    Exparr(Def__Asset),
   aliases:   Exparr(Path__Output), // Locations to redirect from
+  helmets:   Exparr(Helmet),
 
   // These attributes are not part of the markup itself
   source_path: Path__Input,
@@ -46,16 +47,19 @@ Page :: struct {
   word_count:  uint, // Merely an estimate!
   in_feeds:    Exparr(^Def__Feed),
   in_styles:   Exparr(^Def__Stylesheet),
+  in_helmets:  Exparr(^Helmet),
+  uses_LaTeX:  bool,
 }
 
 page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
-  page.links.allocator     = allocator
-  page.icons.allocator     = allocator
-  page.headings.allocator  = allocator
-  page.footnotes.allocator = allocator
-  page.styles.allocator    = allocator
-  page.in_feeds.allocator  = allocator
-  page.in_styles.allocator = allocator
+  page.links.allocator      = allocator
+  page.icons.allocator      = allocator
+  page.headings.allocator   = allocator
+  page.footnotes.allocator  = allocator
+  page.styles.allocator     = allocator
+  page.in_feeds.allocator   = allocator
+  page.in_styles.allocator  = allocator
+  page.in_helmets.allocator = allocator
   return page
 }
 
@@ -102,6 +106,11 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
   styles  := codec__field(k, "styles",    Page, styles_payload)
   assets  := codec__field(k, "assets",    Page, assets_payload)
 
+  helmets := codec__field(
+    k, "helmets", Page,
+    codec__exparr(k, codec__at(k, "helmet", codec__helmet(k)))
+  )
+
   content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
   title       := codec__field_at(k, "title", Page, imarkup, ONCE)
   description := codec__field_at(k, "description", Page, imarkup, UNIQUE)
@@ -126,9 +135,9 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
 
   inner_loop := codec__sum(
     k,
-    feeds, tags, aliases, styles, assets, public, title, description, compact,
-    smaller_headings, created, published, filename, changefreq, priority,
-    changes, content,
+    feeds, tags, aliases, styles, helmets, assets, public, title, description,
+    compact, smaller_headings, created, published, filename, changefreq,
+    priority, changes, content,
   )
 
   lens :: proc(kit: ^Lens_Kit) {
@@ -193,12 +202,16 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "href", site__url(g.site, feed.site_path, .Stack))
     }
 
+    for iter := iter__mk(page.in_helmets); helmet in iter__next(&iter) {
+      if helmet^.format == "html" do xml__raw_string(g, helmet^.content)
+    }
+
     for iter := iter__mk(page.in_styles); style in iter__next(&iter) {
       style := style^
       if style.preload {
         xml__tag(g, "link")
         xml__attr(g, "rel", "preload")
-        xml__attr(g, "as", "stylesheet")
+        xml__attr(g, "as", "style")
         xml__attr(g, "href", site__url(g.site, style.site_path, .Stack))
       }
 
@@ -209,20 +222,11 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
 
     if xml__tag(g, "title") do inline_markup__html(g, page^, page.title)
 
-    // NOTE: I might un-hardcode these paths in the future
     if mem__non_zero(g.site.favicon) {
       xml__tag(g, "link")
       xml__attr(g, "rel", "icon")
       xml__attr(g, "type", "image/x-icon")
       xml__attr(g, "href", site__url(g.site, g.site.favicon.site_path, .Stack))
-    }
-
-    if xml__tag(g, "link") {
-      xml__attr(g, "rel", "preload")
-      xml__attr(g, "as", "font")
-      xml__attr(g, "href", "/fonts/computer-modern/cm-regular.woff2")
-      xml__attr(g, "type", "font/woff2")
-      xml__flag(g, "crossorigin") // Required when as=font
     }
   }
 
@@ -316,6 +320,11 @@ page__check :: proc(site: ^Site, page: ^Page) {
       page_filter__all__eval(other_page^, page^, style.scope) or_continue
       push(&page.in_styles, style)
     }
+
+    for iter := iter__mk(other_page.helmets); helmet in iter__next(&iter) {
+      page_filter__all__eval(other_page^, page^, helmet.scope) or_continue
+      push(&page.in_helmets, helmet)
+    }
   }
 
   // Generate feed paths & redirects
@@ -405,6 +414,7 @@ Page_Filter__Not   :: distinct ^Page_Filter__Atom // NOT
 Page_Filter__Tag    :: distinct Tag  // Pages having this tag
 Page_Filter__Local  :: distinct Unit // The current page
 Page_Filter__Public :: distinct Unit // The page is visible
+Page_Filter__LaTeX  :: distinct Unit // The current page uses LaTeX math
 
 // NOTE: nil is equivalent to Page_Filter__Local
 Page_Filter__Atom :: union {
@@ -414,6 +424,7 @@ Page_Filter__Atom :: union {
   Page_Filter__Tag,
   Page_Filter__Local,
   Page_Filter__Public,
+  Page_Filter__LaTeX,
 }
 
 // Behaves like \local when empty and like \all otherwise
@@ -425,6 +436,7 @@ page_filter__eval :: proc(base, page: Page, filter: Page_Filter__Atom) -> bool {
     if inner == nil do return false
     return !page_filter__eval(base, page, inner^)
   case Page_Filter__Public: return page.public
+  case Page_Filter__LaTeX: return page.uses_LaTeX
   case Page_Filter__All: return page_filter__all__eval(base, page, inner)
   case Page_Filter__Local: return page.site_path == base.site_path
   case Page_Filter__Any: 
@@ -477,6 +489,7 @@ codec__page_filter__atom :: proc(
 
       local := codec__const(k, "local", Page_Filter__Local{})
       public := codec__const(k, "public", Page_Filter__Public{})
+      latex := codec__const(k, "LaTeX", Page_Filter__LaTeX{})
       not := codec__trans_at(k, "not", Page_Filter__Not, codec__ref(k, atom))
       all := codec__trans_at(k, "all", Page_Filter__All, many, {}, {})
       any := codec__trans_at(k, "any", Page_Filter__Any, many, {}, {})
@@ -487,6 +500,7 @@ codec__page_filter__atom :: proc(
         Page_Filter__Atom,
         { Page_Filter__Local,  local  },
         { Page_Filter__Public, public },
+        { Page_Filter__LaTeX, latex },
         { Page_Filter__Not,    not    },
         { Page_Filter__All,    all    },
         { Page_Filter__Any,    any    },
@@ -661,6 +675,23 @@ codec__asset :: proc(k: ^Codec_Kit) -> ^Codec {
 	from := codec__field(k, "from", Self, path, ONCE)
 	to   := codec__field_at(k, "to", Self, path, UNIQUE)
   return codec__loop(k, codec__sum(k, from, to))
+}
+// }}}
+// {{{ Helmets
+// A helmet is a format-specific metadata blob
+Helmet :: struct {
+  scope:   Page_Filter__All,
+  content: string,
+  format:  string, // NOTE: I'm considering making this an enum
+}
+
+@(private = "file")
+codec__helmet :: proc(k: ^Codec_Kit) -> ^Codec {
+  Self :: Helmet
+	scope := codec__field(k, "scope", Self, codec__page_filter__all(k))
+  content := codec__field_at(k, "content", Self, codec__raw(k), ONCE)
+  format := codec__field_at(k, "format", Self, codec__contiguous_text(k), ONCE)
+  return codec__loop(k, codec__sum(k, content, format, scope))
 }
 // }}}
 // {{{ Headings
@@ -973,6 +1004,7 @@ Inline_Markup__Timestamp :: struct {
 
 Inline_Markup__Date :: distinct Inline_Markup__Timestamp
 Inline_Markup__Datetime :: distinct Inline_Markup__Timestamp
+Inline_Markup__LaTeX :: distinct string
 
 // Using distinct runs into circular types issue (for no reason)
 Inline_Markup :: struct {
@@ -981,7 +1013,6 @@ Inline_Markup :: struct {
 	elements: ^Exparr(Inline_Markup__Atom),
 }
 
-// TODO: LaTeX
 // This currently takes up a whole 32B, which is a bit annoying. We could get
 // this as low as 16B by simply using pointers for a bunch of the branches. I
 // will bother doing so once the memory usage goes past 1MiB.
@@ -996,6 +1027,7 @@ Inline_Markup__Atom :: union {
 	Inline_Markup__Quote,
 	Inline_Markup__Date,
 	Inline_Markup__Datetime,
+	Inline_Markup__LaTeX,
 	^Inline_Markup__Icon,
 	^Inline_Markup__Fn,
 	^Inline_Markup__Link,
@@ -1042,6 +1074,10 @@ codec__inline_markup__atom :: proc(
 	mono__sugar := codec__delim(k, .Backtick, .Backtick, mono)
 	mono__basic := codec__at(k, "mono", mono)
 
+  math := codec__transmute(k, Inline_Markup__LaTeX, codec__raw(k))
+	math__sugar := codec__delim(k, .Dollar, .Dollar, math)
+	math__basic := codec__at(k, "imath", math)
+
   quote := codec__transmute(k, Inline_Markup__Quote, imarkup)
 	quote__sugar := codec__delim(k, .Quote, .Quote, quote)
 	quote__basic := codec__at(k, "quote", quote)
@@ -1082,6 +1118,8 @@ codec__inline_markup__atom :: proc(
     { Inline_Markup__Strikethrough, strike__basic   },
     { Inline_Markup__Mono,          mono__sugar     },
     { Inline_Markup__Mono,          mono__basic     },
+    { Inline_Markup__LaTeX,         math__sugar     },
+    { Inline_Markup__LaTeX,         math__basic     },
     { Inline_Markup__Quote,         quote__sugar    },
     { Inline_Markup__Quote,         quote__basic    },
     { Inline_Markup__Date,          date           },
@@ -1161,6 +1199,8 @@ inline_markup__atom__fmt :: proc(
     fmt.wprint(fi.writer, "~")
   case Inline_Markup__Mono:
     fmt.wprintf(fi.writer, "`%v`", string(inner))
+  case Inline_Markup__LaTeX:
+    fmt.wprintf(fi.writer, "`$%v$`", string(inner))
   case Inline_Markup__Quote:
     fmt.wprint(fi.writer, QUOTE_EN_LEFT)
     inline_markup__fmt(fi, site, page, Inline_Markup(inner))
@@ -1250,6 +1290,9 @@ inline_markup__atom__html :: proc(
   case Inline_Markup__Mono:
     xml__tag(g, "code")
     xml__string(g, string(inner))
+  case Inline_Markup__LaTeX:
+    site__frame(g.site)
+    xml__raw_string(g, render_math(g.site, .LaTeX_Inline, string(inner)))
   case Inline_Markup__Quote:
     xml__stringf(g, "%v", QUOTE_EN_LEFT)
     inline_markup__html(g, page, Inline_Markup(inner))
@@ -1361,6 +1404,8 @@ inline_markup__atom__check :: proc(
   case Inline_Markup__Date: 
   case Inline_Markup__Datetime: 
   case Inline_Markup__Mono:
+  case Inline_Markup__LaTeX:
+    page.uses_LaTeX = true
   case Inline_Markup__Text:
     for char in string(inner) {
       unicode.is_alpha(char) or_continue
@@ -1874,7 +1919,14 @@ block_markup__atom__html :: proc(
     xml__string(g, inner.content)
   case Block_Markup__Aside:  // TODO
   case Block_Markup__Image:  // TODO
-  case Block_Markup__Figure: // TODO
+  case Block_Markup__Figure:
+    xml__tag(g, "figure")
+    if mem__non_zero(inner.caption) {
+      xml__tag(g, "figcaption")
+      inline_markup__html(g, page, inner.caption)
+    }
+
+    block_markup__html(g, page, inner.content)
   case Table:
     if mem__non_zero(inner.caption) {
       xml__tag(g, "caption")
@@ -2079,5 +2131,66 @@ fmt__reading_duration :: proc(word_count: ^uint) -> Frozen {
       }
     },
   )
+}
+// }}}
+
+// Math rendering
+// {{{ Types
+@(private="file")
+Math_Mode :: enum u8 {
+	LaTeX_Inline = 1,
+	LaTeX_Block = 2,
+}
+
+@(private="file")
+Render_Math_Input :: struct {
+	input: string,
+	output: ^string,
+	mode: Math_Mode,
+}
+
+@(private="file")
+Render_Math_Output :: struct {
+	required_size: uint, // When 0 => we have enough memory
+}
+
+foreign import math_renderer "system:libanima_math_renderer.a"
+
+@(default_calling_convention="c")
+foreign math_renderer {
+  @(private="file")
+  @(link_name="render_math")
+	rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
+}
+
+@(private="file")
+render_math :: proc(site: ^Site, mode: Math_Mode, input: string) -> string {
+  size := uint(1 * mem.Kilobyte)
+  allocator := site__alloc(site, .Stack)
+  output: mem.Raw_String
+  byte := mem__layout(byte)
+  for {
+    output.data = cast([^]u8)mem__resize(
+      output.data,
+      layout__array(byte, output.len),
+      layout__array(byte, size),
+      allocator,
+    )
+
+    output.len = int(size)
+
+    result := rust__render_math({ 
+      mode   = mode,
+      input  = input,
+      output = cast(^string)&output,
+    })
+
+    if result.required_size == 0 {
+      return transmute(string)output
+    } else {
+      size = uint(result.required_size)
+      log.infof("The math renderer requested a larger buffer: %v", Bytes(size))
+    }
+  }
 }
 // }}}

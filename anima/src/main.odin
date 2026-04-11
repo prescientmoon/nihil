@@ -27,7 +27,7 @@ main :: proc() {
   formatters__init(system_allocator)
 
   site: Site
-  content_root := "/home/moon/projects/personal/nihil/anima/src/example"
+  content_root := "/home/moon/projects/personal/nihil/anima/example"
   out_root := "/home/moon/projects/personal/nihil/anima/dist"
   site__make(&site, "http://localhost:8080", content_root, out_root)
   site.statistics.system_arena = Bytes(system_arena.total_used)

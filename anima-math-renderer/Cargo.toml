@@ -1,0 +1,12 @@
+[package]
+name = "nihil-math-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "anima_math_renderer"
+crate-type = ["staticlib"]
+path = "lib.rs"
+
+[dependencies]
+pulldown-latex = "0.7.1"

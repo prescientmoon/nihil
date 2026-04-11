@@ -33,4 +33,11 @@
 [doc("Type-check the `anima` codebase")]
 @check:
   odin check src -show-timings
-    
+
+[group("debug")]
+[doc("Run a live debug server")]
+@watch-debug:
+  #!/usr/bin/env -S parallel --shebang --halt-on-error 2 --line-buffer
+  live-server dist --port 8080 --poll
+  watchexec --quiet --restart --watch src just run-debug
+  watchexec --quiet --restart --postpone --watch example ./build/debug/anima.bin

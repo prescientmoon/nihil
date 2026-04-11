@@ -4,7 +4,18 @@
 \compact
 \public
 
-\stylesheet \preload \at styles.css
+\stylesheet \preload \at styles/main.css
+\stylesheet \preload \at styles/math.css \LaTeX
+\asset fonts \to fonts
+\helmet \format html \content!
+  <!-- This font is used a lot, so we preload it! -->
+  <link
+    rel="preload"
+    as="font"
+    href="/fonts/computer-modern/cm-regular.woff2"
+    type="font/woff2"
+    crossorigin
+  >
 
 \deficon eye      \at eye.png \favicon
 \deficon charon   \at charon.png

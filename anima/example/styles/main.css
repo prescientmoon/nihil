@@ -28,13 +28,6 @@
 }
 
 @font-face {
-  font-family: "Computer Modern Math";
-  src: url("/fonts/computer-modern/cm-math.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-}
-
-@font-face {
   font-family: "Cascadia Mono";
   src: url("/fonts/cascadia-code/CascadiaMono.woff2") format("woff2");
   font-style: normal;

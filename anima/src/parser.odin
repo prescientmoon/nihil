@@ -756,7 +756,11 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
 
         parser__advance(instance)
         if tok.kind == .Newline do break
-        fmt.sbprint(&builder, tok.content)
+
+        #partial switch tok.kind {
+        case .Apparition: fmt.sbprintf(&builder, "\\%v", tok.content)
+        case: fmt.sbprint(&builder, tok.content)
+        }
       }
 
       clone, err := strings.clone(strings.to_string(builder), temp_alloc)
