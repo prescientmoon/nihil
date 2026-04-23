@@ -90,14 +90,28 @@ I'm not part of a ton of [webring | webrings], but oh well.
 
 ## Source Code
 
-[nihil | The source] for this site's static site generator is
-publicly available. The repository containing the source of the content is
-intentionally not public, although the source for any individual page can be
-downloaded by appending `/index.dj` to the URL (for example, here's
-[source | the source for this page]). You can similarly access the
-changelog of any page by appending `/changelog` to the URL (as above, here's
-[changelog | the changelog for this page]).
+[nihil | The source] for this site's static site generator is publicly
+available. The repository containing the source of the content is intentionally
+not public, although the source for any individual page can be downloaded by
+appending `/index.dj` to the URL (for example, here's [source |! the source
+for this page]). You can similarly access the changelog  any page by appending
+  `/changelog` to the URL (as above, here's [changelog |! the changelog for
+  this page]).
 
 \deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
 \deflink source \target{/index.dj} \label Home Page Source
 \deflink changelog \target{/changelog} \label Home Page Chagelog
+
+\code odin \content!
+  foreign import rust_utils "system:libanima_rust_utils.a"
+
+  @(default_calling_convention="c")
+  foreign rust_utils {
+    @(private="file")
+    @(link_name="render_math")
+    rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
+
+    @(private="file")
+    @(link_name="image_dimensions")
+    image_dimensions :: proc(path: string) -> Image_Dimensions ---
+  }
