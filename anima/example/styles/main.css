@@ -197,6 +197,21 @@ img {
 }
 
 /* }}} */
+/* {{{ Image grids */
+ul.image-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--image-grid-width), 1fr);
+
+  & > li {
+    padding: 0;
+    list-style-type: none;
+  }
+
+  & > li > img {
+    display: block;
+  }
+}
+/* }}} */
 /* {{{ Tables */
 table {
   display: block;
@@ -246,12 +261,16 @@ table > tbody > tr > td {
     border-right: none;
   }
 
-  & > p:first-child {
-    margin-top: 0;
-  }
+  & > p,
+  & > ul,
+  & > ol {
+    &:first-child {
+      margin-top: 0;
+    }
 
-  & > p:last-child {
-    margin-bottom: 0;
+    &:last-child {
+      margin-bottom: 0;
+    }
   }
 }
 /* }}} */

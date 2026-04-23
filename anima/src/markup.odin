@@ -193,6 +193,7 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
   if xml__tag(g, "body") {
     if xml__tag(g, "header") {
       // TODO: think about what to put here a bit further
+      // (should probably make it configurable)
       if xml__tag(g, "a") {
         xml__attr(g, "href", "/")
         xml__tag(g, "code")
@@ -1494,6 +1495,11 @@ BMarkup__Image :: struct {
   pixelated:    bool,
 }
 
+BMarkup__Image_Grid :: struct {
+  width: u8,
+  images: Exparr(BMarkup__Image)
+}
+
 BMarkup__Figure :: struct {
 	caption: IMarkup,
 	content: BMarkup,
@@ -1541,6 +1547,7 @@ BMarkup__Section :: struct {
 BMarkup__Atom :: union {
 	BMarkup__Paragraph,
 	BMarkup__Image,
+  BMarkup__Image_Grid,
 	BMarkup__Figure,
 	BMarkup__IList,
 	BMarkup__BList,
@@ -1563,20 +1570,6 @@ BMarkup :: struct {
 }
 // }}}
 // {{{ Codecs
-@(private = "file")
-codec__bmarkup__image :: proc(
-  k: ^Codec_Kit
-) -> ^Codec {
-  return codec__loc(k, codec__struct(
-    k, BMarkup__Image,
-    { "alt",          .Bar,        .Maybe, codec__imarkup(k)         },
-    { "alt",          "alt",       .Maybe, codec__imarkup(k)         },
-    { "source",       {},          .Once,  codec__path(k)            },
-    { "visual_width", "width",     .Maybe, codec__contiguous_text(k) },
-    { "pixelated",    "pixelated", .Flag,  true                     },
-  ))
-}
-
 @(private = "file")
 codec__bmarkup__figure :: proc(
   k: ^Codec_Kit
@@ -1651,7 +1644,21 @@ codec__bmarkup__atom :: proc(
   blockquote__sugar := codec__leaded(k, .GT, blockquote)
   blockquote__basic := codec__at(k, ">", blockquote)
 
-	image := codec__at(k, "image", codec__bmarkup__image(k))
+	image := codec__loc(k, codec__struct(
+	  k, BMarkup__Image,
+	  { "alt",          .Bar,        .Maybe, codec__imarkup(k)         },
+	  { "alt",          "alt",       .Maybe, codec__imarkup(k)         },
+	  { "source",       {},          .Once,  codec__path(k)            },
+	  { "visual_width", "width",     .Maybe, codec__contiguous_text(k) },
+	  { "pixelated",    "pixelated", .Flag,  true                     },
+	))
+
+  image_grid := codec__struct(
+    k, BMarkup__Image_Grid,
+    { "width",  nil,     .Once,   codec__integer(k, u8) },
+    { "images", "image", .Exparr, image                },
+  )
+
 	figure := codec__at(k, "figure", codec__bmarkup__figure(k))
 	para := codec__transmute(k, BMarkup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
@@ -1676,28 +1683,29 @@ codec__bmarkup__atom :: proc(
   return codec__union(
 		k,
     BMarkup__Atom,
-    { BMarkup__Blockquote,        blockquote__sugar  },
-    { BMarkup__Blockquote,        blockquote__basic  },
-    { BMarkup__Description,       description       },
-    { BMarkup__Table_Of_Contents, table_of_contents },
-    { BMarkup__Thematic_Break,    thematic_break    },
-    { BMarkup__Image,             image             },
-    { BMarkup__Figure,            figure            },
-    { Table,                     table             },
-    { Heading,                   h2__sugar          },
-    { Heading,                   h3__sugar          },
-    { Heading,                   h4__sugar          },
-    { Heading,                   h2__basic          },
-    { Heading,                   h3__basic          },
-    { Heading,                   h4__basic          },
-    { Article_List,              article_list      },
-    { BMarkup__IList,             ilist             },
-    { BMarkup__BList,             blist             },
-    { BMarkup__Code,              code              },
-    { BMarkup__Aside,             aside             },
-    { Def__Link,                  deflink           },
-    { Def__Footnote,              defnote           },
-    { BMarkup__Paragraph,         para              },
+    { BMarkup__Blockquote,        blockquote__sugar                         },
+    { BMarkup__Blockquote,        blockquote__basic                         },
+    { BMarkup__Description,       description                              },
+    { BMarkup__Table_Of_Contents, table_of_contents                        },
+    { BMarkup__Thematic_Break,    thematic_break                           },
+    { BMarkup__Image,             codec__at(k, "image", image)              },
+    { BMarkup__Image_Grid,        codec__at(k, "igrid", image_grid)         },
+    { BMarkup__Figure,            figure                                   },
+    { Table,                     table                                    },
+    { Heading,                   h2__sugar                                 },
+    { Heading,                   h3__sugar                                 },
+    { Heading,                   h4__sugar                                 },
+    { Heading,                   h2__basic                                 },
+    { Heading,                   h3__basic                                 },
+    { Heading,                   h4__basic                                 },
+    { Article_List,              article_list                             },
+    { BMarkup__IList,             ilist                                    },
+    { BMarkup__BList,             blist                                    },
+    { BMarkup__Code,              code                                     },
+    { BMarkup__Aside,             aside                                    },
+    { Def__Link,                  deflink                                  },
+    { Def__Footnote,              defnote                                  },
+    { BMarkup__Paragraph,         para                                     },
 	)
 }
 
@@ -1743,6 +1751,24 @@ bmarkup__anchored_heading :: proc(
 
   xml__string(g, " ")
   imarkup__html(g, page, heading.content)
+}
+
+@(private="file")
+bmarkup__image__html :: proc(g: ^Xml_Gen, page: ^Page, image: ^BMarkup__Image) {
+  xml__tag(g, "img", single = true)
+  xml__attrf(g, "src", "/%v", image.out_path)
+  xml__attr(g, "width", image.width)
+  xml__attr(g, "height", image.height)
+
+  if mem__non_zero(image.alt) {
+    xml__attr(g, "alt", imarkup__formatter(g.site, page, &image.alt))
+  }
+
+  if mem__non_zero(image.visual_width) {
+    xml__attrf(g, "style", "width: %v", image.visual_width)
+  }
+
+  if image.pixelated do xml__attr(g, "class", "pixelated")
 }
 
 @(private="file")
@@ -1877,28 +1903,23 @@ bmarkup__atom__html :: proc(
     xml__string(g, inner.content)
   case BMarkup__Aside:  // TODO
   case BMarkup__Image:
-    xml__tag(g, "img", single = true)
-    xml__attrf(g, "src", "/%v", inner.out_path)
-    xml__attr(g, "width", inner.width)
-    xml__attr(g, "height", inner.height)
-
-    if mem__non_zero(inner.alt) {
-      xml__attr(g, "alt", imarkup__formatter(g.site, page, &inner.alt))
+    bmarkup__image__html(g, page, &inner)
+  case BMarkup__Image_Grid:
+    xml__tag(g, "ul")
+    xml__attr(g, "class", "image-grid")
+    xml__attrf(g, "style", "--image-grid-width: %v", inner.width)
+    for iter := iter__mk(inner.images); image in iter__next(&iter) {
+      xml__tag(g, "li")
+      bmarkup__image__html(g, page, image)
     }
-
-    if mem__non_zero(inner.visual_width) {
-      xml__attrf(g, "style", "width: %v", inner.visual_width)
-    }
-
-    if inner.pixelated do xml__attr(g, "class", "pixelated")
   case BMarkup__Figure:
     xml__tag(g, "figure")
+    bmarkup__html(g, page, inner.content)
+
     if mem__non_zero(inner.caption) {
       xml__tag(g, "figcaption")
       imarkup__html(g, page, inner.caption)
     }
-
-    bmarkup__html(g, page, inner.content)
   case Table:
     xml__tag(g, "table")
 
@@ -1983,7 +2004,7 @@ bmarkup__atom__precheck :: proc(
   case Heading:      push(&page.headings,  &inner)
   case nil, BMarkup__Code, BMarkup__Description, BMarkup__Table_Of_Contents,
        BMarkup__Thematic_Break, Article_List, BMarkup__Paragraph,
-       BMarkup__Image, BMarkup__IList:
+       BMarkup__Image, BMarkup__IList, BMarkup__Image_Grid:
   case BMarkup__Section:
     bmarkup__precheck(site, page, &inner.content)
   case BMarkup__Figure:
@@ -2070,6 +2091,44 @@ bmarkup__check :: proc(site: ^Site, page: ^Page, bm: ^BMarkup) {
 }
 
 @(private="file")
+bmarkup__image__check :: proc(site: ^Site, page: ^Page, image: ^BMarkup__Image) {
+  imarkup__check(site, page, &image.alt)
+
+  found := false
+  for extension in ([]string { "", ".webp", ".jpg", ".png" }) {
+    site__frame(site)
+    source := cast(Path)fmt.aprintf(
+      "%v%v",
+      image.source,
+      extension,
+      allocator = site__alloc(site, .Stack),
+    )
+
+    candidate := site__resolve(site, page.source_path, source, .Stack)
+    absolute := site__absolute(site, site.content_root, candidate, .Stack)
+    os.exists(string(absolute)) or_continue
+
+    // We only store this off the stack when it's actually needed
+    clone := strings__clone(candidate, site__alloc(site))
+    image.out_path = Path__Output(clone)
+
+    dimensions := image_dimensions(string(absolute))
+    image.width  = dimensions.width
+    image.height = dimensions.height
+
+    source_clone := strings__clone(source, site__alloc(site))
+    push(&page.assets, Def__Asset { source_clone, source_clone })
+
+    found = true
+    break
+  }
+
+  if !found {
+    site__errorf(site, image.loc, "Cannot find image %v", image.source)
+  }
+}
+
+@(private="file")
 bmarkup__atom__check :: proc(
   site: ^Site, page: ^Page, atom: ^BMarkup__Atom
 ) {
@@ -2081,41 +2140,12 @@ bmarkup__atom__check :: proc(
     bmarkup__check(site, page, &inner.content)
   case BMarkup__Paragraph:
     imarkup__check(site, page, cast(^IMarkup)&inner)
+  case BMarkup__Image_Grid:
+    for iter := iter__mk(inner.images); image in iter__next(&iter) {
+      bmarkup__image__check(site, page, image)
+    }
   case BMarkup__Image:
-    imarkup__check(site, page, &inner.alt)
-
-    found := false
-    for extension in ([]string { "", ".webp", ".jpg", ".png" }) {
-      site__frame(site)
-      source := cast(Path)fmt.aprintf(
-        "%v%v",
-        inner.source,
-        extension,
-        allocator = site__alloc(site, .Stack),
-      )
-
-      candidate := site__resolve(site, page.source_path, source, .Stack)
-      absolute := site__absolute(site, site.content_root, candidate, .Stack)
-      os.exists(string(absolute)) or_continue
-
-      // We only store this off the stack when it's actually needed
-      clone := strings__clone(candidate, site__alloc(site))
-      inner.out_path = Path__Output(clone)
-
-      dimensions := image_dimensions(string(absolute))
-      inner.width  = dimensions.width
-      inner.height = dimensions.height
-
-      source_clone := strings__clone(source, site__alloc(site))
-      push(&page.assets, Def__Asset { source_clone, source_clone })
-
-      found = true
-      break
-    }
-
-    if !found {
-      site__errorf(site, inner.loc, "Cannot find image %v", inner.source)
-    }
+    bmarkup__image__check(site, page, &inner)
   case BMarkup__Figure:
     imarkup__check(site, page, &inner.caption)
     bmarkup__check(site, page, &inner.content)
@@ -2294,5 +2324,4 @@ foreign rust_utils {
   @(link_name="image_dimensions")
 	image_dimensions :: proc(path: string) -> Image_Dimensions ---
 }
-
 // }}}

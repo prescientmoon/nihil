@@ -101,9 +101,3 @@ changelog of any page by appending `/changelog` to the URL (as above, here's
 \deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
 \deflink source \target{/index.dj} \label Home Page Source
 \deflink changelog \target{/changelog} \label Home Page Chagelog
-
-\table This is the caption
-  \header | Name | Image
-  \row | First ||!
-    \image comet | Alt text :3
-    You can put literally anything in here...
