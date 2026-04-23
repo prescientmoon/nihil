@@ -337,13 +337,16 @@ page__check :: proc(site: ^Site, page: ^Page) {
       site__errorf(site, heading.loc, "Heading increases level by more than 1")
     }
 
-    // TODO: generate ID
-    // 1. genertate text
-    // 2. replace " "  with "-"
-    // 3. make eveything lowercase
-    // 4. only keep alphanumeric characters
-
     level = heading.level
+
+    // Generate ID
+    site__frame(site)
+    text := fmt.aprint(
+      inline_markup__formatter(site, page, &heading.content),
+      allocator = site__alloc(site, .Stack)
+    )
+
+    heading.id = strings.to_delimiter_case(text, '-', false, site__alloc(site))
   }
 }
 
@@ -681,6 +684,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
 }
 // }}}
 // {{{ Tables
+// TODO: block cells
 Table__Cell :: struct {
 	content: Inline_Markup,
 }

@@ -41,3 +41,8 @@
   live-server dist --port 8080 --poll
   watchexec --quiet --restart --watch src just run-debug
   watchexec --quiet --restart --postpone --watch example ./build/debug/anima.bin
+
+[group("debug")]
+[doc("Launch a graphical debugger for `anima`")]
+@debug: build-debug
+  seergdb --run ./build/debug/anima.bin
