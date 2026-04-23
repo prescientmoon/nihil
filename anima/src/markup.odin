@@ -61,6 +61,7 @@ page__make :: proc(allocator: mem.Allocator) -> (page: Page) {
   page.in_feeds.allocator   = allocator
   page.in_styles.allocator  = allocator
   page.in_helmets.allocator = allocator
+  page.assets.allocator     = allocator
   return page
 }
 
@@ -102,9 +103,9 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
     { "assets",           "asset",            .Exparr, codec__asset(k)     },
     { "helmets",          "helmet",           .Exparr, codec__helmet(k)    },
     { "icons",            "deficon",          .Exparr, codec__deficon(k)   },
-    { "public",           "public",           .Flag,   nil                },
-    { "compact",          "compact",          .Flag,   nil                },
-    { "smaller_headings", "smaller-headings", .Flag,   nil                },
+    { "public",           "public",           .Flag,   true               },
+    { "compact",          "compact",          .Flag,   true               },
+    { "smaller_headings", "smaller-headings", .Flag,   true               },
     { "content",          {},                 .Some,   bmarkup            },
     { "title",            "title",            .Once,   imarkup            },
     { "description",      "description",      .Maybe,  imarkup            },
@@ -526,7 +527,7 @@ codec__deficon :: proc(k: ^Codec_Kit) -> ^Codec {
     { "id",      {},        .Once,  codec__contiguous_text(k)  },
     { "at",      "at",      .Once,  codec__path(k)             },
     { "scope",   "scope",   .Maybe, codec__page_filter__all(k)  },
-    { "favicon", "favicon", .Flag,  nil                       },
+    { "favicon", "favicon", .Flag,  true                      },
   )
 }
 // }}}
@@ -612,7 +613,7 @@ codec__stylesheet :: proc(k: ^Codec_Kit) -> ^Codec {
     k, Def__Stylesheet,
     { "scope",   {},        .Maybe, codec__page_filter__all(k) },
     { "at",      "at",      .Once,  codec__path(k)            },
-    { "preload", "preload", .Flag,  nil                      },
+    { "preload", "preload", .Flag,  true                     },
   )
 }
 // }}}
@@ -686,18 +687,24 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
 }
 // }}}
 // {{{ Tables
+Table__Cell__Align :: enum u8 { None = 0, Left, Center, Right }
 Table__Cell :: struct {
-	content: Markup
+	content: Markup,
+  nowrap:  bool,
+  align:   Table__Cell__Align,
 }
 
 Table__Row :: struct {
 	cells: Exparr(Table__Cell),
 }
 
+Table__Rowsep :: enum u8 { None = 0, Stripes, Lines }
+
 Table :: struct {
 	caption: IMarkup,
 	header:  Table__Row,
 	rows:    Exparr(Table__Row),
+  rowsep:  Table__Rowsep,
 }
 
 @(private = "file")
@@ -705,9 +712,18 @@ codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
   imarkup := codec__union(k, Markup, { IMarkup, codec__imarkup(k) })
   bmarkup := codec__union(k, Markup, { BMarkup, codec__bmarkup(k) })
 
+  // If used inline, these will become <nil> as any for some reason
+  left := Table__Cell__Align.Left
+  center := Table__Cell__Align.Center
+  right := Table__Cell__Align.Right
+
 	icell := codec__struct(
     k, Table__Cell,
-    { "content", nil, .Maybe, imarkup }
+    { "content", nil,      .Maybe, imarkup     },
+    { "nowrap",  "nowrap", .Flag,  true        },
+    { "align",   "left",   .Flag,  any(left)   },
+    { "align",   "center", .Flag,  any(center) },
+    { "align",   "right",  .Flag,  any(right)  },
   )
 
 	bcell := codec__struct(
@@ -723,11 +739,15 @@ codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
     { "cells", .Bar,        .Exparr, icell },
   )
 
+  stripes := Table__Rowsep.Stripes
+  lines   := Table__Rowsep.Lines
   return codec__struct(
     k, Table,
-    { "caption", nil,      .Maybe,  codec__imarkup(k)        },
-    { "header",  "header", .Once,   row                     },
-    { "rows",    "row",    .Exparr, row                     },
+    { "caption", nil,       .Maybe,  codec__imarkup(k) },
+    { "header",  "header",  .Once,   row               },
+    { "rows",    "row",     .Exparr, row               },
+    { "rowsep",  "stripes", .Flag,   any(stripes)      },
+    { "rowsep",  "lines",   .Flag,   any(lines)        },
   )
 }
 // }}}
@@ -1070,7 +1090,7 @@ codec__imarkup__atom :: proc(
   timestamp :=  codec__struct(
     k, IMarkup__Timestamp,
     { "time",    nil,       .Once, codec__timestamp(k) },
-    { "compact", "compact", .Flag,  nil               },
+    { "compact", "compact", .Flag, true               },
   )
 
   date := codec__trans_at(k, "date", IMarkup__Date, timestamp)
@@ -1553,7 +1573,7 @@ codec__bmarkup__image :: proc(
     { "alt",          "alt",       .Maybe, codec__imarkup(k)         },
     { "source",       {},          .Once,  codec__path(k)            },
     { "visual_width", "width",     .Maybe, codec__contiguous_text(k) },
-    { "pixelated",    "pixelated", .Flag,  nil                      },
+    { "pixelated",    "pixelated", .Flag,  true                     },
   ))
 }
 
@@ -1593,7 +1613,7 @@ codec__bmarkup__aside :: proc(
 codec__bmarkup__blist :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__struct(
     k, BMarkup__BList,
-    { "ordered",  "ordered", .Flag,   nil              },
+    { "ordered",  "ordered", .Flag,   true             },
     { "elements", "item",    .Exparr, codec__bmarkup(k) },
     { "elements", .Asterisk, .Exparr, codec__bmarkup(k) },
   )
@@ -1602,7 +1622,7 @@ codec__bmarkup__blist :: proc(k: ^Codec_Kit) -> ^Codec {
 codec__bmarkup__ilist :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__struct(
     k, BMarkup__BList,
-    { "ordered",  "ordered", .Flag,   nil              },
+    { "ordered",  "ordered", .Flag,   true             },
     { "elements", "item",    .Exparr, codec__imarkup(k) },
     { "elements", .Asterisk, .Exparr, codec__imarkup(k) },
   )
@@ -1858,7 +1878,7 @@ bmarkup__atom__html :: proc(
   case BMarkup__Aside:  // TODO
   case BMarkup__Image:
     xml__tag(g, "img", single = true)
-    xml__attr(g, "src", inner.out_path)
+    xml__attrf(g, "src", "/%v", inner.out_path)
     xml__attr(g, "width", inner.width)
     xml__attr(g, "height", inner.height)
 
@@ -1882,24 +1902,56 @@ bmarkup__atom__html :: proc(
   case Table:
     xml__tag(g, "table")
 
+    switch inner.rowsep {
+    case .None:
+    case .Stripes: xml__attr(g, "class", "rowsep-stripes")
+    case .Lines:   xml__attr(g, "class", "rowsep-lines")
+    }
+
     if mem__non_zero(inner.caption) {
       xml__tag(g, "caption")
       imarkup__html(g, page, inner.caption)
     }
 
-    row__html :: proc(g: ^Xml_Gen, page: ^Page, row: Table__Row, kind: string) {
+    row__html :: proc(
+      g: ^Xml_Gen, page: ^Page, header, row: Table__Row, kind: string
+    ) {
       xml__tag(g, "tr")
-      for iter := iter__mk(row.cells); cell in iter__next(&iter) {
+      for iter := iter__mk(row.cells); cell, i in iter__next(&iter) {
+        header_cell := exparr__get(header.cells, i)
         xml__tag(g, kind)
+
+        classes: [dynamic; 2]string
+
+        nowrap := cell.nowrap || header_cell.nowrap
+        if nowrap do push(&classes, "nowrap")
+
+        align := cell.align
+        if align == .None do align = header_cell.align
+        switch align {
+        case .None:
+        case .Left:   push(&classes, "align-left")
+        case .Center: push(&classes, "align-center")
+        case .Right:  push(&classes, "align-right")
+        }
+
+        if len(classes) != 0 {
+          site__frame(g.site)
+          classname := strings.join(classes[:], " ", site__alloc(g.site, .Stack))
+          xml__attr(g, "class", classname)
+        }
+
         markup__html(g, page, cell.content)
       }
     }
 
-    if xml__tag(g, "thead") do row__html(g, page, inner.header, "th")
+    if xml__tag(g, "thead") {
+      row__html(g, page, inner.header, inner.header, "th")
+    }
 
     xml__tag(g, "tbody")
     for iter := iter__mk(inner.rows); row in iter__next(&iter) {
-      row__html(g, page, row^, "td")
+      row__html(g, page, inner.header, row^, "td")
     }
   }
 }
@@ -2047,15 +2099,15 @@ bmarkup__atom__check :: proc(
       os.exists(string(absolute)) or_continue
 
       // We only store this off the stack when it's actually needed
-      clone, err := strings.clone(string(candidate), site__alloc(site))
-      log.assert(err == nil)
+      clone := strings__clone(candidate, site__alloc(site))
       inner.out_path = Path__Output(clone)
 
       dimensions := image_dimensions(string(absolute))
       inner.width  = dimensions.width
       inner.height = dimensions.height
 
-      push(&page.assets, Def__Asset { Path(clone), Path(clone) })
+      source_clone := strings__clone(source, site__alloc(site))
+      push(&page.assets, Def__Asset { source_clone, source_clone })
 
       found = true
       break

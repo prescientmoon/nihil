@@ -263,7 +263,7 @@ site__url :: proc(
 // Note that another way to not have to worry about this would be to stream the
 // XML dirrectly into a file, although that would require a few changes to the
 // way we organise things.
-MAX_XML_CONTENT_SIZE :: 16 * mem.Kilobyte
+MAX_XML_CONTENT_SIZE :: 32 * mem.Kilobyte
 
 // A builder that can be used to construct XML output in-order. In particular,
 // one must generate the attributes before the content for any given tag.

@@ -105,6 +105,5 @@ changelog of any page by appending `/changelog` to the URL (as above, here's
 \table This is the caption
   \header | Name | Image
   \row | First ||!
-      \image comet | Alt text :3 \width 100% \pixelated
-
+    \image comet | Alt text :3
     You can put literally anything in here...

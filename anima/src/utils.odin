@@ -125,6 +125,13 @@ strings__fixed_builder :: proc(
   builder.buf.allocator = mem.panic_allocator() // No more growth!
   return builder
 }
+
+// Panicking version of strings.clone
+strings__clone :: proc(s: $T/string, alloc: mem.Allocator) -> T {
+  c, err := strings.clone(string(s), alloc)
+  log.assert(err == nil)
+  return T(c)
+}
 // }}}
 // {{{ Time
 time__max :: proc(a, b: time.Time) -> time.Time {

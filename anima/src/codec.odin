@@ -199,10 +199,12 @@ codec__token :: proc(kit: ^Codec_Kit, kind: Token_Kind, box: any) -> ^Codec {
 	return codec
 }
 
-codec__tok_flag :: proc(kit: ^Codec_Kit, kind: Token_Kind) -> ^Codec {
+codec__tok_flag :: proc(
+  kit: ^Codec_Kit, kind: Token_Kind, value: any = true
+) -> ^Codec {
   return codec__tracked(
     kit,
-    codec__token(kit, kind, true),
+    codec__token(kit, kind, value),
     Token_Kind__Symbol[kind],
     UNIQUE
   )
@@ -449,11 +451,11 @@ Codec__Field :: struct {
   name:  string,
   at:    union { string, Token_Kind },
   kind:  Codec__Field__Kind,
-  codec: ^Codec,
+  data: union { ^Codec, any },
 }
 
 codec__struct :: proc(
-  kit: ^Codec_Kit, outer: typeid, fields: ..Codec__Field
+  kit: ^Codec_Kit, outer: typeid, fields: ..Codec__Field, loc := #caller_location
 ) -> ^Codec {
   site__frame(kit.site)
 
@@ -483,18 +485,19 @@ codec__struct :: proc(
 
     codec: ^Codec
     if f.kind == .Flag {
+      value := f.data.(any)
       switch inner in f.at {
       case string:
-        codec = codec__flag(kit, inner)
+        codec = codec__flag(kit, inner, value)
       case Token_Kind:
-        codec = codec__tok_flag(kit, inner)
+        codec = codec__tok_flag(kit, inner, value)
       case:
         log.panic("impossible")
       }
 
       codec = codec__field(kit, f.name, outer, codec)
     } else {
-      codec = f.codec
+      codec = f.data.(^Codec)
       if f.kind == .Exparr {
         codec = codec__exparr(kit, codec)
       }
@@ -657,8 +660,8 @@ codec__para :: proc(kit: ^Codec_Kit, inner: ^Codec) -> ^Codec {
 	return codec
 }
 
-codec__flag :: proc(kit: ^Codec_Kit, name: string) -> ^Codec {
-  return codec__tracked(kit, codec__const(kit, name, true), name, UNIQUE)
+codec__flag :: proc(kit: ^Codec_Kit, name: string, value: any = true) -> ^Codec {
+  return codec__tracked(kit, codec__const(kit, name, value), name, UNIQUE)
 }
 
 codec__flag_at :: proc(
