@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -178,7 +179,7 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "href", site__url(g.site, style.site_path, .Stack))
     }
 
-    if xml__tag(g, "title") do inline_markup__html(g, page^, page.title)
+    if xml__tag(g, "title") do inline_markup__html(g, page, page.title)
 
     if mem__non_zero(g.site.favicon) {
       xml__tag(g, "link")
@@ -205,9 +206,9 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "aria-labelledby", "main")
       heading := Heading { level = 1, content = page.title, id = "main" } 
       if page.compact {
-        block_markup__anchored_heading(g, page^, heading, main = true)
+        block_markup__anchored_heading(g, page, heading, main = true)
       } else if xml__tag(g, "header") {
-        block_markup__anchored_heading(g, page^, heading, main = true)
+        block_markup__anchored_heading(g, page, heading, main = true)
 
         // NOTE: we do duplicate these, so I might eventually abstract them away
         if xml__tag(g, "ul") {
@@ -238,10 +239,10 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       }
 
       if page.compact {
-        block_markup__html(g, page^, page.content)
+        block_markup__html(g, page, page.content)
       } else {
         xml__tag(g, "article")
-        block_markup__html(g, page^, page.content)
+        block_markup__html(g, page, page.content)
       }
 
       // TODO: footnotes
@@ -1197,7 +1198,7 @@ inline_markup__formatter :: proc(
 // {{{ Formatting as html
 @(private="file")
 inline_markup__atom__html :: proc(
-  g: ^Xml_Gen, page: Page, atom: Inline_Markup__Atom
+  g: ^Xml_Gen, page: ^Page, atom: Inline_Markup__Atom
 ) {
   switch inner in atom {
   case nil:
@@ -1276,7 +1277,7 @@ inline_markup__atom__html :: proc(
 }
 
 inline_markup__html :: proc(
-  g: ^Xml_Gen, page: Page, im: Inline_Markup
+  g: ^Xml_Gen, page: ^Page, im: Inline_Markup
 ) {
   if im.elements == nil do return
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
@@ -1426,8 +1427,14 @@ inline_markup__atom__check :: proc(
 Block_Markup__Paragraph :: distinct Inline_Markup
 
 Block_Markup__Image :: struct {
-	alt:    Inline_Markup,
-	source: string,
+	alt:          Inline_Markup,
+	source:       Path,
+  out_path:     Path__Output,
+  loc:          Source_Loc,
+  width:        uint,
+  height:       uint,
+  visual_width: string,
+  pixelated:    bool,
 }
 
 Block_Markup__Figure :: struct {
@@ -1501,12 +1508,14 @@ Block_Markup :: struct {
 codec__bmarkup__image :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-  return codec__struct(
+  return codec__loc(k, codec__struct(
     k, Block_Markup__Image,
-    { "alt",    .Bar,  .Maybe, codec__imarkup(k)         },
-    { "alt",    "alt", .Maybe, codec__imarkup(k)         },
-    { "source", {},    .Once,  codec__contiguous_text(k) },
-  )
+    { "alt",          .Bar,        .Maybe, codec__imarkup(k)         },
+    { "alt",          "alt",       .Maybe, codec__imarkup(k)         },
+    { "source",       {},          .Once,  codec__path(k)            },
+    { "visual_width", "width",     .Maybe, codec__contiguous_text(k) },
+    { "pixelated",    "pixelated", .Flag,  nil                      },
+  ))
 }
 
 @(private = "file")
@@ -1695,7 +1704,7 @@ HEADING_TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
 
 @(private="file")
 block_markup__anchored_heading :: proc(
-  g: ^Xml_Gen, page: Page, heading: Heading, main := false
+  g: ^Xml_Gen, page: ^Page, heading: Heading, main := false
 ) {
   xml__tag(g, HEADING_TAG_NAMES[heading.level - 1])
   xml__attr(g, "id", heading.id)
@@ -1718,9 +1727,9 @@ block_markup__anchored_heading :: proc(
 
 @(private="file")
 block_markup__atom__html :: proc(
-  g: ^Xml_Gen, page: Page, atom: Block_Markup__Atom
+  g: ^Xml_Gen, page: ^Page, atom: Block_Markup__Atom
 ) {
-  switch inner in atom {
+  switch &inner in atom {
   case nil, Def__Link, Def__Footnote:
   case Block_Markup__Thematic_Break:
     xml__tag(g, "hr", single = true)
@@ -1779,7 +1788,7 @@ block_markup__atom__html :: proc(
     xml__tag(g, "ol")
     xml__attr(g, "class", "article-list")
     for iter := iter__mk(g.site.pages); article in iter__next(&iter) {
-      page_filter__eval(page, article^, inner.filter) or_continue
+      page_filter__eval(page^, article^, inner.filter) or_continue
 
       xml__tag(g, "li")
       xml__tag(g, "article")
@@ -1788,7 +1797,7 @@ block_markup__atom__html :: proc(
         xml__tag(g, "a")
         xml__attrf(g, "href", "%v", article.url)
         xml__attr(g, "rel", "bookmark")
-        inline_markup__html(g, article^, article.title)
+        inline_markup__html(g, article, article.title)
       }
 
       if xml__tag(g, "ul") {
@@ -1816,7 +1825,7 @@ block_markup__atom__html :: proc(
       }
 
       xml__tag(g, "p")
-      inline_markup__html(g, article^, article.description)
+      inline_markup__html(g, article, article.description)
     }
   case Block_Markup__Section:
     xml__tag(g, "section")
@@ -1848,7 +1857,21 @@ block_markup__atom__html :: proc(
     xml__attr(g, "data-language", inner.language)
     xml__string(g, inner.content)
   case Block_Markup__Aside:  // TODO
-  case Block_Markup__Image:  // TODO
+  case Block_Markup__Image:
+    xml__tag(g, "img", single = true)
+    xml__attr(g, "src", inner.out_path)
+    xml__attr(g, "width", inner.width)
+    xml__attr(g, "height", inner.height)
+
+    if mem__non_zero(inner.alt) {
+      xml__attr(g, "alt", inline_markup__formatter(g.site, page, &inner.alt))
+    }
+
+    if mem__non_zero(inner.visual_width) {
+      xml__attrf(g, "style", "width: %v", inner.visual_width)
+    }
+
+    if inner.pixelated do xml__attr(g, "class", "pixelated")
   case Block_Markup__Figure:
     xml__tag(g, "figure")
     if mem__non_zero(inner.caption) {
@@ -1863,7 +1886,7 @@ block_markup__atom__html :: proc(
       inline_markup__html(g, page, inner.caption)
     }
 
-    row__html :: proc(g: ^Xml_Gen, page: Page, row: Table__Row, kind: string) {
+    row__html :: proc(g: ^Xml_Gen, page: ^Page, row: Table__Row, kind: string) {
       xml__tag(g, "tr")
       for iter := iter__mk(row.cells); cell in iter__next(&iter) {
         xml__tag(g, kind)
@@ -1879,7 +1902,7 @@ block_markup__atom__html :: proc(
 }
 
 block_markup__html :: proc(
-  g: ^Xml_Gen, page: Page, bm: Block_Markup
+  g: ^Xml_Gen, page: ^Page, bm: Block_Markup
 ) {
   for iter := iter__mk(bm.elements); chunk in iter__next(&iter) {
     block_markup__atom__html(g, page, chunk^)
@@ -1996,6 +2019,39 @@ block_markup__atom__check :: proc(
     inline_markup__check(site, page, cast(^Inline_Markup)&inner)
   case Block_Markup__Image:
     inline_markup__check(site, page, &inner.alt)
+
+    found := false
+    for extension in ([]string { "", ".webp", ".jpg", ".png" }) {
+      site__frame(site)
+      source := cast(Path)fmt.aprintf(
+        "%v%v",
+        inner.source,
+        extension,
+        allocator = site__alloc(site, .Stack),
+      )
+
+      candidate := site__resolve(site, page.source_path, source, .Stack)
+      absolute := site__absolute(site, site.content_root, candidate, .Stack)
+      os.exists(string(absolute)) or_continue
+
+      // We only store this off the stack when it's actually needed
+      clone, err := strings.clone(string(candidate), site__alloc(site))
+      log.assert(err == nil)
+      inner.out_path = Path__Output(clone)
+
+      dimensions := image_dimensions(string(absolute))
+      inner.width  = dimensions.width
+      inner.height = dimensions.height
+
+      push(&page.assets, Def__Asset { Path(clone), Path(clone) })
+
+      found = true
+      break
+    }
+
+    if !found {
+      site__errorf(site, inner.loc, "Cannot find image %v", inner.source)
+    }
   case Block_Markup__Figure:
     inline_markup__check(site, page, &inner.caption)
     block_markup__check(site, page, &inner.content)
@@ -2107,8 +2163,8 @@ fmt__reading_duration :: proc(word_count: ^uint) -> Frozen {
 }
 // }}}
 
-// Math rendering
-// {{{ Types
+// Rust utils
+// {{{ Math rendering
 @(private="file")
 Math_Mode :: enum u8 {
 	LaTeX_Inline = 1,
@@ -2125,15 +2181,6 @@ Render_Math_Input :: struct {
 @(private="file")
 Render_Math_Output :: struct {
 	required_size: uint, // When 0 => we have enough memory
-}
-
-foreign import math_renderer "system:libanima_math_renderer.a"
-
-@(default_calling_convention="c")
-foreign math_renderer {
-  @(private="file")
-  @(link_name="render_math")
-	rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
 }
 
 @(private="file")
@@ -2166,4 +2213,25 @@ render_math :: proc(site: ^Site, mode: Math_Mode, input: string) -> string {
     }
   }
 }
+// }}}
+// {{{ Image dimensions
+@(private="file")
+Image_Dimensions :: struct {
+	width, height: uint,
+}
+// }}}
+// {{{ Foregin imports
+foreign import rust_utils "system:libanima_rust_utils.a"
+
+@(default_calling_convention="c")
+foreign rust_utils {
+  @(private="file")
+  @(link_name="render_math")
+	rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
+
+  @(private="file")
+  @(link_name="image_dimensions")
+	image_dimensions :: proc(path: string) -> Image_Dimensions ---
+}
+
 // }}}

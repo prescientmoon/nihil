@@ -3,7 +3,7 @@
   rustPlatform,
 }:
 rustPlatform.buildRustPackage {
-  pname = "anima-math-renderer";
+  pname = "anima-rust-utils";
   version = "unstable-2026-04-10";
   src = lib.fileset.toSource {
     root = ./.;
@@ -17,7 +17,7 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   meta = {
-    description = "LaTeX renderer for https://moonythm.dev.";
+    description = "LaTeX renderer & other utils for https://moonythm.dev.";
     platforms = [ "x86_64-linux" ];
   };
 }

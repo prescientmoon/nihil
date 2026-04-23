@@ -1,12 +1,13 @@
 [package]
-name = "nihil-math-renderer"
+name = "nihil-rust-utils"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "anima_math_renderer"
+name = "anima_rust_utils"
 crate-type = ["staticlib"]
 path = "lib.rs"
 
 [dependencies]
+image = "0.25.10"
 pulldown-latex = "0.7.1"

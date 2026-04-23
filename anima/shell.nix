@@ -38,7 +38,7 @@ pkgs.mkShell rec {
   ];
 
   buildInputs = [
-    all.anima-math-renderer
+    all.anima-rust-utils
   ];
 
   LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath buildInputs;
