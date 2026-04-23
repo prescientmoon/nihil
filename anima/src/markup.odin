@@ -17,9 +17,9 @@ Page :: struct {
   smaller_headings: bool,
 
   filename:    string, // Overrides the last segment of the path
-  title:       Inline_Markup,
-  description: Inline_Markup,
-  content:     Block_Markup,
+  title:       IMarkup,
+  description: IMarkup,
+  content:     BMarkup,
 
   created_at:   time.Time, // When was the file created?
   published_at: time.Time, // When was the file created?
@@ -142,8 +142,8 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       "width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"
     )
 
-    title := inline_markup__formatter(g.site, page, &page.title)
-    desc  := inline_markup__formatter(g.site, page, &page.description)
+    title := imarkup__formatter(g.site, page, &page.title)
+    desc  := imarkup__formatter(g.site, page, &page.description)
     meta(g, "property", "og:site_name", SITE_NAME)
     meta(g, "property", "og:url", page.url)
     meta(g, "property", "og:title", title)
@@ -179,7 +179,7 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "href", site__url(g.site, style.site_path, .Stack))
     }
 
-    if xml__tag(g, "title") do inline_markup__html(g, page, page.title)
+    if xml__tag(g, "title") do imarkup__html(g, page, page.title)
 
     if mem__non_zero(g.site.favicon) {
       xml__tag(g, "link")
@@ -206,9 +206,9 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       xml__attr(g, "aria-labelledby", "main")
       heading := Heading { level = 1, content = page.title, id = "main" } 
       if page.compact {
-        block_markup__anchored_heading(g, page, heading, main = true)
+        bmarkup__anchored_heading(g, page, heading, main = true)
       } else if xml__tag(g, "header") {
-        block_markup__anchored_heading(g, page, heading, main = true)
+        bmarkup__anchored_heading(g, page, heading, main = true)
 
         // NOTE: we do duplicate these, so I might eventually abstract them away
         if xml__tag(g, "ul") {
@@ -239,10 +239,10 @@ page__html :: proc(g: ^Xml_Gen, page: ^Page, mode: Page_Gen_Mode) {
       }
 
       if page.compact {
-        block_markup__html(g, page, page.content)
+        bmarkup__html(g, page, page.content)
       } else {
         xml__tag(g, "article")
-        block_markup__html(g, page, page.content)
+        bmarkup__html(g, page, page.content)
       }
 
       // TODO: footnotes
@@ -257,16 +257,16 @@ page__check :: proc(site: ^Site, page: ^Page) {
   page.site_path = Path__Output(page.source_path)
   page.url = site__url(site, page.site_path)
 
-  block_markup__precheck(site, page, &page.content)
-  inline_markup__check(site, page, &page.description)
-  block_markup__check(site, page, &page.content)
+  bmarkup__precheck(site, page, &page.content)
+  imarkup__check(site, page, &page.description)
+  bmarkup__check(site, page, &page.content)
 
   for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
-    block_markup__check(site, page, &footnote^.content)
+    bmarkup__check(site, page, &footnote^.content)
   }
 
   for iter := iter__mk(page.links); link in iter__next(&iter) {
-    inline_markup__check(site, page, &link^.label)
+    imarkup__check(site, page, &link^.label)
   }
 
   // Collect all the styles/feeds affecting the page
@@ -290,7 +290,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
   // Generate feed paths & redirects
   for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
     feed.site_path = site__resolve(site, page.site_path, feed.at)
-    inline_markup__check(site, page, &feed.description)
+    imarkup__check(site, page, &feed.description)
     for iter := iter__mk(feed.aliases); alias in iter__next(&iter) {
       push(&site.redirects, Redirect{alias^, feed.site_path})
     }
@@ -333,7 +333,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
   level: u8 = 1 // the title is equivalent to a h1
   for iter := iter__mk(page.headings); heading in iter__next(&iter) {
     heading := heading^
-    inline_markup__check(site, page, &heading.content)
+    imarkup__check(site, page, &heading.content)
 
     if heading.level > level + 1 {
       site__errorf(site, heading.loc, "Heading increases level by more than 1")
@@ -344,7 +344,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
     // Generate ID
     site__frame(site)
     text := fmt.aprint(
-      inline_markup__formatter(site, page, &heading.content),
+      imarkup__formatter(site, page, &heading.content),
       allocator = site__alloc(site, .Stack)
     )
 
@@ -357,7 +357,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
 // {{{ Changelog entries
 Change :: struct {
   at:      time.Time, 
-  message: Inline_Markup,
+  message: IMarkup,
 }
 
 codec__change :: proc(k: ^Codec_Kit) -> ^Codec {
@@ -534,7 +534,7 @@ codec__deficon :: proc(k: ^Codec_Kit) -> ^Codec {
 Def__Link :: struct {
 	id:     string,
 	target: string, // url
-	label:  Inline_Markup,
+	label:  IMarkup,
   scope:  Page_Filter__Scope, // Link definitions can affect other pages
   loc:    Source_Loc,
 }
@@ -553,7 +553,7 @@ codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
 // {{{ Footnote definitions
 Def__Footnote :: struct {
 	id:      string,
-	content: Block_Markup,
+	content: BMarkup,
   index:   uint, // The page-local number used to display the footnote
   loc:     Source_Loc,
 }
@@ -571,7 +571,7 @@ codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
 Def__Feed :: struct {
   at:          Path,
   name:        string,
-  description: Inline_Markup,
+  description: IMarkup,
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
@@ -653,7 +653,7 @@ codec__helmet :: proc(k: ^Codec_Kit) -> ^Codec {
 MAX_HEADING_LEVEL :: 4
 Heading :: struct {
   id:      string,
-  content: Inline_Markup,
+  content: IMarkup,
   loc:     Source_Loc,
   level:   u8,
 }
@@ -686,9 +686,8 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
 }
 // }}}
 // {{{ Tables
-// TODO: block cells
 Table__Cell :: struct {
-	content: Inline_Markup,
+	content: Markup
 }
 
 Table__Row :: struct {
@@ -696,21 +695,32 @@ Table__Row :: struct {
 }
 
 Table :: struct {
-	caption: Inline_Markup,
+	caption: IMarkup,
 	header:  Table__Row,
 	rows:    Exparr(Table__Row),
 }
 
 @(private = "file")
 codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
-	cell := codec__struct(
+  imarkup := codec__union(k, Markup, { IMarkup, codec__imarkup(k) })
+  bmarkup := codec__union(k, Markup, { BMarkup, codec__bmarkup(k) })
+
+	icell := codec__struct(
     k, Table__Cell,
-    { "content", nil, .Maybe, codec__imarkup(k) }
+    { "content", nil, .Maybe, imarkup }
+  )
+
+	bcell := codec__struct(
+    k, Table__Cell,
+    { "content", nil, .Maybe, bmarkup }
   )
 
   row := codec__struct(
     k, Table__Row,
-    { "cells", "cell", .Exparr, cell }
+    { "cells", "bcell",     .Exparr, bcell },
+    { "cells", "icell",     .Exparr, icell },
+    { "cells", .Double_Bar, .Exparr, bcell },
+    { "cells", .Bar,        .Exparr, icell },
   )
 
   return codec__struct(
@@ -910,70 +920,97 @@ Redirect :: struct {
   to:   Path__Output,
 }
 // }}}
+// {{{ Markup
+Markup :: union { IMarkup, BMarkup, } // This is currently only used for tables
+
+@(private="file")
+markup__html :: proc(g: ^Xml_Gen, page: ^Page, markup: Markup) {
+  switch inner in markup {
+  case IMarkup: imarkup__html(g, page, inner)
+  case BMarkup: bmarkup__html(g, page, inner)
+  }
+}
+
+@(private="file")
+markup__precheck :: proc(site: ^Site, page: ^Page, markup: ^Markup) {
+  switch &inner in markup {
+  case IMarkup:
+  case BMarkup: bmarkup__precheck(site, page, &inner)
+  }
+}
+
+@(private="file")
+markup__check :: proc(site: ^Site, page: ^Page, markup: ^Markup) {
+  switch &inner in markup {
+  case IMarkup: imarkup__check(site, page, &inner)
+  case BMarkup: bmarkup__check(site, page, &inner)
+  }
+}
+// }}}
 
 // {{{ Inline markup
-Inline_Markup__Space :: distinct Unit
-Inline_Markup__Ellipsis :: distinct Unit
-Inline_Markup__Text :: distinct string
-Inline_Markup__Emph :: distinct Inline_Markup
-Inline_Markup__Strong :: distinct Inline_Markup
-Inline_Markup__Strikethrough :: distinct Inline_Markup
-Inline_Markup__Mono :: distinct string
-Inline_Markup__Quote :: distinct Inline_Markup
+IMarkup__Space :: distinct Unit
+IMarkup__Ellipsis :: distinct Unit
+IMarkup__Text :: distinct string
+IMarkup__Emph :: distinct IMarkup
+IMarkup__Strong :: distinct IMarkup
+IMarkup__Strikethrough :: distinct IMarkup
+IMarkup__Mono :: distinct string
+IMarkup__Quote :: distinct IMarkup
 
-Inline_Markup__Icon :: struct {
+IMarkup__Icon :: struct {
   id:  string,
   loc: Source_Loc,
   def: ^Def__Icon, // Inserted after the fact
 }
 
-Inline_Markup__Fn :: struct {
+IMarkup__Fn :: struct {
   id:  string,
   loc: Source_Loc,
   def: ^Def__Footnote, // Inserted after the fact
 }
 
-Inline_Markup__Link :: struct {
+IMarkup__Link :: struct {
 	id:    string,
-	label: Inline_Markup,
+	label: IMarkup,
   loc:   Source_Loc,
   def:   ^Def__Link, // Inserted after the fact
 }
 
-Inline_Markup__Timestamp :: struct {
+IMarkup__Timestamp :: struct {
   time: time.Time,
   compact: bool, // Shortens the output
 }
 
-Inline_Markup__Date :: distinct Inline_Markup__Timestamp
-Inline_Markup__Datetime :: distinct Inline_Markup__Timestamp
-Inline_Markup__LaTeX :: distinct string
+IMarkup__Date :: distinct IMarkup__Timestamp
+IMarkup__Datetime :: distinct IMarkup__Timestamp
+IMarkup__LaTeX :: distinct string
 
 // Using distinct runs into circular types issue (for no reason)
-Inline_Markup :: struct {
+IMarkup :: struct {
   // We store a pointer here to drastically reduce the size of the struct. We
-  // *could* change every usage site to ^Inline_Markup, but this is simpler for now
-	elements: ^Exparr(Inline_Markup__Atom),
+  // *could* change every usage site to ^IMarkup, but this is simpler for now
+	elements: ^Exparr(IMarkup__Atom),
 }
 
 // This currently takes up a whole 32B, which is a bit annoying. We could get
 // this as low as 16B by simply using pointers for a bunch of the branches. I
 // will bother doing so once the memory usage goes past 1MiB.
-Inline_Markup__Atom :: union {
-	Inline_Markup__Space,
-	Inline_Markup__Ellipsis,
-	Inline_Markup__Text,
-	Inline_Markup__Emph,
-	Inline_Markup__Strong,
-	Inline_Markup__Strikethrough,
-	Inline_Markup__Mono,
-	Inline_Markup__Quote,
-	Inline_Markup__Date,
-	Inline_Markup__Datetime,
-	Inline_Markup__LaTeX,
-	^Inline_Markup__Icon,
-	^Inline_Markup__Fn,
-	^Inline_Markup__Link,
+IMarkup__Atom :: union {
+	IMarkup__Space,
+	IMarkup__Ellipsis,
+	IMarkup__Text,
+	IMarkup__Emph,
+	IMarkup__Strong,
+	IMarkup__Strikethrough,
+	IMarkup__Mono,
+	IMarkup__Quote,
+	IMarkup__Date,
+	IMarkup__Datetime,
+	IMarkup__LaTeX,
+	^IMarkup__Icon,
+	^IMarkup__Fn,
+	^IMarkup__Link,
 }
 // }}}
 // {{{ Codecs
@@ -984,42 +1021,42 @@ codec__imarkup__atom :: proc(
 	imarkup := codec__imarkup(k)
 	ctext := codec__contiguous_text(k)
 
-	space := codec__space(k, Inline_Markup__Space{})
-	text := codec__transmute(k, Inline_Markup__Text, codec__string(k))
-	ellipsis__sugar := codec__token(k, .Ellipsis, Inline_Markup__Ellipsis{})
-	ellipsis__basic := codec__const(k, "...", Inline_Markup__Ellipsis{})
+	space := codec__space(k, IMarkup__Space{})
+	text := codec__transmute(k, IMarkup__Text, codec__string(k))
+	ellipsis__sugar := codec__token(k, .Ellipsis, IMarkup__Ellipsis{})
+	ellipsis__basic := codec__const(k, "...", IMarkup__Ellipsis{})
 
-  emph := codec__transmute(k, Inline_Markup__Emph, imarkup)
+  emph := codec__transmute(k, IMarkup__Emph, imarkup)
 	emph__sugar := codec__delim(k, .Underscore, .Underscore, emph)
 	emph__basic := codec__at(k, "emph", emph)
 
-  strong := codec__transmute(k, Inline_Markup__Strong, imarkup)
+  strong := codec__transmute(k, IMarkup__Strong, imarkup)
 	strong__sugar := codec__delim(k, .Asterisk, .Asterisk, strong)
 	strong__basic := codec__at(k, "strong", strong)
 
-  strike := codec__transmute(k, Inline_Markup__Strikethrough, imarkup)
+  strike := codec__transmute(k, IMarkup__Strikethrough, imarkup)
 	strike__sugar := codec__delim(k, .Tilde, .Tilde, strike)
 	strike__basic := codec__at(k, "strike", strike)
 
-  mono := codec__transmute(k, Inline_Markup__Mono, codec__raw(k))
+  mono := codec__transmute(k, IMarkup__Mono, codec__raw(k))
 	mono__sugar := codec__delim(k, .Backtick, .Backtick, mono)
 	mono__basic := codec__at(k, "mono", mono)
 
-  math := codec__transmute(k, Inline_Markup__LaTeX, codec__raw(k))
+  math := codec__transmute(k, IMarkup__LaTeX, codec__raw(k))
 	math__sugar := codec__delim(k, .Dollar, .Dollar, math)
 	math__basic := codec__at(k, "imath", math)
 
-  quote := codec__transmute(k, Inline_Markup__Quote, imarkup)
+  quote := codec__transmute(k, IMarkup__Quote, imarkup)
 	quote__sugar := codec__delim(k, .Quote, .Quote, quote)
 	quote__basic := codec__at(k, "quote", quote)
 
-  icon_id := codec__field(k, "id", Inline_Markup__Icon, ctext, ONCE)
+  icon_id := codec__field(k, "id", IMarkup__Icon, ctext, ONCE)
   icon := codec__ref(k, codec__at(k, "icon", codec__loc(k, icon_id)))
 
-  fn_id := codec__field(k, "id", Inline_Markup__Fn, ctext, ONCE)
+  fn_id := codec__field(k, "id", IMarkup__Fn, ctext, ONCE)
   fn := codec__ref(k, codec__at(k, "fn", codec__loc(k, fn_id)))
 
-  Link :: Inline_Markup__Link
+  Link :: IMarkup__Link
   link_id := codec__field(k, "id", Link, ctext, ONCE)
   link_label__basic := codec__at(k, "label", imarkup)
   link_label__sugar := codec__leaded(k, .Bar, imarkup)
@@ -1031,39 +1068,39 @@ codec__imarkup__atom :: proc(
   link__basic := codec__ref(k, codec__delim(k, .LSquare, .RSquare, link_payload))
 
   timestamp :=  codec__struct(
-    k, Inline_Markup__Timestamp,
+    k, IMarkup__Timestamp,
     { "time",    nil,       .Once, codec__timestamp(k) },
     { "compact", "compact", .Flag,  nil               },
   )
 
-  date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
-  datetime := codec__trans_at(k, "datetime", Inline_Markup__Datetime, timestamp)
+  date := codec__trans_at(k, "date", IMarkup__Date, timestamp)
+  datetime := codec__trans_at(k, "datetime", IMarkup__Datetime, timestamp)
 
 	return codec__union(
 		k,
-    Inline_Markup__Atom,
-    { Inline_Markup__Space,         space          },
-    { Inline_Markup__Text,          text           },
-    { Inline_Markup__Ellipsis,      ellipsis__sugar },
-    { Inline_Markup__Ellipsis,      ellipsis__basic },
-    { Inline_Markup__Emph,          emph__sugar     },
-    { Inline_Markup__Emph,          emph__basic     },
-    { Inline_Markup__Strong,        strong__sugar   },
-    { Inline_Markup__Strong,        strong__basic   },
-    { Inline_Markup__Strikethrough, strike__sugar   },
-    { Inline_Markup__Strikethrough, strike__basic   },
-    { Inline_Markup__Mono,          mono__sugar     },
-    { Inline_Markup__Mono,          mono__basic     },
-    { Inline_Markup__LaTeX,         math__sugar     },
-    { Inline_Markup__LaTeX,         math__basic     },
-    { Inline_Markup__Quote,         quote__sugar    },
-    { Inline_Markup__Quote,         quote__basic    },
-    { Inline_Markup__Date,          date           },
-    { Inline_Markup__Datetime,      datetime       },
-    { ^Inline_Markup__Icon,         icon           },
-    { ^Inline_Markup__Fn,           fn             },
-    { ^Inline_Markup__Link,         link__sugar     },
-    { ^Inline_Markup__Link,         link__basic     },
+    IMarkup__Atom,
+    { IMarkup__Space,         space          },
+    { IMarkup__Text,          text           },
+    { IMarkup__Ellipsis,      ellipsis__sugar },
+    { IMarkup__Ellipsis,      ellipsis__basic },
+    { IMarkup__Emph,          emph__sugar     },
+    { IMarkup__Emph,          emph__basic     },
+    { IMarkup__Strong,        strong__sugar   },
+    { IMarkup__Strong,        strong__basic   },
+    { IMarkup__Strikethrough, strike__sugar   },
+    { IMarkup__Strikethrough, strike__basic   },
+    { IMarkup__Mono,          mono__sugar     },
+    { IMarkup__Mono,          mono__basic     },
+    { IMarkup__LaTeX,         math__sugar     },
+    { IMarkup__LaTeX,         math__basic     },
+    { IMarkup__Quote,         quote__sugar    },
+    { IMarkup__Quote,         quote__basic    },
+    { IMarkup__Date,          date           },
+    { IMarkup__Datetime,      datetime       },
+    { ^IMarkup__Icon,         icon           },
+    { ^IMarkup__Fn,           fn             },
+    { ^IMarkup__Link,         link__sugar     },
+    { ^IMarkup__Link,         link__basic     },
 	)
 }
 
@@ -1071,27 +1108,27 @@ codec__imarkup__atom :: proc(
 codec__imarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
-		"inline_markup",
-    Inline_Markup,
+		"imarkup",
+    IMarkup,
 		proc(k: ^Codec_Kit) -> ^Codec {
       // This lens marks runs only consisting of spaces as ignored.
       lens :: proc(kit: ^Lens_Kit) {
         switch kit.mode {
         case .Project:
-          mem.copy(kit.inner, kit.outer, size_of(Inline_Markup))
+          mem.copy(kit.inner, kit.outer, size_of(IMarkup))
         case .Inject:
-          inner := cast(^^Exparr(Inline_Markup__Atom))kit.inner
+          inner := cast(^^Exparr(IMarkup__Atom))kit.inner
 
           found_substantial := false
           for iter := iter__mk(inner^^); elem in iter__next(&iter) {
-            if _, ok := elem.(Inline_Markup__Space); !ok {
+            if _, ok := elem.(IMarkup__Space); !ok {
               found_substantial = true
               break
             }
           }
 
           if found_substantial {
-            mem.copy(kit.outer, kit.inner, size_of(Inline_Markup))
+            mem.copy(kit.outer, kit.inner, size_of(IMarkup))
           } else {
             kit.ignored = true
           }
@@ -1100,7 +1137,7 @@ codec__imarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 
 			return codec__focus(
 				k,
-				Inline_Markup,
+				IMarkup,
         codec__ref(k, codec__exparr(k, codec__imarkup__atom(k))),
         lens
 			)
@@ -1110,60 +1147,60 @@ codec__imarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 // }}}
 // {{{ Formatting as text
 @(private="file")
-inline_markup__atom__fmt :: proc(
-  fi: ^fmt.Info, site: Site, page: Page, atom: Inline_Markup__Atom
+imarkup__atom__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, atom: IMarkup__Atom
 ) {
   switch inner in atom {
-  case ^Inline_Markup__Icon, nil:
-  case Inline_Markup__Space:
+  case ^IMarkup__Icon, nil:
+  case IMarkup__Space:
     fmt.wprint(fi.writer, " ")
-  case Inline_Markup__Ellipsis:
+  case IMarkup__Ellipsis:
     fmt.wprint(fi.writer, ELLIPSIS_SYMBOL)
-  case Inline_Markup__Text:
+  case IMarkup__Text:
     fmt.wprint(fi.writer, string(inner))
-  case Inline_Markup__Emph:
+  case IMarkup__Emph:
     fmt.wprint(fi.writer, "_")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    imarkup__fmt(fi, site, page, IMarkup(inner))
     fmt.wprint(fi.writer, "_")
-  case Inline_Markup__Strong:
+  case IMarkup__Strong:
     fmt.wprint(fi.writer, "*")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    imarkup__fmt(fi, site, page, IMarkup(inner))
     fmt.wprint(fi.writer, "*")
-  case Inline_Markup__Strikethrough:
+  case IMarkup__Strikethrough:
     fmt.wprint(fi.writer, "~")
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    imarkup__fmt(fi, site, page, IMarkup(inner))
     fmt.wprint(fi.writer, "~")
-  case Inline_Markup__Mono:
+  case IMarkup__Mono:
     fmt.wprintf(fi.writer, "`%v`", string(inner))
-  case Inline_Markup__LaTeX:
+  case IMarkup__LaTeX:
     fmt.wprintf(fi.writer, "`$%v$`", string(inner))
-  case Inline_Markup__Quote:
+  case IMarkup__Quote:
     fmt.wprint(fi.writer, QUOTE_EN_LEFT)
-    inline_markup__fmt(fi, site, page, Inline_Markup(inner))
+    imarkup__fmt(fi, site, page, IMarkup(inner))
     fmt.wprint(fi.writer, QUOTE_EN_RIGHT)
-  case ^Inline_Markup__Link:
+  case ^IMarkup__Link:
     if mem__non_zero(inner.label) {
-      inline_markup__fmt(fi, site, page, inner.label)
+      imarkup__fmt(fi, site, page, inner.label)
     } else if inner.def != nil && mem__non_zero(inner.def.label) {
-      inline_markup__fmt(fi, site, page, inner.def.label)
+      imarkup__fmt(fi, site, page, inner.def.label)
     } else if inner.def != nil {
       fmt.wprintf(fi.writer, inner.def.id)
     } else {
       fmt.wprint(fi.writer, inner.id)
     }
-  case ^Inline_Markup__Fn:
+  case ^IMarkup__Fn:
     if inner.def != nil {
       fmt.wprintf(fi.writer, "[^%v]", inner.def.index)
     } else {
       fmt.wprint(fi.writer, ERROR_TEXT)
     }
-  case Inline_Markup__Date:
+  case IMarkup__Date:
     if inner.compact {
       fmt.wprintf(fi.writer, "%v", Date__Compact(inner.time))
     } else {
       fmt.wprintf(fi.writer, "%v", Date__Pretty(inner.time))
     }
-  case Inline_Markup__Datetime:
+  case IMarkup__Datetime:
     if inner.compact {
       fmt.wprintf(fi.writer, "%v", Datetime__Compact(inner.time))
     } else {
@@ -1173,79 +1210,79 @@ inline_markup__atom__fmt :: proc(
 }
 
 @(private="file")
-inline_markup__fmt :: proc(
-  fi: ^fmt.Info, site: Site, page: Page, im: Inline_Markup
+imarkup__fmt :: proc(
+  fi: ^fmt.Info, site: Site, page: Page, im: IMarkup
 ) {
   if im.elements == nil do return
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
-    inline_markup__atom__fmt(fi, site, page, chunk^)
+    imarkup__atom__fmt(fi, site, page, chunk^)
   }
 }
 
-inline_markup__formatter :: proc(
-  site: ^Site, page: ^Page, im: ^Inline_Markup
+imarkup__formatter :: proc(
+  site: ^Site, page: ^Page, im: ^IMarkup
 ) -> Frozen {
   return fmt__freeze3(
     site, 
     page, 
     im,
-    proc(fi: ^fmt.Info, site: ^Site, page: ^Page, im: ^Inline_Markup) {
-      inline_markup__fmt(fi, site^, page^, im^)
+    proc(fi: ^fmt.Info, site: ^Site, page: ^Page, im: ^IMarkup) {
+      imarkup__fmt(fi, site^, page^, im^)
     },
   )
 }
 // }}}
 // {{{ Formatting as html
 @(private="file")
-inline_markup__atom__html :: proc(
-  g: ^Xml_Gen, page: ^Page, atom: Inline_Markup__Atom
+imarkup__atom__html :: proc(
+  g: ^Xml_Gen, page: ^Page, atom: IMarkup__Atom
 ) {
   switch inner in atom {
   case nil:
-  case ^Inline_Markup__Icon:
+  case ^IMarkup__Icon:
     xml__attr(g, "class", "icon")
     // Decorative image.
     // See: https://www.w3.org/WAI/tutorials/images/decorative/
     xml__attr(g, "alt", "")
     xml__attr(g, "src", site__url(g.site, inner.def.site_path, .Stack))
-  case Inline_Markup__Space:
+  case IMarkup__Space:
     xml__string(g, " ")
-  case Inline_Markup__Ellipsis:
+  case IMarkup__Ellipsis:
     xml__stringf(g, "%v", ELLIPSIS_SYMBOL)
-  case Inline_Markup__Text:
+  case IMarkup__Text:
     xml__string(g, string(inner))
-  case Inline_Markup__Emph:
+  case IMarkup__Emph:
     xml__tag(g, "em")
-    inline_markup__html(g, page, Inline_Markup(inner))
-  case Inline_Markup__Strong:
+    imarkup__html(g, page, IMarkup(inner))
+  case IMarkup__Strong:
     xml__tag(g, "strong")
-    inline_markup__html(g, page, Inline_Markup(inner))
-  case Inline_Markup__Strikethrough:
+    imarkup__html(g, page, IMarkup(inner))
+  case IMarkup__Strikethrough:
     xml__tag(g, "s")
-    inline_markup__html(g, page, Inline_Markup(inner))
-  case Inline_Markup__Mono:
+    imarkup__html(g, page, IMarkup(inner))
+  case IMarkup__Mono:
     xml__tag(g, "code")
     xml__string(g, string(inner))
-  case Inline_Markup__LaTeX:
+  case IMarkup__LaTeX:
     site__frame(g.site)
     xml__raw_string(g, render_math(g.site, .LaTeX_Inline, string(inner)))
-  case Inline_Markup__Quote:
+  case IMarkup__Quote:
     xml__stringf(g, "%v", QUOTE_EN_LEFT)
-    inline_markup__html(g, page, Inline_Markup(inner))
+    imarkup__html(g, page, IMarkup(inner))
     xml__stringf(g, "%v", QUOTE_EN_RIGHT)
-  case ^Inline_Markup__Link:
+  case ^IMarkup__Link:
     xml__tag(g, "a")
     xml__attr(g, "href", inner.def.target)
     if mem__non_zero(inner.label) {
-      inline_markup__html(g, page, inner.label)
+      imarkup__html(g, page, inner.label)
     } else if inner.def != nil && mem__non_zero(inner.def.label) {
-      inline_markup__html(g, page, inner.def.label)
+      imarkup__html(g, page, inner.def.label)
     } else if inner.def != nil {
       xml__string(g, inner.def.id)
     } else {
       xml__string(g, inner.id)
     }
-  case ^Inline_Markup__Fn:
+  case ^IMarkup__Fn:
     xml__tag(g, "sup")
     xml__tag(g, "a")
     xml__attr(g, "role", "doc-noteref")
@@ -1257,7 +1294,7 @@ inline_markup__atom__html :: proc(
     } else {
       xml__string(g, ERROR_TEXT)
     }
-  case Inline_Markup__Date:
+  case IMarkup__Date:
     xml__tag(g, "time")
     xml__attrf(g, "datetime", "%v", Rfc3339(inner.time))
     if inner.compact {
@@ -1265,7 +1302,7 @@ inline_markup__atom__html :: proc(
     } else {
       xml__stringf(g, "%v", Date__Pretty(inner.time))
     }
-  case Inline_Markup__Datetime:
+  case IMarkup__Datetime:
     xml__tag(g, "time")
     xml__attrf(g, "datetime", "%v", Rfc3339(inner.time))
     if inner.compact {
@@ -1276,31 +1313,31 @@ inline_markup__atom__html :: proc(
   }
 }
 
-inline_markup__html :: proc(
-  g: ^Xml_Gen, page: ^Page, im: Inline_Markup
+imarkup__html :: proc(
+  g: ^Xml_Gen, page: ^Page, im: IMarkup
 ) {
   if im.elements == nil do return
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
-    inline_markup__atom__html(g, page, chunk^)
+    imarkup__atom__html(g, page, chunk^)
   }
 }
 // }}}
 // {{{ Checking
 @(private="file")
-inline_markup__check :: proc(site: ^Site, page: ^Page, im: ^Inline_Markup) {
+imarkup__check :: proc(site: ^Site, page: ^Page, im: ^IMarkup) {
   if im.elements == nil do return
 
   // Remove spurious leading/trailing spaces.
   for _ in 0..<2 {
     exparr__reverse(im.elements^)
     for chunk in exparr__try_last(im.elements^) {
-      _ = chunk.(Inline_Markup__Space) or_break
+      _ = chunk.(IMarkup__Space) or_break
       exparr__pop(im.elements)
     }
   }
 
   for iter := iter__mk(im.elements^); chunk in iter__next(&iter) {
-    inline_markup__atom__check(site, page, chunk)
+    imarkup__atom__check(site, page, chunk)
   }
 }
 
@@ -1330,37 +1367,37 @@ ambiguous_reference_error :: proc(
 }
 
 @(private="file")
-inline_markup__atom__check :: proc(
-  site: ^Site, page: ^Page, atom: ^Inline_Markup__Atom
+imarkup__atom__check :: proc(
+  site: ^Site, page: ^Page, atom: ^IMarkup__Atom
 ) {
   switch &inner in atom {
   case nil:
-  case Inline_Markup__Space:
-  case Inline_Markup__Ellipsis:
-  case Inline_Markup__Date: 
-  case Inline_Markup__Datetime: 
-  case Inline_Markup__Mono:
-  case Inline_Markup__LaTeX:
+  case IMarkup__Space:
+  case IMarkup__Ellipsis:
+  case IMarkup__Date: 
+  case IMarkup__Datetime: 
+  case IMarkup__Mono:
+  case IMarkup__LaTeX:
     page.uses_LaTeX = true
-  case Inline_Markup__Text:
+  case IMarkup__Text:
     for char in string(inner) {
       unicode.is_alpha(char) or_continue
       page.word_count += 1
       break
     }
-  case Inline_Markup__Emph:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Inline_Markup__Strong:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Inline_Markup__Strikethrough:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Inline_Markup__Quote:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case ^Inline_Markup__Link:
+  case IMarkup__Emph:
+    imarkup__check(site, page, cast(^IMarkup)&inner)
+  case IMarkup__Strong:
+    imarkup__check(site, page, cast(^IMarkup)&inner)
+  case IMarkup__Strikethrough:
+    imarkup__check(site, page, cast(^IMarkup)&inner)
+  case IMarkup__Quote:
+    imarkup__check(site, page, cast(^IMarkup)&inner)
+  case ^IMarkup__Link:
     log.assert(inner.def == nil)
 
     if mem__non_zero(inner.label) {
-      inline_markup__check(site, page, &inner.label)
+      imarkup__check(site, page, &inner.label)
     }
 
     site__frame(site)
@@ -1381,7 +1418,7 @@ inline_markup__atom__check :: proc(
     } else if options.len > 1 {
       ambiguous_reference_error(site, inner.id, inner.loc, options)
     }
-  case ^Inline_Markup__Fn:
+  case ^IMarkup__Fn:
     log.assert(inner.def == nil)
 
     site__frame(site)
@@ -1399,7 +1436,7 @@ inline_markup__atom__check :: proc(
       ambiguous_reference_error(site, inner.id, inner.loc, options)
     }
 
-  case ^Inline_Markup__Icon:
+  case ^IMarkup__Icon:
     log.assert(inner.def == nil)
 
     site__frame(site)
@@ -1424,10 +1461,10 @@ inline_markup__atom__check :: proc(
 // }}}
 
 // {{{ Block markup
-Block_Markup__Paragraph :: distinct Inline_Markup
+BMarkup__Paragraph :: distinct IMarkup
 
-Block_Markup__Image :: struct {
-	alt:          Inline_Markup,
+BMarkup__Image :: struct {
+	alt:          IMarkup,
 	source:       Path,
   out_path:     Path__Output,
   loc:          Source_Loc,
@@ -1437,61 +1474,63 @@ Block_Markup__Image :: struct {
   pixelated:    bool,
 }
 
-Block_Markup__Figure :: struct {
-	caption: Inline_Markup,
-	content: Block_Markup,
+BMarkup__Figure :: struct {
+	caption: IMarkup,
+	content: BMarkup,
 }
 
-Block_Markup__List :: struct {
+BMarkup__BList :: struct {
 	ordered:  bool,
-	block:    bool,
-	using elements: struct #raw_union {
-		imarkup: Exparr(Inline_Markup),
-    bmarkup: Exparr(Block_Markup),
-	},
+  elements: Exparr(BMarkup),
 }
 
-Block_Markup__Aside :: struct {
+BMarkup__IList :: struct {
+	ordered:  bool,
+  elements: Exparr(IMarkup),
+}
+
+BMarkup__Aside :: struct {
   id:       string,
   char:     string, // Icon name
-  content:  Block_Markup,
-  title:    Inline_Markup,
+  content:  BMarkup,
+  title:    IMarkup,
 
   // Whether to hide the content by default
   collapse: bool,
 }
 
-Block_Markup__Code :: struct {
+BMarkup__Code :: struct {
   language: string,
   content:  string,
 }
 
-Block_Markup__Blockquote :: distinct Block_Markup
-Block_Markup__Description :: distinct Unit
-Block_Markup__Table_Of_Contents :: distinct Unit
-Block_Markup__Thematic_Break :: distinct Unit
+BMarkup__Blockquote :: distinct BMarkup
+BMarkup__Description :: distinct Unit
+BMarkup__Table_Of_Contents :: distinct Unit
+BMarkup__Thematic_Break :: distinct Unit
 
 // These are inserted after the fact, during the checking phase
-Block_Markup__Section :: struct {
+BMarkup__Section :: struct {
   heading: ^Heading,
-  content: Block_Markup,
+  content: BMarkup,
 }
 
 // This currently takes up a fat 144B. If memory usage ever goes past 1MiB, I
 // will bother using pointers for the various branches, thus not wasting so much
 // space on padding.
-Block_Markup__Atom :: union {
-	Block_Markup__Paragraph,
-	Block_Markup__Image,
-	Block_Markup__Figure,
-	Block_Markup__List,
-	Block_Markup__Blockquote,
-	Block_Markup__Description,
-	Block_Markup__Table_Of_Contents,
-	Block_Markup__Thematic_Break,
-  Block_Markup__Aside,
-  Block_Markup__Code,
-  Block_Markup__Section,
+BMarkup__Atom :: union {
+	BMarkup__Paragraph,
+	BMarkup__Image,
+	BMarkup__Figure,
+	BMarkup__IList,
+	BMarkup__BList,
+	BMarkup__Blockquote,
+	BMarkup__Description,
+	BMarkup__Table_Of_Contents,
+	BMarkup__Thematic_Break,
+  BMarkup__Aside,
+  BMarkup__Code,
+  BMarkup__Section,
   Article_List,
 	Table,
   Def__Link,
@@ -1499,8 +1538,8 @@ Block_Markup__Atom :: union {
   Heading,
 }
 
-Block_Markup :: struct {
-	elements: Exparr(Block_Markup__Atom),
+BMarkup :: struct {
+	elements: Exparr(BMarkup__Atom),
 }
 // }}}
 // {{{ Codecs
@@ -1509,7 +1548,7 @@ codec__bmarkup__image :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
   return codec__loc(k, codec__struct(
-    k, Block_Markup__Image,
+    k, BMarkup__Image,
     { "alt",          .Bar,        .Maybe, codec__imarkup(k)         },
     { "alt",          "alt",       .Maybe, codec__imarkup(k)         },
     { "source",       {},          .Once,  codec__path(k)            },
@@ -1524,8 +1563,8 @@ codec__bmarkup__figure :: proc(
 ) -> ^Codec {
   imarkup := codec__imarkup(k)
   bmarkup := codec__bmarkup(k)
-	caption := codec__field_at(k, "caption", Block_Markup__Figure, imarkup, UNIQUE)
-	content := codec__field(k, "content", Block_Markup__Figure, bmarkup, ONCE)
+	caption := codec__field_at(k, "caption", BMarkup__Figure, imarkup, UNIQUE)
+	content := codec__field(k, "content", BMarkup__Figure, bmarkup, ONCE)
 	return codec__loop(k, codec__sum(k, caption, content))
 }
 
@@ -1533,7 +1572,7 @@ codec__bmarkup__figure :: proc(
 codec__bmarkup__aside :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-  Self :: Block_Markup__Aside
+  Self :: BMarkup__Aside
 
   ctext   := codec__contiguous_text(k)
   imarkup := codec__imarkup(k)
@@ -1551,71 +1590,30 @@ codec__bmarkup__aside :: proc(
   )
 }
 
-// This one is implemented in a very silly way, with the benefit being that
-// there's no actual branching support required in the proper codec system. We
-// instead hack our own by simply trying both options and using the "ignored"
-// field of the kit to filter out the invalid ones.
-codec__bmarkup__list :: proc(
-  k: ^Codec_Kit
-) -> ^Codec {
-  Self :: Block_Markup__List
-
-  ilens :: proc(kit: ^Lens_Kit) {
-    outer := cast(^Self)kit.outer
-    inner := cast(^Exparr(Inline_Markup))kit.inner
-    switch kit.mode {
-    case .Project:
-      if outer.block do kit.ignored = true
-      else do inner^ = outer.imarkup
-    case .Inject:
-      log.assert(!outer.block)
-      outer.imarkup = inner^
-    }
-  }
-
-  blens :: proc(kit: ^Lens_Kit) {
-    outer := cast(^Self)kit.outer
-    inner := cast(^Exparr(Block_Markup))kit.inner
-    switch kit.mode {
-    case .Project:
-      if !outer.block do kit.ignored = true
-      else do inner^ = outer.bmarkup
-    case .Inject:
-      log.assert(outer.block)
-      outer.bmarkup = inner^
-    }
-  }
-
-  ordered := codec__flag_at(k, "ordered", Self)
-  block := codec__flag_at(k, "block", Self)
-  flags := codec__sum(k, ordered, block)
-
-  imarkup := codec__imarkup(k)
-  ielem__sugar := codec__at(k, "item", imarkup)
-  ielem__basic := codec__leaded(k, .Asterisk, imarkup)
-  ielem := codec__sum(k, ielem__sugar, ielem__basic)
-  icontent := codec__focus(k, Self, codec__spaced_exparr(k, ielem), ilens)
-
-  bmarkup := codec__bmarkup(k)
-  belem__sugar := codec__at(k, "item", bmarkup)
-  belem__basic := codec__leaded(k, .Asterisk, bmarkup)
-  belem := codec__sum(k, belem__sugar, belem__basic)
-  bcontent := codec__focus(k, Self, codec__spaced_exparr(k, belem), blens)
-
-  content := codec__sum(k, icontent, bcontent)
-	return codec__loop(k, codec__seq(k, flags, content))
+codec__bmarkup__blist :: proc(k: ^Codec_Kit) -> ^Codec {
+  return codec__struct(
+    k, BMarkup__BList,
+    { "ordered",  "ordered", .Flag,   nil              },
+    { "elements", "item",    .Exparr, codec__bmarkup(k) },
+    { "elements", .Asterisk, .Exparr, codec__bmarkup(k) },
+  )
 }
 
-codec__bmarkup__code :: proc(
-  k: ^Codec_Kit
-) -> ^Codec {
-  Self :: Block_Markup__Code
+codec__bmarkup__ilist :: proc(k: ^Codec_Kit) -> ^Codec {
+  return codec__struct(
+    k, BMarkup__BList,
+    { "ordered",  "ordered", .Flag,   nil              },
+    { "elements", "item",    .Exparr, codec__imarkup(k) },
+    { "elements", .Asterisk, .Exparr, codec__imarkup(k) },
+  )
+}
 
-  ctext := codec__contiguous_text(k)
-  lang := codec__field(k, "language", Self, ctext, ONCE)
-  content := codec__field_at(k, "content", Self, codec__raw(k), ONCE)
-
-	return codec__loop(k, codec__sum(k, lang, content))
+codec__bmarkup__code :: proc(k: ^Codec_Kit) -> ^Codec {
+  return codec__struct(
+    k, BMarkup__Code,
+    { "language", nil,       .Once, codec__contiguous_text(k) },
+    { "content",  "content", .Once, codec__raw(k)             },
+  )
 }
 
 @(private = "file")
@@ -1625,23 +1623,24 @@ codec__bmarkup__atom :: proc(
 	imarkup := codec__imarkup(k)
 	bmarkup := codec__bmarkup(k)
 
-	description := codec__const(k, "embed-description", Block_Markup__Description{})
-	thematic_break := codec__const(k, "---", Block_Markup__Thematic_Break{})
-	table_of_contents := codec__const(k, "toc", Block_Markup__Table_Of_Contents{})
+	description := codec__const(k, "embed-description", BMarkup__Description{})
+	thematic_break := codec__const(k, "---", BMarkup__Thematic_Break{})
+	table_of_contents := codec__const(k, "toc", BMarkup__Table_Of_Contents{})
 
-	blockquote := codec__transmute(k, Block_Markup__Blockquote, bmarkup)
+	blockquote := codec__transmute(k, BMarkup__Blockquote, bmarkup)
   blockquote__sugar := codec__leaded(k, .GT, blockquote)
   blockquote__basic := codec__at(k, ">", blockquote)
 
 	image := codec__at(k, "image", codec__bmarkup__image(k))
 	figure := codec__at(k, "figure", codec__bmarkup__figure(k))
-	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
+	para := codec__transmute(k, BMarkup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
 	deflink := codec__at(k, "deflink", codec__deflink(k))
 	defnote := codec__at(k, "defnote", codec__defnote(k))
 	aside := codec__at(k, "aside", codec__bmarkup__aside(k))
   article_list := codec__at(k, "index", codec__article_list(k))
-  list := codec__at(k, "list", codec__bmarkup__list(k))
+  ilist := codec__at(k, "ilist", codec__bmarkup__ilist(k))
+  blist := codec__at(k, "blist", codec__bmarkup__blist(k))
   code := codec__at(k, "code", codec__bmarkup__code(k))
 
   h2 := codec__heading(k, 2)
@@ -1656,28 +1655,29 @@ codec__bmarkup__atom :: proc(
 
   return codec__union(
 		k,
-    Block_Markup__Atom,
-    { Block_Markup__Blockquote,        blockquote__sugar  },
-    { Block_Markup__Blockquote,        blockquote__basic  },
-    { Block_Markup__Description,       description       },
-    { Block_Markup__Table_Of_Contents, table_of_contents },
-    { Block_Markup__Thematic_Break,    thematic_break    },
-    { Block_Markup__Image,             image             },
-    { Block_Markup__Figure,            figure            },
-    { Table,                          table             },
-    { Heading,                        h2__sugar          },
-    { Heading,                        h3__sugar          },
-    { Heading,                        h4__sugar          },
-    { Heading,                        h2__basic          },
-    { Heading,                        h3__basic          },
-    { Heading,                        h4__basic          },
-    { Article_List,                   article_list      },
-    { Block_Markup__List,              list              },
-    { Block_Markup__Code,              code              },
-    { Block_Markup__Aside,             aside             },
-    { Def__Link,                       deflink           },
-    { Def__Footnote,                   defnote           },
-    { Block_Markup__Paragraph,         para              },
+    BMarkup__Atom,
+    { BMarkup__Blockquote,        blockquote__sugar  },
+    { BMarkup__Blockquote,        blockquote__basic  },
+    { BMarkup__Description,       description       },
+    { BMarkup__Table_Of_Contents, table_of_contents },
+    { BMarkup__Thematic_Break,    thematic_break    },
+    { BMarkup__Image,             image             },
+    { BMarkup__Figure,            figure            },
+    { Table,                     table             },
+    { Heading,                   h2__sugar          },
+    { Heading,                   h3__sugar          },
+    { Heading,                   h4__sugar          },
+    { Heading,                   h2__basic          },
+    { Heading,                   h3__basic          },
+    { Heading,                   h4__basic          },
+    { Article_List,              article_list      },
+    { BMarkup__IList,             ilist             },
+    { BMarkup__BList,             blist             },
+    { BMarkup__Code,              code              },
+    { BMarkup__Aside,             aside             },
+    { Def__Link,                  deflink           },
+    { Def__Footnote,              defnote           },
+    { BMarkup__Paragraph,         para              },
 	)
 }
 
@@ -1685,12 +1685,12 @@ codec__bmarkup__atom :: proc(
 codec__bmarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
-		"block_markup",
-    Block_Markup,
+		"bmarkup",
+    BMarkup,
 		proc(kit: ^Codec_Kit) -> ^Codec {
 			return codec__transmute(
 				kit,
-				Block_Markup,
+				BMarkup,
 				codec__spaced_exparr(kit, codec__bmarkup__atom(kit)),
 			)
 		},
@@ -1703,7 +1703,7 @@ codec__bmarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 HEADING_TAG_NAMES: [MAX_HEADING_LEVEL]string = {"h1", "h2", "h3", "h4"}
 
 @(private="file")
-block_markup__anchored_heading :: proc(
+bmarkup__anchored_heading :: proc(
   g: ^Xml_Gen, page: ^Page, heading: Heading, main := false
 ) {
   xml__tag(g, HEADING_TAG_NAMES[heading.level - 1])
@@ -1722,23 +1722,23 @@ block_markup__anchored_heading :: proc(
   }
 
   xml__string(g, " ")
-  inline_markup__html(g, page, heading.content)
+  imarkup__html(g, page, heading.content)
 }
 
 @(private="file")
-block_markup__atom__html :: proc(
-  g: ^Xml_Gen, page: ^Page, atom: Block_Markup__Atom
+bmarkup__atom__html :: proc(
+  g: ^Xml_Gen, page: ^Page, atom: BMarkup__Atom
 ) {
   switch &inner in atom {
   case nil, Def__Link, Def__Footnote:
-  case Block_Markup__Thematic_Break:
+  case BMarkup__Thematic_Break:
     xml__tag(g, "hr", single = true)
   case Heading:
     log.panic("Cannot render section-less heading as HTML")
-  case Block_Markup__Description:
+  case BMarkup__Description:
     xml__tag(g, "p")
-    inline_markup__html(g, page, page.description)
-  case Block_Markup__Table_Of_Contents:
+    imarkup__html(g, page, page.description)
+  case BMarkup__Table_Of_Contents:
     xml__tag(g, "details")
     if xml__tag(g, "summary") do xml__string(g, "Toggle table of contens")
     xml__tag(g, "nav")
@@ -1773,7 +1773,7 @@ block_markup__atom__html :: proc(
       xml__tag(g, "li", auto_close = false)
       xml__tag(g, "a")
       xml__attrf(g, "href", "#%v", heading.id)
-      inline_markup__html(g, page, heading.content)
+      imarkup__html(g, page, heading.content)
       last_has_children = false
     }
 
@@ -1797,7 +1797,7 @@ block_markup__atom__html :: proc(
         xml__tag(g, "a")
         xml__attrf(g, "href", "%v", article.url)
         xml__attr(g, "rel", "bookmark")
-        inline_markup__html(g, article, article.title)
+        imarkup__html(g, article, article.title)
       }
 
       if xml__tag(g, "ul") {
@@ -1825,46 +1825,45 @@ block_markup__atom__html :: proc(
       }
 
       xml__tag(g, "p")
-      inline_markup__html(g, article, article.description)
+      imarkup__html(g, article, article.description)
     }
-  case Block_Markup__Section:
+  case BMarkup__Section:
     xml__tag(g, "section")
     xml__attr(g, "aria-labelledby", inner.heading.id)
-    block_markup__anchored_heading(g, page, inner.heading^)
-    block_markup__html(g, page, inner.content)
-  case Block_Markup__Paragraph:
+    bmarkup__anchored_heading(g, page, inner.heading^)
+    bmarkup__html(g, page, inner.content)
+  case BMarkup__Paragraph:
     xml__tag(g, "p")
-    inline_markup__html(g, page, Inline_Markup(inner))
-  case Block_Markup__Blockquote:
+    imarkup__html(g, page, IMarkup(inner))
+  case BMarkup__Blockquote:
     xml__tag(g, "blockquote")
-    block_markup__html(g, page, Block_Markup(inner))
-  case Block_Markup__List:
+    bmarkup__html(g, page, BMarkup(inner))
+  case BMarkup__IList:
     xml__tag(g, inner.ordered ? "ol" : "ul")
-    if inner.block {
-      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
-        xml__tag(g, "li")
-        block_markup__html(g, page, elem^)
-      }
-    } else {
-      for iter := iter__mk(inner.imarkup); elem in iter__next(&iter) {
-        xml__tag(g, "li")
-        inline_markup__html(g, page, elem^)
-      }
+    for iter := iter__mk(inner.elements); elem in iter__next(&iter) {
+      xml__tag(g, "li")
+      imarkup__html(g, page, elem^)
     }
-  case Block_Markup__Code:
+  case BMarkup__BList:
+    xml__tag(g, inner.ordered ? "ol" : "ul")
+    for iter := iter__mk(inner.elements); elem in iter__next(&iter) {
+      xml__tag(g, "li")
+      bmarkup__html(g, page, elem^)
+    }
+  case BMarkup__Code:
     xml__tag(g, "pre")
     xml__tag(g, "code")
     xml__attr(g, "data-language", inner.language)
     xml__string(g, inner.content)
-  case Block_Markup__Aside:  // TODO
-  case Block_Markup__Image:
+  case BMarkup__Aside:  // TODO
+  case BMarkup__Image:
     xml__tag(g, "img", single = true)
     xml__attr(g, "src", inner.out_path)
     xml__attr(g, "width", inner.width)
     xml__attr(g, "height", inner.height)
 
     if mem__non_zero(inner.alt) {
-      xml__attr(g, "alt", inline_markup__formatter(g.site, page, &inner.alt))
+      xml__attr(g, "alt", imarkup__formatter(g.site, page, &inner.alt))
     }
 
     if mem__non_zero(inner.visual_width) {
@@ -1872,86 +1871,99 @@ block_markup__atom__html :: proc(
     }
 
     if inner.pixelated do xml__attr(g, "class", "pixelated")
-  case Block_Markup__Figure:
+  case BMarkup__Figure:
     xml__tag(g, "figure")
     if mem__non_zero(inner.caption) {
       xml__tag(g, "figcaption")
-      inline_markup__html(g, page, inner.caption)
+      imarkup__html(g, page, inner.caption)
     }
 
-    block_markup__html(g, page, inner.content)
+    bmarkup__html(g, page, inner.content)
   case Table:
+    xml__tag(g, "table")
+
     if mem__non_zero(inner.caption) {
       xml__tag(g, "caption")
-      inline_markup__html(g, page, inner.caption)
+      imarkup__html(g, page, inner.caption)
     }
 
     row__html :: proc(g: ^Xml_Gen, page: ^Page, row: Table__Row, kind: string) {
       xml__tag(g, "tr")
       for iter := iter__mk(row.cells); cell in iter__next(&iter) {
         xml__tag(g, kind)
-        inline_markup__html(g, page, cell.content)
+        markup__html(g, page, cell.content)
       }
     }
 
-    row__html(g, page, inner.header, "th")
+    if xml__tag(g, "thead") do row__html(g, page, inner.header, "th")
+
+    xml__tag(g, "tbody")
     for iter := iter__mk(inner.rows); row in iter__next(&iter) {
       row__html(g, page, row^, "td")
     }
   }
 }
 
-block_markup__html :: proc(
-  g: ^Xml_Gen, page: ^Page, bm: Block_Markup
+bmarkup__html :: proc(
+  g: ^Xml_Gen, page: ^Page, bm: BMarkup
 ) {
   for iter := iter__mk(bm.elements); chunk in iter__next(&iter) {
-    block_markup__atom__html(g, page, chunk^)
+    bmarkup__atom__html(g, page, chunk^)
   }
 }
 // }}}
 // {{{ Pre-checking
 @(private="file")
-block_markup__precheck :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
+bmarkup__precheck :: proc(site: ^Site, page: ^Page, bm: ^BMarkup) {
   if bm == nil do return
   for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
-    block_markup__atom__precheck(site, page, atom)
+    bmarkup__atom__precheck(site, page, atom)
   }
 }
 
 @(private="file")
-block_markup__atom__precheck :: proc(
-  site: ^Site, page: ^Page, atom: ^Block_Markup__Atom
+bmarkup__atom__precheck :: proc(
+  site: ^Site, page: ^Page, atom: ^BMarkup__Atom
 ) {
   switch &inner in atom {
   case Def__Footnote: push(&page.footnotes, &inner)
   case Def__Link:     push(&page.links,     &inner)
   case Heading:      push(&page.headings,  &inner)
-  case nil, Block_Markup__Code, Block_Markup__Description,
-       Block_Markup__Table_Of_Contents, Block_Markup__Thematic_Break, Table,
-       Article_List, Block_Markup__Paragraph, Block_Markup__Image:
-  case Block_Markup__Section:
-    block_markup__precheck(site, page, &inner.content)
-  case Block_Markup__Figure:
-    block_markup__precheck(site, page, &inner.content)
-  case Block_Markup__Aside:
-    block_markup__precheck(site, page, &inner.content)
-  case Block_Markup__Blockquote:
-    block_markup__precheck(site, page, cast(^Block_Markup)&inner)
-  case Block_Markup__List:
-    if inner.block {
-      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
-    		block_markup__precheck(site, page, elem)
-    	}
+  case nil, BMarkup__Code, BMarkup__Description, BMarkup__Table_Of_Contents,
+       BMarkup__Thematic_Break, Article_List, BMarkup__Paragraph,
+       BMarkup__Image, BMarkup__IList:
+  case BMarkup__Section:
+    bmarkup__precheck(site, page, &inner.content)
+  case BMarkup__Figure:
+    bmarkup__precheck(site, page, &inner.content)
+  case BMarkup__Aside:
+    bmarkup__precheck(site, page, &inner.content)
+  case BMarkup__Blockquote:
+    bmarkup__precheck(site, page, cast(^BMarkup)&inner)
+  case BMarkup__BList:
+    for iter := iter__mk(inner.elements); elem in iter__next(&iter) {
+      bmarkup__precheck(site, page, elem)
+    }
+  case Table:
+    table__row__precheck :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
+      for iter := iter__mk(row.cells); cell in iter__next(&iter) {
+        markup__precheck(site, page, &cell.content)
+      }
+    }
+
+    table__row__precheck(site, page, &inner.header)
+    for iter := iter__mk(inner.rows); row in iter__next(&iter) {
+      table__row__precheck(site, page, row)
     }
   }
 }
 // }}}
 // {{{ Checking
 @(private="file")
-block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
+bmarkup__check :: proc(site: ^Site, page: ^Page, bm: ^BMarkup) {
   if bm == nil do return
   for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
-    block_markup__atom__check(site, page, atom)
+    bmarkup__atom__check(site, page, atom)
   }
 
   // Split block into sections We don't attempt to reuse any of the existing
@@ -1966,10 +1978,10 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
 
   if !has_headings do return
 
-  sectioned: Block_Markup // The root section we write to
+  sectioned: BMarkup // The root section we write to
   sectioned.elements.allocator = site__alloc(site, .Forever)
 
-  stack: [dynamic; MAX_HEADING_LEVEL]^Block_Markup__Section
+  stack: [dynamic; MAX_HEADING_LEVEL]^BMarkup__Section
   for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
     if heading, ok := &atom.(Heading); ok {
       #reverse for last in stack {
@@ -1977,14 +1989,14 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
         pop(&stack)
       }
 
-      inner_content: Block_Markup
+      inner_content: BMarkup
       inner_content.elements.allocator = site__alloc(site, .Forever)
-      atom := Block_Markup__Section {
+      atom := BMarkup__Section {
         heading = heading,
         content = inner_content,
       }
 
-      ref: ^Block_Markup__Atom
+      ref: ^BMarkup__Atom
       if l := len(stack); l > 0 {
         last := stack[l - 1]
         ref = push(&last.content.elements, atom)
@@ -1992,7 +2004,7 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
         ref = push(&sectioned.elements, atom)
       }
 
-      section := &ref.(Block_Markup__Section)
+      section := &ref.(BMarkup__Section)
       push(&stack, section)
     } else if l := len(stack); l > 0 {
       last := stack[l - 1]
@@ -2006,19 +2018,19 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
 }
 
 @(private="file")
-block_markup__atom__check :: proc(
-  site: ^Site, page: ^Page, atom: ^Block_Markup__Atom
+bmarkup__atom__check :: proc(
+  site: ^Site, page: ^Page, atom: ^BMarkup__Atom
 ) {
   switch &inner in atom {
-  case nil, Block_Markup__Code, Block_Markup__Description,
-       Block_Markup__Table_Of_Contents, Block_Markup__Thematic_Break,
+  case nil, BMarkup__Code, BMarkup__Description,
+       BMarkup__Table_Of_Contents, BMarkup__Thematic_Break,
        Def__Link, Def__Footnote, Heading:
-  case Block_Markup__Section:
-    block_markup__check(site, page, &inner.content)
-  case Block_Markup__Paragraph:
-    inline_markup__check(site, page, cast(^Inline_Markup)&inner)
-  case Block_Markup__Image:
-    inline_markup__check(site, page, &inner.alt)
+  case BMarkup__Section:
+    bmarkup__check(site, page, &inner.content)
+  case BMarkup__Paragraph:
+    imarkup__check(site, page, cast(^IMarkup)&inner)
+  case BMarkup__Image:
+    imarkup__check(site, page, &inner.alt)
 
     found := false
     for extension in ([]string { "", ".webp", ".jpg", ".png" }) {
@@ -2052,33 +2064,30 @@ block_markup__atom__check :: proc(
     if !found {
       site__errorf(site, inner.loc, "Cannot find image %v", inner.source)
     }
-  case Block_Markup__Figure:
-    inline_markup__check(site, page, &inner.caption)
-    block_markup__check(site, page, &inner.content)
-  case Block_Markup__List:
-    if inner.block {
-      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
-    		block_markup__check(site, page, elem)
-    	}
-    } else {
-      for iter := iter__mk(inner.imarkup); elem in iter__next(&iter) {
-    		inline_markup__check(site, page, elem)
-    	}
+  case BMarkup__Figure:
+    imarkup__check(site, page, &inner.caption)
+    bmarkup__check(site, page, &inner.content)
+  case BMarkup__IList:
+    for iter := iter__mk(inner.elements); elem in iter__next(&iter) {
+      imarkup__check(site, page, elem)
     }
-  case Block_Markup__Aside:
-    inline_markup__check(site, page, &inner.title)
-    block_markup__check(site, page, &inner.content)
-  case Block_Markup__Blockquote:
-    block_markup__check(site, page, cast(^Block_Markup)&inner)
+  case BMarkup__BList:
+    for iter := iter__mk(inner.elements); elem in iter__next(&iter) {
+      bmarkup__check(site, page, elem)
+    }
+  case BMarkup__Aside:
+    imarkup__check(site, page, &inner.title)
+    bmarkup__check(site, page, &inner.content)
+  case BMarkup__Blockquote:
+    bmarkup__check(site, page, cast(^BMarkup)&inner)
   case Table:
     table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
       for iter := iter__mk(row.cells); cell in iter__next(&iter) {
-        mem__non_zero(cell.content.elements) or_continue
-        inline_markup__check(site, page, &cell.content)
+        markup__check(site, page, &cell.content)
       }
     }
 
-    inline_markup__check(site, page, &inner.caption)
+    imarkup__check(site, page, &inner.caption)
     table__row__check(site, page, &inner.header)
     for iter := iter__mk(inner.rows); row in iter__next(&iter) {
       table__row__check(site, page, row)

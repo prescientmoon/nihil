@@ -592,7 +592,7 @@ site__feed :: proc(
       if xml__tag(g, "link") do xml__string(g, site.base_url)
 
       if xml__tag(g, "description") {
-        xml__string(g, inline_markup__formatter(site, base, &feed.description))
+        xml__string(g, imarkup__formatter(site, base, &feed.description))
       }
 
       if xml__tag(g, "language") do xml__string(g, "en")
@@ -619,7 +619,7 @@ site__feed :: proc(
         }
 
         if xml__tag(g, "title") {
-          xml__string(g, inline_markup__formatter(site, page, &page.title))
+          xml__string(g, imarkup__formatter(site, page, &page.title))
         }
 
         if xml__tag(g, "description") {
@@ -628,7 +628,7 @@ site__feed :: proc(
           } else  {
             xml__string(
               g,
-              inline_markup__formatter(site, page, &page.description)
+              imarkup__formatter(site, page, &page.description)
             )
           }
         }

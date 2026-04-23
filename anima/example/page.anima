@@ -37,7 +37,7 @@ kinds, although rhythm games have a special place in my heart.
 
 You can message me in the following places `:3`
 
-\list
+\ilist
   * via email at [mail]
   * on discord as [discord]
   * on certain [irc] networks as `prescientmoon`
@@ -77,7 +77,7 @@ I'm not part of a ton of [webring | webrings], but oh well.
 
 \deflink webring \target https://indieweb.org/webring
 
-\list
+\ilist
   * [sillyring] ([sillyring-prev], [sillyring-next])
 
 \deflink sillyring \target https://silly.moonythm.dev/
@@ -101,3 +101,10 @@ changelog of any page by appending `/changelog` to the URL (as above, here's
 \deflink nihil \target https://git.moonythm.dev/prescientmoon/nihil
 \deflink source \target{/index.dj} \label Home Page Source
 \deflink changelog \target{/changelog} \label Home Page Chagelog
+
+\table This is the caption
+  \header | Name | Image
+  \row | First ||!
+      \image comet | Alt text :3 \width 100% \pixelated
+
+    You can put literally anything in here...

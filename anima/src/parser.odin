@@ -73,6 +73,7 @@ Token_Kind :: enum u8 {
   Tilde,        // ~
   GT,           // >
   Bar,          // |
+  Double_Bar,   // ||
   Dollar,       // $
   Hash,         // #
   Double_Hash,  // ##
@@ -102,6 +103,7 @@ Token_Kind__Symbol := [Token_Kind]string {
   .Tilde        = "~",
   .GT           = ">",
   .Bar          = "|",
+  .Double_Bar   = "||",
   .Dollar       = "$",
   .Hash         = "#",
   .Double_Hash  = "##",
@@ -251,7 +253,6 @@ tokenize :: proc(lexer: ^Lexer, tokens: ^Tokens) {
     case lexer__rune(lexer, '!'): tok.kind = .Bang
     case lexer__rune(lexer, '~'): tok.kind = .Tilde
     case lexer__rune(lexer, '>'): tok.kind = .GT
-    case lexer__rune(lexer, '|'): tok.kind = .Bar
     case lexer__rune(lexer, '$'): tok.kind = .Dollar
     case lexer__rune(lexer, '\n'): tok.kind = .Newline
     case lexer__rune(lexer, ' ') || lexer__rune(lexer, '\t'):
@@ -261,6 +262,8 @@ tokenize :: proc(lexer: ^Lexer, tokens: ^Tokens) {
     case lexer__expect(lexer, "###"): tok.kind = .Triple_Hash
     case lexer__expect(lexer, "##"): tok.kind = .Double_Hash
     case lexer__rune(lexer, '#'): tok.kind = .Hash
+    case lexer__expect(lexer, "||"): tok.kind = .Double_Bar
+    case lexer__rune(lexer, '|'): tok.kind = .Bar
     case lexer__expect(lexer, "//"): tok.kind = .Double_Slash
     case:
       tok.kind = .Word

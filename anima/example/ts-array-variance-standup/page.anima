@@ -39,7 +39,7 @@ I'd go over it quickly. TypeScript' type system is based around the idea of
 _[subtyping]_. A type `A` is said to be a subtype of type `B` if the
 former can be used whenever the latter could be used. In particular:
 
-\list
+\ilist
   * `A` is always a subtype of `A | B`
   * If `A` is a subtype of `B`, then `A[]` is a subtype of `B[]`
 
@@ -57,7 +57,7 @@ The proper way to fix this is to track the _[variance]_ of type arguments
 a "type argument"). Every type argument can naturally fall in one of three
 camps:
 
-\list \block \ordered
+\blist \ordered
   * A type argument is _covariant_ if whenever `A` is a subtype of `B`,
     then `P<A>` is a subtype of `P<B>`. This is how TypeScript treats
     arrays, and the mistake causing this bug.
