@@ -86,8 +86,8 @@ page__guid :: proc(
 
 codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
   ctext      := codec__contiguous_text(k)
-  imarkup    := codec__inline_markup(k)
-  bmarkup    := codec__block_markup(k)
+  imarkup    := codec__imarkup(k)
+  bmarkup    := codec__bmarkup(k)
   timestamp  := codec__timestamp(k)
   stylesheet := codec__stylesheet(k)
 
@@ -289,6 +289,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
   // Generate feed paths & redirects
   for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
     feed.site_path = site__resolve(site, page.site_path, feed.at)
+    inline_markup__check(site, page, &feed.description)
     for iter := iter__mk(feed.aliases); alias in iter__next(&iter) {
       push(&site.redirects, Redirect{alias^, feed.site_path})
     }
@@ -361,8 +362,8 @@ Change :: struct {
 codec__change :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__struct(
     k, Change,
-    { "at",      "at", .Once, codec__timestamp(k)     },
-    { "message", {},   .Once, codec__inline_markup(k) },
+    { "at",      "at", .Once, codec__timestamp(k) },
+    { "message", {},   .Once, codec__imarkup(k)   },
   )
 }
 // }}}
@@ -542,7 +543,7 @@ codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__struct(
     k, Def__Link,
     { "target", "target", .Once,  codec__raw(k)              },
-    { "label",  "label",  .Maybe, codec__inline_markup(k)    },
+    { "label",  "label",  .Maybe, codec__imarkup(k)          },
     { "scope",  "scope",  .Maybe, codec__page_filter__all(k)  },
     { "id",     {},       .Once,  codec__contiguous_text(k)  },
   )
@@ -561,7 +562,7 @@ codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
   return codec__struct(
     k, Def__Footnote,
     { "id",      "id", .Once, codec__contiguous_text(k) },
-    { "content", {},   .Once, codec__block_markup(k)    },
+    { "content", {},   .Once, codec__bmarkup(k)         },
   )
 }
 // }}}
@@ -569,7 +570,7 @@ codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
 Def__Feed :: struct {
   at:          Path,
   name:        string,
-  description: string,
+  description: Inline_Markup,
 
   members: Page_Filter__All, // What posts should this include?
   under:   Page_Filter__All, // Which pages should this appear on?
@@ -587,7 +588,7 @@ codec__feed :: proc(k: ^Codec_Kit) -> ^Codec {
     k, Def__Feed,
     { "at",          {},            .Once,   codec__path(k)     },
     { "name",        "name",        .Once,   codec__text(k)     },
-    { "description", "description", .Once,   codec__text(k)     }, // TODO: imarkup
+    { "description", "description", .Once,   codec__imarkup(k)  },
     { "under",       "under",       .Once,   filter            },
     { "members",     "members",     .Once,   filter            },
     { "aliases",     "alias",       .Exparr, codec__out_path(k) },
@@ -675,7 +676,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
 
   looped := codec__struct(
     k, Heading,
-    { "content", nil, .Some, codec__inline_markup(k) },
+    { "content", nil, .Some, codec__imarkup(k)      },
     { "id", "id", .Maybe, codec__contiguous_text(k) },
   )
 
@@ -703,7 +704,7 @@ Table :: struct {
 codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
 	cell := codec__struct(
     k, Table__Cell,
-    { "content", nil, .Maybe, codec__inline_markup(k) }
+    { "content", nil, .Maybe, codec__imarkup(k) }
   )
 
   row := codec__struct(
@@ -713,7 +714,7 @@ codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
 
   return codec__struct(
     k, Table,
-    { "caption", nil,      .Maybe,  codec__inline_markup(k)  },
+    { "caption", nil,      .Maybe,  codec__imarkup(k)        },
     { "header",  "header", .Once,   row                     },
     { "rows",    "row",    .Exparr, row                     },
   )
@@ -976,10 +977,10 @@ Inline_Markup__Atom :: union {
 // }}}
 // {{{ Codecs
 @(private = "file")
-codec__inline_markup__atom :: proc(
+codec__imarkup__atom :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-	imarkup := codec__inline_markup(k)
+	imarkup := codec__imarkup(k)
 	ctext := codec__contiguous_text(k)
 
 	space := codec__space(k, Inline_Markup__Space{})
@@ -1066,7 +1067,7 @@ codec__inline_markup__atom :: proc(
 }
 
 @(private="file")
-codec__inline_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
+codec__imarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
 		"inline_markup",
@@ -1099,7 +1100,7 @@ codec__inline_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
 			return codec__focus(
 				k,
 				Inline_Markup,
-        codec__ref(k, codec__exparr(k, codec__inline_markup__atom(k))),
+        codec__ref(k, codec__exparr(k, codec__imarkup__atom(k))),
         lens
 			)
 		},
@@ -1497,37 +1498,37 @@ Block_Markup :: struct {
 // }}}
 // {{{ Codecs
 @(private = "file")
-codec__block_markup__image :: proc(
+codec__bmarkup__image :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
   return codec__struct(
     k, Block_Markup__Image,
-    { "alt",    .Bar,  .Maybe, codec__inline_markup(k) },
-    { "alt",    "alt", .Maybe, codec__inline_markup(k) },
+    { "alt",    .Bar,  .Maybe, codec__imarkup(k)         },
+    { "alt",    "alt", .Maybe, codec__imarkup(k)         },
     { "source", {},    .Once,  codec__contiguous_text(k) },
   )
 }
 
 @(private = "file")
-codec__block_markup__figure :: proc(
+codec__bmarkup__figure :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-  imarkup := codec__inline_markup(k)
-  bmarkup := codec__block_markup(k)
+  imarkup := codec__imarkup(k)
+  bmarkup := codec__bmarkup(k)
 	caption := codec__field_at(k, "caption", Block_Markup__Figure, imarkup, UNIQUE)
 	content := codec__field(k, "content", Block_Markup__Figure, bmarkup, ONCE)
 	return codec__loop(k, codec__sum(k, caption, content))
 }
 
 @(private = "file")
-codec__block_markup__aside :: proc(
+codec__bmarkup__aside :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
   Self :: Block_Markup__Aside
 
   ctext   := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
-  bmarkup := codec__block_markup(k)
+  imarkup := codec__imarkup(k)
+  bmarkup := codec__bmarkup(k)
 
   id       := codec__field_at(k, "id", Self, ctext, UNIQUE)
   icon     := codec__field_at(k, "char", Self, ctext, UNIQUE)
@@ -1545,7 +1546,7 @@ codec__block_markup__aside :: proc(
 // there's no actual branching support required in the proper codec system. We
 // instead hack our own by simply trying both options and using the "ignored"
 // field of the kit to filter out the invalid ones.
-codec__block_markup__list :: proc(
+codec__bmarkup__list :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
   Self :: Block_Markup__List
@@ -1580,13 +1581,13 @@ codec__block_markup__list :: proc(
   block := codec__flag_at(k, "block", Self)
   flags := codec__sum(k, ordered, block)
 
-  imarkup := codec__inline_markup(k)
+  imarkup := codec__imarkup(k)
   ielem__sugar := codec__at(k, "item", imarkup)
   ielem__basic := codec__leaded(k, .Asterisk, imarkup)
   ielem := codec__sum(k, ielem__sugar, ielem__basic)
   icontent := codec__focus(k, Self, codec__spaced_exparr(k, ielem), ilens)
 
-  bmarkup := codec__block_markup(k)
+  bmarkup := codec__bmarkup(k)
   belem__sugar := codec__at(k, "item", bmarkup)
   belem__basic := codec__leaded(k, .Asterisk, bmarkup)
   belem := codec__sum(k, belem__sugar, belem__basic)
@@ -1596,7 +1597,7 @@ codec__block_markup__list :: proc(
 	return codec__loop(k, codec__seq(k, flags, content))
 }
 
-codec__block_markup__code :: proc(
+codec__bmarkup__code :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
   Self :: Block_Markup__Code
@@ -1609,11 +1610,11 @@ codec__block_markup__code :: proc(
 }
 
 @(private = "file")
-codec__block_markup__atom :: proc(
+codec__bmarkup__atom :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-	imarkup := codec__inline_markup(k)
-	bmarkup := codec__block_markup(k)
+	imarkup := codec__imarkup(k)
+	bmarkup := codec__bmarkup(k)
 
 	description := codec__const(k, "embed-description", Block_Markup__Description{})
 	thematic_break := codec__const(k, "---", Block_Markup__Thematic_Break{})
@@ -1623,16 +1624,16 @@ codec__block_markup__atom :: proc(
   blockquote__sugar := codec__leaded(k, .GT, blockquote)
   blockquote__basic := codec__at(k, ">", blockquote)
 
-	image := codec__at(k, "image", codec__block_markup__image(k))
-	figure := codec__at(k, "figure", codec__block_markup__figure(k))
+	image := codec__at(k, "image", codec__bmarkup__image(k))
+	figure := codec__at(k, "figure", codec__bmarkup__figure(k))
 	para := codec__transmute(k, Block_Markup__Paragraph, codec__para(k, imarkup))
 	table := codec__at(k, "table", codec__table(k))
 	deflink := codec__at(k, "deflink", codec__deflink(k))
 	defnote := codec__at(k, "defnote", codec__defnote(k))
-	aside := codec__at(k, "aside", codec__block_markup__aside(k))
+	aside := codec__at(k, "aside", codec__bmarkup__aside(k))
   article_list := codec__at(k, "index", codec__article_list(k))
-  list := codec__at(k, "list", codec__block_markup__list(k))
-  code := codec__at(k, "code", codec__block_markup__code(k))
+  list := codec__at(k, "list", codec__bmarkup__list(k))
+  code := codec__at(k, "code", codec__bmarkup__code(k))
 
   h2 := codec__heading(k, 2)
   h3 := codec__heading(k, 3)
@@ -1672,7 +1673,7 @@ codec__block_markup__atom :: proc(
 }
 
 @(private="file")
-codec__block_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
+codec__bmarkup :: proc(kit: ^Codec_Kit) -> ^Codec {
 	return codec__memo(
 		kit,
 		"block_markup",
@@ -1681,7 +1682,7 @@ codec__block_markup :: proc(kit: ^Codec_Kit) -> ^Codec {
 			return codec__transmute(
 				kit,
 				Block_Markup,
-				codec__spaced_exparr(kit, codec__block_markup__atom(kit)),
+				codec__spaced_exparr(kit, codec__bmarkup__atom(kit)),
 			)
 		},
 	)

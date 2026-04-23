@@ -115,7 +115,15 @@ site__errorf :: proc(
 site__check_errors :: proc(site: ^Site) {
   if site.errors.len > 0 {
     for iter := iter__mk(site.errors); err in iter__next(&iter) {
-      fmt.eprintln(pretty_error(err^))
+      site__frame(site)
+      msg := fmt.aprintf(
+        "%v: %v",
+        err.loc,
+        err.msg,
+        allocator = site__alloc(site, .Stack)
+      )
+
+      fmt.eprintln(msg)
     }
 
     os.exit(1)
@@ -564,7 +572,7 @@ site__sitemap :: proc(site: ^Site) -> string {
 // {{{ RSS feed
 @(private = "file")
 site__feed :: proc(
-  site: ^Site, base: Page, feed: Def__Feed
+  site: ^Site, base: ^Page, feed: ^Def__Feed
 ) -> string {
   site__frame(site)
   g := xml__make(site)
@@ -583,8 +591,10 @@ site__feed :: proc(
       if xml__tag(g, "title") do xml__stringf(g, "Moonythm | %v", name)
       if xml__tag(g, "link") do xml__string(g, site.base_url)
 
-      description := strings.trim_space(feed.description)
-      if xml__tag(g, "description") do xml__string(g, description)
+      if xml__tag(g, "description") {
+        xml__string(g, inline_markup__formatter(site, base, &feed.description))
+      }
+
       if xml__tag(g, "language") do xml__string(g, "en")
       if xml__tag(g, "generator") do xml__string(g, GENERATOR)
       if xml__tag(g, "webMaster") {
@@ -599,7 +609,7 @@ site__feed :: proc(
 
       last_update: time.Time
       for iter := iter__mk(site.pages); page in iter__next(&iter) {
-        page_filter__all__eval(base, page^, feed.members) or_continue
+        page_filter__all__eval(base^, page^, feed.members) or_continue
 
         last_update = time__max(last_update, page__last_updated(page^))
 
@@ -746,7 +756,7 @@ site__generate :: proc(site: ^Site) {
   site__add_file(site, Path__Output("sitemap.xml"), site__sitemap(site))
   for iter := iter__mk(site.pages); page in iter__next(&iter) {
     for iter := iter__mk(page.feeds); feed in iter__next(&iter) {
-      feed_content := site__feed(site, page^, feed^)
+      feed_content := site__feed(site, page, feed)
       site__add_file(site, feed.site_path, feed_content)
     }
 
