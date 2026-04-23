@@ -1,0 +1,52 @@
+[private]
+@default:
+  just --list
+
+[group("build")]
+[doc("Build an odin package with the required configuration set")]
+@build source *args:
+  odin build {{ source }} \
+    -linker:mold \
+    -show-timings \
+    {{ args }}
+
+[group("build")]
+[group("debug")]
+[doc("Build `bpt` in debug mode")]
+@build-debug:
+  mkdir -p build/debug
+  just build src \
+    -debug \
+    -out:build/debug/bpt.bin
+
+[group("build")]
+[group("release")]
+[doc("Build `bpt` in release mode")]
+@build-release:
+  mkdir -p build/release
+  just build src \
+    -debug \
+    -disable-assert \
+    -no-bounds-check \
+    -o:speed \
+    -out:build/release/bpt.bin
+
+[group("debug")]
+[doc("Run `bpt` in debug mode")]
+@run-debug: build-debug
+  time ./build/debug/bpt.bin
+
+[group("release")]
+[doc("Run `bpt` in release mode")]
+@run-release: build-release
+  time ./build/release/bpt.bin
+
+[group("debug")]
+[doc("Run `bpt` inside `valgrind`")]
+@grind: build-debug
+  valgrind --leak-check=full ./build/debug/bpt.bin
+
+[group("debug")]
+[doc("Type-check the `bpt` codebase")]
+@check:
+  odin check src -show-timings
