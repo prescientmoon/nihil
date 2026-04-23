@@ -75,14 +75,35 @@ Codec__Focus :: struct {
 Codec :: struct {
 	type: typeid,
 	data: union {
+    // ps.text
 		Codec__Text,
+    // ps.space
 		Codec__Space,
+    // ps.raw
 		Codec__Raw,
+    // "foo" ps.app
 		Codec__Constant,
+    // 5 ps.tok
 		Codec__Token,
+    // -- The stack must contain the codec address
+    // def @delimited
+    //   ps.tix  -- save the current index
+    //   ps.tick -- save the current tick
+    //   ? al.copy ct.call -- call the starting codec
+    //   ps.last al.gt @delimited/end ct.jif
+    //   ? al.copy ct.call -- call the inner codec
+    //   ps.tick -- save the current tick
+    //   ? al.copy ct.call -- call the closer codec
+    //   ps.last al.gt @delimited/end ct.jit
+    //   "Missing closing delimiter %t" 2 al.copy 1 ps.err
+    // def @delimited/end
+    //   al.pop  -- pop the tix
+    //   al.pop al.pop al.pop al.pop -- pop the codec addresses
+    //   ct.jump -- return
+		Codec__Delimited,
+    // These two can be implemented in terms of "delimited"
 		Codec__At,
     Codec__Leaded,
-		Codec__Delimited,
 		Codec__Tracked,
 		Codec__Seq,
 		Codec__Sum,
@@ -100,7 +121,6 @@ Lens_Kit :: struct{
 
 	outer:     rawptr,
   inner:     rawptr,
-  document:  rawptr,
   user_data: rawptr,
 
   // Can be used to keep track of locations in the resulting markup.
@@ -178,6 +198,16 @@ codec__token :: proc(kit: ^Codec_Kit, kind: Token_Kind, box: any) -> ^Codec {
 
 	return codec
 }
+
+codec__tok_flag :: proc(kit: ^Codec_Kit, kind: Token_Kind) -> ^Codec {
+  return codec__tracked(
+    kit,
+    codec__token(kit, kind, true),
+    Token_Kind__Symbol[kind],
+    UNIQUE
+  )
+}
+
 
 codec__string :: proc(kit: ^Codec_Kit) -> ^Codec {
 	codec := codec__make(kit, string)
@@ -384,41 +414,6 @@ codec__spaced_exparr :: proc(
 	))
 }
 
-// Saves the structure inside an exparr field of the document type.
-codec__remote_push :: proc(
-  kit: ^Codec_Kit, field_name: string, document: typeid, inner: ^Codec,
-  FCE: uint = EXPARR__DEFAULT_FCE
-) -> ^Codec {
-  field := get_field_of_type(
-    document, Exparr__Repr, field_name
-  )
-
-  User_Data :: struct {
-    offset: uintptr,
-    fce:    uint,
-  }
-
-  data := User_Data { field.offset, FCE }
-
-  lens :: proc(kit: ^Lens_Kit) {
-    data := cast(^User_Data)kit.user_data
-		field := cast(^Exparr__Repr)mem__offset(kit.document, data.offset)
-    outer := cast(^rawptr)kit.outer
-    layout := reflect__layout(kit.inner_codec.type)
-
-    switch kit.mode {
-    case .Project: 
-      if outer^ == nil do outer^ = push(field, data.fce, layout)
-      mem.copy(kit.inner, outer^, int(layout.size))
-    case .Inject:
-      log.assert(outer^ != nil)
-      mem.copy(outer^, kit.inner, int(layout.size))
-    }
-  }
-
-	return codec__focus(kit, rawptr, inner, lens, data)
-}
-
 codec__seq :: proc(kit: ^Codec_Kit, codecs: ..^Codec) -> ^Codec {
   log.assert(len(codecs) > 0, "Codec sequences cannot be empty")
   ty := codecs[0].type
@@ -446,6 +441,113 @@ codec__sum :: proc(kit: ^Codec_Kit, codecs: ..^Codec) -> ^Codec {
 	for c, i in codecs do slice[i] = c^
 	codec.data = Codec__Sum(slice)
 	return codec
+}
+
+Codec__Field__Kind :: enum { Flag, Exparr, Once, Some, Maybe }
+
+Codec__Field :: struct {
+  name:  string,
+  at:    union { string, Token_Kind },
+  kind:  Codec__Field__Kind,
+  codec: ^Codec,
+}
+
+codec__struct :: proc(
+  kit: ^Codec_Kit, outer: typeid, fields: ..Codec__Field
+) -> ^Codec {
+  site__frame(kit.site)
+
+  // This is an ugly representation, but it's all done on the stack, so it's
+  // fine!
+  Field_Rep :: struct {
+    branches: [dynamic]^Codec,
+    kind:     Codec__Field__Kind,
+  }
+
+  field_map := make(map[string]Field_Rep, site__alloc(kit.site, .Stack))
+
+	for f, i in fields {
+    payload: ^Codec
+
+    if f.name not_in field_map {
+      field_map[f.name] = Field_Rep {
+        kind = f.kind,
+        branches = make(
+          [dynamic]^Codec,
+          site__alloc(kit.site, .Stack),
+        ),
+      }
+    } else {
+      log.assert(f.kind == field_map[f.name].kind)
+    }
+
+    codec: ^Codec
+    if f.kind == .Flag {
+      switch inner in f.at {
+      case string:
+        codec = codec__flag(kit, inner)
+      case Token_Kind:
+        codec = codec__tok_flag(kit, inner)
+      case:
+        log.panic("impossible")
+      }
+
+      codec = codec__field(kit, f.name, outer, codec)
+    } else {
+      codec = f.codec
+      if f.kind == .Exparr {
+        codec = codec__exparr(kit, codec)
+      }
+
+      codec = codec__field(kit, f.name, outer, codec)
+      switch inner in f.at {
+      case string:
+        codec = codec__at(kit, inner, codec)
+      case Token_Kind:
+        codec = codec__leaded(kit, inner, codec)
+      }
+    }
+
+    entry := &field_map[f.name]
+    append(&entry.branches, codec)
+  }
+
+	slice := make_slice([]Codec, len(field_map) + 1, kit.forever)
+
+  for i := 0; name, rep in field_map {
+    defer i += 1
+    codec: ^Codec
+    log.assert(len(rep.branches) > 0)
+    if len(rep.branches) == 1 {
+      codec = rep.branches[0]
+    } else {
+      slice := make_slice([]Codec, len(rep.branches), kit.forever)
+      for b, i in rep.branches {
+        slice[i] = rep.branches[i]^
+      }
+
+      codec = codec__make(kit, outer)
+      codec.data = Codec__Sum(slice)
+    }
+
+    #partial switch rep.kind {
+    case .Once:
+      codec = codec__tracked(kit, codec, name, ONCE)
+    case .Some:
+      codec = codec__tracked(kit, codec, name, REQUIRED)
+    case .Maybe:
+      codec = codec__tracked(kit, codec, name, UNIQUE)
+    }
+
+    slice[i] = codec^
+  }
+
+  // Eat spaces
+  slice[len(slice) - 1] = codec__forget(kit, outer, codec__space(kit, Unit{}))^
+
+	codec := codec__make(kit, outer)
+	codec.data = Codec__Sum(slice)
+  return codec__loop(kit, codec)
 }
 
 Codec__Variant :: struct {

@@ -468,7 +468,7 @@ site__collect :: proc(site: ^Site) {
           site.statistics.files_read += 1
           site.statistics.pages += 1
 
-          page: Page
+          page := page__make(site__alloc(site))
           path := site__ipath(site, Path__Absolute(info.fullpath))
           if parser__eval(site, site.page_codec, path, string(bytes), &page) {
             page.source_path = site__ipath(site, directory)

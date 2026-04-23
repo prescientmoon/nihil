@@ -42,5 +42,4 @@ pkgs.mkShell rec {
   ];
 
   LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath buildInputs;
-  ANIMA_MATH_ASSETS = all.anima-math-assets;
 }

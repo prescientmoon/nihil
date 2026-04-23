@@ -30,11 +30,11 @@ Page :: struct {
 
   tags:      Exparr(Tag),
   changelog: Exparr(Change),
-  headings:  Exparr(Heading), // The first heading is declared the title
-	links:     Exparr(Def__Link),
+  headings:  Exparr(^Heading), // The first heading is declared the title
+	links:     Exparr(^Def__Link),
 	icons:     Exparr(Def__Icon),
   feeds:     Exparr(Def__Feed),
-	footnotes: Exparr(Def__Footnote),
+	footnotes: Exparr(^Def__Footnote),
   styles:    Exparr(Def__Stylesheet),
   assets:    Exparr(Def__Asset),
   aliases:   Exparr(Path__Output), // Locations to redirect from
@@ -90,71 +90,29 @@ codec__page :: proc(k: ^Codec_Kit) -> ^Codec {
   bmarkup    := codec__block_markup(k)
   timestamp  := codec__timestamp(k)
   stylesheet := codec__stylesheet(k)
-  out_path   := codec__out_path(k)
 
-  feeds_payload   := codec__exparr(k, codec__at(k, "feed",       codec__feed(k)))
-  tags_payload    := codec__exparr(k, codec__at(k, "tag",        codec__tag(k)))
-  changes_payload := codec__exparr(k, codec__at(k, "change",     codec__change(k)))
-  aliases_payload := codec__exparr(k, codec__at(k, "alias",      out_path))
-  styles_payload  := codec__exparr(k, codec__at(k, "stylesheet", stylesheet))
-  assets_payload  := codec__exparr(k, codec__at(k, "asset",      codec__asset(k)))
-
-  feeds   := codec__field(k, "feeds",     Page, feeds_payload)
-  tags    := codec__field(k, "tags",      Page, tags_payload)
-  changes := codec__field(k, "changelog", Page, changes_payload)
-  aliases := codec__field(k, "aliases",   Page, aliases_payload)
-  styles  := codec__field(k, "styles",    Page, styles_payload)
-  assets  := codec__field(k, "assets",    Page, assets_payload)
-
-  helmets := codec__field(
-    k, "helmets", Page,
-    codec__exparr(k, codec__at(k, "helmet", codec__helmet(k)))
+  return codec__struct(
+    k, Page,
+    { "feeds",            "feed",             .Exparr, codec__feed(k)      },
+    { "tags",             "tag",              .Exparr, codec__tag(k)       },
+    { "changelog",        "change",           .Exparr, codec__change(k)    },
+    { "aliases",          "alias",            .Exparr, codec__out_path(k)  },
+    { "styles",           "stylesheet",       .Exparr, stylesheet         },
+    { "assets",           "asset",            .Exparr, codec__asset(k)     },
+    { "helmets",          "helmet",           .Exparr, codec__helmet(k)    },
+    { "icons",            "deficon",          .Exparr, codec__deficon(k)   },
+    { "public",           "public",           .Flag,   nil                },
+    { "compact",          "compact",          .Flag,   nil                },
+    { "smaller_headings", "smaller-headings", .Flag,   nil                },
+    { "content",          {},                 .Some,   bmarkup            },
+    { "title",            "title",            .Once,   imarkup            },
+    { "description",      "description",      .Maybe,  imarkup            },
+    { "filename",         "filename",         .Maybe,  ctext              },
+    { "priority",         "priority",         .Maybe,  ctext              },
+    { "changefreq",       "changefreq",       .Maybe,  ctext              },
+    { "created_at",       "created-at",       .Once,   timestamp          },
+    { "published_at",     "published-at",     .Maybe,  timestamp          },
   )
-
-  content     := codec__field(k, "content", Page, bmarkup, REQUIRED)
-  title       := codec__field_at(k, "title", Page, imarkup, ONCE)
-  description := codec__field_at(k, "description", Page, imarkup, UNIQUE)
-  filename    := codec__field_at(k, "filename", Page, ctext, UNIQUE)
-
-  created   := codec__at(
-    k, "created-at", codec__field(k, "created_at", Page, timestamp), ONCE
-  )
-
-  published := codec__at(
-    k, "published-at", codec__field(k, "published_at", Page, timestamp), UNIQUE
-  )
-
-  priority   := codec__field_at(k, "priority",   Page, ctext, UNIQUE)
-  changefreq := codec__field_at(k, "changefreq", Page, ctext, UNIQUE)
-
-  compact := codec__flag_at(k, "compact", Page)
-  public  := codec__flag_at(k, "public", Page)
-  smaller_headings := codec__field(
-    k, "smaller_headings", Page, codec__flag(k, "smaller-headings")
-  )
-
-  inner_loop := codec__sum(
-    k,
-    feeds, tags, aliases, styles, helmets, assets, public, title, description,
-    compact, smaller_headings, created, published, filename, changefreq,
-    priority, changes, content,
-  )
-
-  lens :: proc(kit: ^Lens_Kit) {
-    switch kit.mode {
-    case .Project:
-      if mem.check_zero_ptr(kit.outer, size_of(Page)) {
-        (cast(^Page)kit.outer)^ = page__make(kit.allocator)
-      }
-
-      kit.document = kit.inner
-      mem.copy(kit.inner, kit.outer, size_of(Page))
-    case .Inject:
-      mem.copy(kit.outer, kit.inner, size_of(Page))
-    }
-  }
-
-  return codec__focus(k, Page, codec__loop(k, inner_loop), lens)
 }
 // }}}
 // {{{ Formatting as html
@@ -298,15 +256,16 @@ page__check :: proc(site: ^Site, page: ^Page) {
   page.site_path = Path__Output(page.source_path)
   page.url = site__url(site, page.site_path)
 
+  block_markup__precheck(site, page, &page.content)
   inline_markup__check(site, page, &page.description)
   block_markup__check(site, page, &page.content)
 
   for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
-    block_markup__check(site, page, &footnote.content)
+    block_markup__check(site, page, &footnote^.content)
   }
 
   for iter := iter__mk(page.links); link in iter__next(&iter) {
-    inline_markup__check(site, page, &link.label)
+    inline_markup__check(site, page, &link^.label)
   }
 
   // Collect all the styles/feeds affecting the page
@@ -371,6 +330,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
 
   level: uint = 1 // the title is equivalent to a h1
   for iter := iter__mk(page.headings); heading in iter__next(&iter) {
+    heading := heading^
     inline_markup__check(site, page, &heading.content)
 
     if heading.level > level + 1 {
@@ -396,11 +356,11 @@ Change :: struct {
 }
 
 codec__change :: proc(k: ^Codec_Kit) -> ^Codec {
-  imarkup := codec__inline_markup(k)
-  at := codec__field_at(k, "at", Change, codec__timestamp(k), ONCE)
-  message := codec__field(k, "message", Change, imarkup, REQUIRED)
-
-  return codec__loop(k, codec__sum(k, at, message))
+  return codec__struct(
+    k, Change,
+    { "at",      "at", .Once, codec__timestamp(k)     },
+    { "message", {},   .Once, codec__inline_markup(k) },
+  )
 }
 // }}}
 // {{{ Page filtering
@@ -556,15 +516,13 @@ Def__Icon :: struct {
 
 @(private = "file")
 codec__deficon :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Def__Icon
-
-	id := codec__field(k, "id", Self, codec__contiguous_text(k), REQUIRED)
-	path := codec__field_at(k, "at", Self, codec__path(k), ONCE)
-	scope := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
-	favicon := codec__flag_at(k, "favicon", Self)
-
-  inner_loop := codec__loop(k, codec__sum(k, id, path, favicon, scope))
-	return codec__remote_push(k, "icons", Page, codec__loc(k, inner_loop))
+  return codec__struct(
+    k, Def__Icon,
+    { "id",      {},        .Once,  codec__contiguous_text(k)  },
+    { "at",      "at",      .Once,  codec__path(k)             },
+    { "scope",   "scope",   .Maybe, codec__page_filter__all(k)  },
+    { "favicon", "favicon", .Flag,  nil                       },
+  )
 }
 // }}}
 // {{{ Link definitions
@@ -578,16 +536,13 @@ Def__Link :: struct {
 
 @(private = "file")
 codec__deflink :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Def__Link
-  ctext := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
-
-	id     := codec__field(k, "id", Self, ctext, REQUIRED)
-  target := codec__field_at(k, "target", Self, codec__raw(k), ONCE)
-  label  := codec__field_at(k, "label", Self, imarkup, UNIQUE)
-  scope  := codec__field_at(k, "scope", Self, codec__page_filter__all(k), UNIQUE)
-  loop   := codec__loop(k, codec__sum(k, label, target, scope, id))
-	return codec__remote_push(k, "links", Page, codec__loc(k, loop))
+  return codec__struct(
+    k, Def__Link,
+    { "target", "target", .Once,  codec__raw(k)              },
+    { "label",  "label",  .Maybe, codec__inline_markup(k)    },
+    { "scope",  "scope",  .Maybe, codec__page_filter__all(k)  },
+    { "id",     {},       .Once,  codec__contiguous_text(k)  },
+  )
 }
 // }}}
 // {{{ Footnote definitions
@@ -600,13 +555,11 @@ Def__Footnote :: struct {
 
 @(private = "file")
 codec__defnote :: proc(k: ^Codec_Kit) -> ^Codec {
-  ctext := codec__contiguous_text(k)
-  bmarkup := codec__block_markup(k)
-
-	id      := codec__field_at(k, "id", Def__Footnote, ctext, ONCE)
-  content := codec__field(k, "content", Def__Footnote, bmarkup, REQUIRED)
-  loop    := codec__loop(k, codec__sum(k, content, id))
-	return codec__remote_push(k, "footnotes", Page, codec__loc(k, loop))
+  return codec__struct(
+    k, Def__Footnote,
+    { "id",      "id", .Once, codec__contiguous_text(k) },
+    { "content", {},   .Once, codec__block_markup(k)    },
+  )
 }
 // }}}
 // {{{ Feed definitions
@@ -625,22 +578,17 @@ Def__Feed :: struct {
 
 @(private = "file")
 codec__feed :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Def__Feed
-
-  text := codec__text(k)
   filter := codec__page_filter__all(k)
 
-	at := codec__field(k, "at", Self, codec__path(k), REQUIRED)
-	name := codec__field_at(k, "name", Self, text, REQUIRED)
-	desc := codec__field_at(k, "description", Self, text, REQUIRED)
-	under := codec__field_at(k, "under", Self, filter, ONCE, UNIQUE)
-	members := codec__field_at(k, "members", Self, filter, ONCE)
-
-  aliases_payload := codec__exparr(k, codec__at(k, "alias", codec__out_path(k)))
-  aliases := codec__field(k, "aliases", Self, aliases_payload)
-
-  all := codec__sum(k, at, under, members, aliases, name, desc)
-  return codec__loop(k, all)
+  return codec__struct(
+    k, Def__Feed,
+    { "at",          {},            .Once,   codec__path(k)     },
+    { "name",        "name",        .Once,   codec__text(k)     },
+    { "description", "description", .Once,   codec__text(k)     }, // TODO: imarkup
+    { "under",       "under",       .Once,   filter            },
+    { "members",     "members",     .Once,   filter            },
+    { "aliases",     "alias",       .Exparr, codec__out_path(k) },
+  )
 }
 // }}}
 // {{{ Stylesheet definitions
@@ -655,11 +603,12 @@ Def__Stylesheet :: struct {
 
 @(private = "file")
 codec__stylesheet :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Def__Stylesheet
-	scope := codec__field(k, "scope", Self, codec__page_filter__all(k))
-	path := codec__field_at(k, "at", Self, codec__path(k), ONCE)
-  preload := codec__flag_at(k, "preload", Self)
-  return codec__loop(k, codec__sum(k, scope, path, preload))
+  return codec__struct(
+    k, Def__Stylesheet,
+    { "scope",   {},        .Maybe, codec__page_filter__all(k) },
+    { "at",      "at",      .Once,  codec__path(k)            },
+    { "preload", "preload", .Flag,  nil                      },
+  )
 }
 // }}}
 // {{{ Assets
@@ -670,11 +619,11 @@ Def__Asset :: struct {
 
 @(private = "file")
 codec__asset :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Def__Asset
-  path := codec__path(k)
-	from := codec__field(k, "from", Self, path, ONCE)
-	to   := codec__field_at(k, "to", Self, path, UNIQUE)
-  return codec__loop(k, codec__sum(k, from, to))
+  return codec__struct(
+    k, Def__Asset,
+    { "from", {},   .Once,  codec__path(k) },
+    { "to",   "to", .Maybe, codec__path(k) },
+  )
 }
 // }}}
 // {{{ Helmets
@@ -687,11 +636,12 @@ Helmet :: struct {
 
 @(private = "file")
 codec__helmet :: proc(k: ^Codec_Kit) -> ^Codec {
-  Self :: Helmet
-	scope := codec__field(k, "scope", Self, codec__page_filter__all(k))
-  content := codec__field_at(k, "content", Self, codec__raw(k), ONCE)
-  format := codec__field_at(k, "format", Self, codec__contiguous_text(k), ONCE)
-  return codec__loop(k, codec__sum(k, content, format, scope))
+  return codec__struct(
+    k, Helmet,
+    { "content", "content", .Once,  codec__raw(k)             },
+    { "format",  "format",  .Once,  codec__contiguous_text(k) },
+    { "scope",   {},        .Maybe, codec__page_filter__all(k) },
+  )
 }
 // }}}
 // {{{ Headings
@@ -699,7 +649,7 @@ MAX_HEADING_LEVEL :: 4
 Heading :: struct {
   id:      string,
   content: Inline_Markup,
-  level:   uint,
+  level:   uint, // TODO: u8
   loc:     Source_Loc,
 }
 
@@ -720,14 +670,14 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
     }
   }
 
-  ctext := codec__contiguous_text(k)
-  imarkup := codec__inline_markup(k)
+  looped := codec__struct(
+    k, Heading,
+    { "content", nil, .Some, codec__inline_markup(k) },
+    { "id", "id", .Maybe, codec__contiguous_text(k) },
+  )
 
-	id := codec__field_at(k, "id", Heading, ctext, UNIQUE)
-  content := codec__field(k, "content", Heading, imarkup, REQUIRED)
-  looped := codec__loop(k, codec__sum(k, content, id))
   with_level := codec__focus(k, Heading, looped, lens, level)
-	return codec__remote_push(k, "headings", Page, codec__loc(k, with_level))
+	return codec__loc(k, with_level)
 }
 // }}}
 // {{{ Tables
@@ -747,33 +697,22 @@ Table :: struct {
 
 @(private = "file")
 codec__table :: proc(k: ^Codec_Kit) -> ^Codec {
-  imarkup := codec__inline_markup(k)
-	cell_payload := codec__field(k, "content", Table__Cell, imarkup)
-	cell := codec__at(k, "cell", cell_payload)
-	row := codec__field(k, "cells", Table__Row, codec__spaced_exparr(k, cell))
+	cell := codec__struct(
+    k, Table__Cell,
+    { "content", nil, .Maybe, codec__inline_markup(k) }
+  )
 
-	caption := codec__field(k, "caption", Table, imarkup)
-	header := codec__field_at(k, "header", Table, row, ONCE)
+  row := codec__struct(
+    k, Table__Row,
+    { "cells", "cell", .Exparr, cell }
+  )
 
-  rows_payload := codec__exparr(k, codec__at(k, "row", row))
-	rows := codec__field(k, "rows", Table, rows_payload)
-
-	return codec__loop(k, codec__sum(k, caption, header, rows))
-}
-
-table__check :: proc(site: ^Site, page: ^Page, table: ^Table) {
-  inline_markup__check(site, page, &table.caption)
-  table__row__check(site, page, &table.header)
-  for iter := iter__mk(table.rows); row in iter__next(&iter) {
-    table__row__check(site, page, row)
-  }
-}
-
-table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
-  for iter := iter__mk(row.cells); cell in iter__next(&iter) {
-    mem__non_zero(cell.content.elements) or_continue
-    inline_markup__check(site, page, &cell.content)
-  }
+  return codec__struct(
+    k, Table,
+    { "caption", nil,      .Maybe,  codec__inline_markup(k)  },
+    { "header",  "header", .Once,   row                     },
+    { "rows",    "row",    .Exparr, row                     },
+  )
 }
 // }}}
 // {{{ Timestamps
@@ -944,13 +883,11 @@ Article_List :: struct {
 
 @(private = "file")
 codec__article_list :: proc(k: ^Codec_Kit) -> ^Codec {
-  filter__all := codec__page_filter__all(k)
-  u8 := codec__integer(k, u8)
-
-	filter := codec__field(k, "filter", Article_List, filter__all)
-  heading := codec__field_at(k, "heading", Article_List, u8, UNIQUE)
-  looped := codec__loop(k, codec__sum(k, filter, heading))
-	return codec__loc(k, looped)
+	return codec__loc(k, codec__struct(
+    k, Article_List,
+    { "filter",  nil,       .Maybe, codec__page_filter__all(k) },
+    { "heading", "heading", .Maybe, codec__integer(k, u8)     },
+  ))
 }
 // }}}
 // {{{ Tags
@@ -1035,18 +972,6 @@ Inline_Markup__Atom :: union {
 // }}}
 // {{{ Codecs
 @(private = "file")
-codec__inline_markup__timestamp :: proc(
-  k: ^Codec_Kit
-) -> ^Codec {
-  Self :: Inline_Markup__Timestamp
-
-  time := codec__field(k, "time", Self, codec__timestamp(k), ONCE)
-  compact := codec__flag_at(k, "compact", Self)
-
-  return codec__loop(k, codec__sum(k, time, compact))
-}
-
-@(private = "file")
 codec__inline_markup__atom :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
@@ -1099,7 +1024,12 @@ codec__inline_markup__atom :: proc(
   link__sugar := codec__ref(k, codec__at(k, "link", link_payload))
   link__basic := codec__ref(k, codec__delim(k, .LSquare, .RSquare, link_payload))
 
-  timestamp := codec__inline_markup__timestamp(k)
+  timestamp :=  codec__struct(
+    k, Inline_Markup__Timestamp,
+    { "time",    nil,       .Once, codec__timestamp(k) },
+    { "compact", "compact", .Flag,  nil               },
+  )
+
   date := codec__trans_at(k, "date", Inline_Markup__Date, timestamp)
   datetime := codec__trans_at(k, "datetime", Inline_Markup__Datetime, timestamp)
 
@@ -1432,6 +1362,7 @@ inline_markup__atom__check :: proc(
 
     for iter := iter__mk(site.pages); defsite in iter__next(&iter) {
       for iter := iter__mk(defsite.links); link in iter__next(&iter) {
+        link := link^
         (link.id == inner.id) or_continue
         page_filter__scope__eval(defsite^, page^, link.scope) or_continue
         push(&options, link.loc)
@@ -1451,9 +1382,9 @@ inline_markup__atom__check :: proc(
     options := Exparr(Source_Loc) { allocator = site__alloc(site, .Stack) }
 
     for iter := iter__mk(page.footnotes); footnote in iter__next(&iter) {
-      (footnote.id == inner.id) or_continue
-      push(&options, footnote.loc)
-      inner.def = footnote
+      (footnote^.id == inner.id) or_continue
+      push(&options, footnote^.loc)
+      inner.def = footnote^
     }
 
     if inner.def == nil {
@@ -1551,12 +1482,9 @@ Block_Markup__Atom :: union {
   Block_Markup__Section,
   Article_List,
 	Table,
-
-  // References to data saved in the parent Page structure
-  ^Def__Link,
-  ^Def__Footnote,
-  ^Def__Icon,
-  ^Heading,
+  Def__Link,
+  Def__Footnote,
+  Heading,
 }
 
 Block_Markup :: struct {
@@ -1568,11 +1496,12 @@ Block_Markup :: struct {
 codec__block_markup__image :: proc(
   k: ^Codec_Kit
 ) -> ^Codec {
-  ctext := codec__contiguous_text(k)
-	imarkup := codec__inline_markup(k)
-	source_ref := codec__field_at(k, "source", Block_Markup__Image, ctext, ONCE)
-	alt_ref := codec__field(k, "alt", Block_Markup__Image, imarkup, ONCE)
-	return codec__loop(k, codec__sum(k, source_ref, alt_ref))
+  return codec__struct(
+    k, Block_Markup__Image,
+    { "alt",    .Bar,  .Maybe, codec__inline_markup(k) },
+    { "alt",    "alt", .Maybe, codec__inline_markup(k) },
+    { "source", {},    .Once,  codec__contiguous_text(k) },
+  )
 }
 
 @(private = "file")
@@ -1696,7 +1625,6 @@ codec__block_markup__atom :: proc(
 	table := codec__at(k, "table", codec__table(k))
 	deflink := codec__at(k, "deflink", codec__deflink(k))
 	defnote := codec__at(k, "defnote", codec__defnote(k))
-  deficon := codec__at(k, "deficon", codec__deficon(k))
 	aside := codec__at(k, "aside", codec__block_markup__aside(k))
   article_list := codec__at(k, "index", codec__article_list(k))
   list := codec__at(k, "list", codec__block_markup__list(k))
@@ -1723,19 +1651,18 @@ codec__block_markup__atom :: proc(
     { Block_Markup__Image,             image             },
     { Block_Markup__Figure,            figure            },
     { Table,                          table             },
-    { ^Heading,                       h2__sugar          },
-    { ^Heading,                       h3__sugar          },
-    { ^Heading,                       h4__sugar          },
-    { ^Heading,                       h2__basic          },
-    { ^Heading,                       h3__basic          },
-    { ^Heading,                       h4__basic          },
+    { Heading,                        h2__sugar          },
+    { Heading,                        h3__sugar          },
+    { Heading,                        h4__sugar          },
+    { Heading,                        h2__basic          },
+    { Heading,                        h3__basic          },
+    { Heading,                        h4__basic          },
     { Article_List,                   article_list      },
     { Block_Markup__List,              list              },
     { Block_Markup__Code,              code              },
     { Block_Markup__Aside,             aside             },
-    { ^Def__Link,                      deflink           },
-    { ^Def__Footnote,                  defnote           },
-    { ^Def__Icon,                      deficon           },
+    { Def__Link,                       deflink           },
+    { Def__Footnote,                   defnote           },
     { Block_Markup__Paragraph,         para              },
 	)
 }
@@ -1789,13 +1716,10 @@ block_markup__atom__html :: proc(
   g: ^Xml_Gen, page: Page, atom: Block_Markup__Atom
 ) {
   switch inner in atom {
-  case nil:
-  case ^Def__Link:
-  case ^Def__Footnote:
-  case ^Def__Icon:
+  case nil, Def__Link, Def__Footnote:
   case Block_Markup__Thematic_Break:
     xml__tag(g, "hr", single = true)
-  case ^Heading:
+  case Heading:
     log.panic("Cannot render section-less heading as HTML")
   case Block_Markup__Description:
     xml__tag(g, "p")
@@ -1818,6 +1742,7 @@ block_markup__atom__html :: proc(
     // starts out as being true.
     last_has_children := true
     for iter := iter__mk(page.headings); heading in iter__next(&iter) {
+      heading := heading^
       #reverse for last in stack {
         (last >= heading.level) or_break
         pop(&stack)
@@ -1956,6 +1881,43 @@ block_markup__html :: proc(
   }
 }
 // }}}
+// {{{ Pre-checking
+@(private="file")
+block_markup__precheck :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
+  if bm == nil do return
+  for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
+    block_markup__atom__precheck(site, page, atom)
+  }
+}
+
+@(private="file")
+block_markup__atom__precheck :: proc(
+  site: ^Site, page: ^Page, atom: ^Block_Markup__Atom
+) {
+  switch &inner in atom {
+  case Def__Footnote: push(&page.footnotes, &inner)
+  case Def__Link:     push(&page.links,     &inner)
+  case Heading:      push(&page.headings,  &inner)
+  case nil, Block_Markup__Code, Block_Markup__Description,
+       Block_Markup__Table_Of_Contents, Block_Markup__Thematic_Break, Table,
+       Article_List, Block_Markup__Paragraph, Block_Markup__Image:
+  case Block_Markup__Section:
+    block_markup__precheck(site, page, &inner.content)
+  case Block_Markup__Figure:
+    block_markup__precheck(site, page, &inner.content)
+  case Block_Markup__Aside:
+    block_markup__precheck(site, page, &inner.content)
+  case Block_Markup__Blockquote:
+    block_markup__precheck(site, page, cast(^Block_Markup)&inner)
+  case Block_Markup__List:
+    if inner.block {
+      for iter := iter__mk(inner.bmarkup); elem in iter__next(&iter) {
+    		block_markup__precheck(site, page, elem)
+    	}
+    }
+  }
+}
+// }}}
 // {{{ Checking
 @(private="file")
 block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
@@ -1969,10 +1931,11 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
   // the body contains no headings.
   has_headings: bool
   for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
-    heading := atom.(^Heading) or_continue
+    heading := atom.(Heading) or_continue
     has_headings = true
     break
   }
+
   if !has_headings do return
 
   sectioned: Block_Markup // The root section we write to
@@ -1980,7 +1943,7 @@ block_markup__check :: proc(site: ^Site, page: ^Page, bm: ^Block_Markup) {
 
   stack: [dynamic; MAX_HEADING_LEVEL]^Block_Markup__Section
   for iter := iter__mk(bm.elements); atom in iter__next(&iter) {
-    if heading, ok := atom.(^Heading); ok {
+    if heading, ok := &atom.(Heading); ok {
       #reverse for last in stack {
         (last.heading.level >= heading.level) or_break
         pop(&stack)
@@ -2019,15 +1982,9 @@ block_markup__atom__check :: proc(
   site: ^Site, page: ^Page, atom: ^Block_Markup__Atom
 ) {
   switch &inner in atom {
-  case nil:
-  case Block_Markup__Code:
-  case Block_Markup__Description:
-  case Block_Markup__Table_Of_Contents:
-  case Block_Markup__Thematic_Break:
-  case ^Def__Link:
-  case ^Def__Footnote:
-  case ^Def__Icon:
-  case ^Heading:
+  case nil, Block_Markup__Code, Block_Markup__Description,
+       Block_Markup__Table_Of_Contents, Block_Markup__Thematic_Break,
+       Def__Link, Def__Footnote, Heading:
   case Block_Markup__Section:
     block_markup__check(site, page, &inner.content)
   case Block_Markup__Paragraph:
@@ -2053,7 +2010,18 @@ block_markup__atom__check :: proc(
   case Block_Markup__Blockquote:
     block_markup__check(site, page, cast(^Block_Markup)&inner)
   case Table:
-    table__check(site, page, &inner)
+    table__row__check :: proc(site: ^Site, page: ^Page, row: ^Table__Row) {
+      for iter := iter__mk(row.cells); cell in iter__next(&iter) {
+        mem__non_zero(cell.content.elements) or_continue
+        inline_markup__check(site, page, &cell.content)
+      }
+    }
+
+    inline_markup__check(site, page, &inner.caption)
+    table__row__check(site, page, &inner.header)
+    for iter := iter__mk(inner.rows); row in iter__next(&iter) {
+      table__row__check(site, page, row)
+    }
   case Article_List:
     // NOTE: should we error out if no articles get caught by the filter?
     if inner.heading > MAX_HEADING_LEVEL {

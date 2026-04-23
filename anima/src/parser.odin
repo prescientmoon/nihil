@@ -351,7 +351,6 @@ Parser :: struct {
 	in_paragraph: bool,
   can_import:   bool, // When false, a higher import point already exists
   scratch:      bool, // Are we (possibly deep) inside a scratch focus codec?
-	document:     rawptr, // Top-level context any function can access
 
   // Data about the surrounding apparition
   indentation:              uint,
@@ -832,7 +831,6 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       outer_codec     = instance.codec,
       inner_codec     = inner.inner,
       user_data       = inner.user_data,
-      document        = instance.document,
       mode            = .Project,
       allocator       = inner_alloc,
       temp_allocator  = temp_alloc,
@@ -848,7 +846,6 @@ codec__eval_instance :: proc(instance: Parser) -> (consumed: bool) {
       inner_instance := instance
       inner_instance.codec = inner.inner
       inner_instance.output = inner_output
-      inner_instance.document = kit.document
       inner_instance.scratch ||= inner.scratch
 
       consumed = codec__eval_instance(inner_instance)
