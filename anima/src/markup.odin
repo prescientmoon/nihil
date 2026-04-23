@@ -329,7 +329,7 @@ page__check :: proc(site: ^Site, page: ^Page) {
     }
   }
 
-  level: uint = 1 // the title is equivalent to a h1
+  level: u8 = 1 // the title is equivalent to a h1
   for iter := iter__mk(page.headings); heading in iter__next(&iter) {
     heading := heading^
     inline_markup__check(site, page, &heading.content)
@@ -653,8 +653,8 @@ MAX_HEADING_LEVEL :: 4
 Heading :: struct {
   id:      string,
   content: Inline_Markup,
-  level:   uint, // TODO: u8
   loc:     Source_Loc,
+  level:   u8,
 }
 
 @(private = "file")
@@ -668,7 +668,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
     case .Project: inner^ = outer^
     case .Inject:
       outer^ = inner^
-      outer.level = mem.reinterpret_copy(uint, kit.user_data)
+      outer.level = mem.reinterpret_copy(u8, kit.user_data)
       log.assert(0 < outer.level)
       log.assert(outer.level <= MAX_HEADING_LEVEL)
     }
@@ -680,7 +680,7 @@ codec__heading :: proc(k: ^Codec_Kit, level: uint) -> ^Codec {
     { "id", "id", .Maybe, codec__contiguous_text(k) },
   )
 
-  with_level := codec__focus(k, Heading, looped, lens, level)
+  with_level := codec__focus(k, Heading, looped, lens, u8(level))
 	return codec__loc(k, with_level)
 }
 // }}}
@@ -1741,7 +1741,7 @@ block_markup__atom__html :: proc(
     }
 
     xml__tag(g, "ol")
-    stack: [dynamic; MAX_HEADING_LEVEL]uint
+    stack: [dynamic; MAX_HEADING_LEVEL]u8
     // Whether we've created an <ol> element for the top of the stack. Since an
     // empty stack is contained in the <ol> we've just created above, this
     // starts out as being true.
