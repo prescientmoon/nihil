@@ -6,7 +6,7 @@ pub struct OdinStringView<'a> {
 	pub len: usize,
 	// I want this to work with stable Rust, therefore I cannot use
 	// #![feature(phantom_variance_markers)]
-	pub _marker: std::marker::PhantomData<&'a str>,
+	_marker: std::marker::PhantomData<&'a str>,
 }
 
 #[repr(C)]
@@ -16,7 +16,7 @@ pub struct OdinStringViewMut<'a> {
 	pub len: usize,
 	// I want this to work with stable Rust, therefore I cannot use
 	// #![feature(phantom_variance_markers)]
-	pub _marker: std::marker::PhantomData<&'a mut str>,
+	_marker: std::marker::PhantomData<&'a mut str>,
 }
 
 pub fn from_odin_string<'a>(view: OdinStringView<'a>) -> &'a str {

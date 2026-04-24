@@ -102,16 +102,22 @@ for this page]). You can similarly access the changelog  any page by appending
 \deflink source \target{/index.dj} \label Home Page Source
 \deflink changelog \target{/changelog} \label Home Page Chagelog
 
-\code odin \content!
-  foreign import rust_utils "system:libanima_rust_utils.a"
+\blist
+  * This is a list!
+  * It can even contain code blocks!
 
-  @(default_calling_convention="c")
-  foreign rust_utils {
-    @(private="file")
-    @(link_name="render_math")
-    rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
+    \code odin \content!
+      foreign import rust_utils "system:libanima_rust_utils.a"
 
-    @(private="file")
-    @(link_name="image_dimensions")
-    image_dimensions :: proc(path: string) -> Image_Dimensions ---
-  }
+      @(default_calling_convention="c")
+      foreign rust_utils {
+        @(private="file")
+        @(link_name="render_math")
+        rust__render_math :: proc(args: Render_Math_Input) -> Render_Math_Output ---
+
+        @(private="file")
+        @(link_name="image_dimensions")
+        image_dimensions :: proc(path: string) -> Image_Dimensions ---
+      }
+
+  * Whoa :3

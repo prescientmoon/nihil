@@ -49,7 +49,7 @@
 body {
   max-width: 1000px;
   margin: auto;
-  padding: 2rem 2rem;
+  padding: 1rem 2rem;
 
   font:
     16pt/1.6 "Computer Modern",
@@ -71,8 +71,9 @@ pre {
 pre > code {
   display: block;
   padding: 1rem;
-  overflow-x: scroll;
+  overflow-x: auto;
   text-align: left; /* Otherwise there's issues with code blocks inside figures */
+  font-size: 0.9em;
 }
 
 code {
@@ -81,16 +82,31 @@ code {
 }
 
 @media only screen and (max-width: 1000px) {
-  pre {
-    margin-left: calc(-1 * var(--padding-left));
-    margin-right: calc(-1 * var(--padding-right));
+  section > pre,
+  article > pre,
+  section > figure > pre,
+  article > figure > pre,
+  section > ul > li > pre,
+  article > ul > li > pre,
+  section > ol > li > pre,
+  article > ol > li > pre {
+    --offset-left: calc(
+      var(--padding-left, 0rem) + var(--padding-list-left, 0rem) +
+        var(--padding-li-left, 0rem) + var(--padding-figure, 0rem)
+    );
+    --offset-right: calc(
+      var(--padding-right, 0rem) + var(--padding-figure, 0rem)
+    );
+
+    margin-left: calc(-1 * var(--offset-left));
+    margin-right: calc(-1 * var(--offset-right));
     border-left: none;
     border-right: none;
-  }
 
-  pre > code {
-    padding-left: var(--padding-left);
-    padding-right: var(--padding-right);
+    & > code {
+      padding-left: var(--offset-left);
+      padding-right: var(--offset-right);
+    }
   }
 }
 /* }}} */
@@ -122,19 +138,27 @@ blockquote {
 /* {{{ Lists */
 ol {
   padding-left: 1.5rem;
-  --padding-left: calc(1.5rem + var(--padding-left));
+  --padding-list-left: 1.5rem;
 }
 
 ul {
   padding-left: 1rem;
-  --padding-left: calc(1rem + var(--padding-left));
+  --padding-list-left: 1rem;
 
   li {
     list-style-type: "⬦";
     list-style-position: outside;
 
     padding-left: 0.5rem;
-    --padding-left: calc(0.5rem + var(--padding-left));
+    --padding-li-left: 0.5rem;
+
+    & > p:first-child {
+      margin-top: 0;
+    }
+
+    & > p:last-child {
+      margin-bottom: 0;
+    }
   }
 }
 /* }}} */
@@ -192,6 +216,7 @@ math[display="block"] {
 figure {
   text-align: center;
   margin: 2rem;
+  --padding-figure: 2rem;
 }
 
 figure img {
