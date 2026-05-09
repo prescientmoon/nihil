@@ -363,3 +363,48 @@ formatters__init :: proc(allocator: mem.Allocator) {
 	)
 	// }}}
 }
+
+// {{{ Rfc2822
+Rfc2822 :: distinct time.Time // https://www.rfc-editor.org/rfc/rfc2822.html
+
+@formatter
+rfc2822__fmt :: proc(fi: ^fmt.Info, data: Rfc2822) {
+  hour, min, sec := time.clock_from_time(ts)
+
+  fmt.wprintf(
+    fi.writer,
+    "%v, %02i %v %04i %02i:%02i:%02i +0000",
+    SHORT_WEEKDAY_NAMES[time.weekday(ts)],
+    time.day(ts),
+    SHORT_MONTH_NAMES[time.month(ts)],
+    time.year(ts),
+    hour,
+    min,
+    sec,
+  )
+}
+
+fmt.register_user_formatter(
+  Rfc2822,
+  proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    ts := (cast(^time.Time)arg.data)^
+    (verb == 'v') or_return
+
+    hour, min, sec := time.clock_from_time(ts)
+
+    fmt.wprintf(
+      fi.writer,
+      "%v, %02i %v %04i %02i:%02i:%02i +0000",
+      SHORT_WEEKDAY_NAMES[time.weekday(ts)],
+      time.day(ts),
+      SHORT_MONTH_NAMES[time.month(ts)],
+      time.year(ts),
+      hour,
+      min,
+      sec,
+    )
+
+    return true
+  },
+)
+// }}}
