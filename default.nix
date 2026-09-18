@@ -7,7 +7,7 @@ in
 pkgs.lib.fix (self: {
   inherit (import ./anima-rust-utils { inherit pkgs; }) anima-rust-utils;
 
-  nihil-rust-utils = pkgs.callPackage ./nihil-math-renderer { };
+  nihil-math-renderer = pkgs.callPackage ./nihil-math-renderer { };
   nihil-math-assets = pkgs.callPackage ./nihil-math-renderer/assets.nix { };
   nihil-highlighter = pkgs.callPackage ./nihil-highlighter { };
   nihil = pkgs.callPackage ./nihil {
